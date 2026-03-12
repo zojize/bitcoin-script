@@ -6,7 +6,11 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "python-bitcoinlib>=0.12.2",
+    "typer>=0.24.1",
 ]
+
+[project.scripts]
+bitcoin-script = "bitcoin_script.cli:app"
 
 [project.optional-dependencies]
 k = ["kframework"]

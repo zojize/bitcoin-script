@@ -2,41 +2,55 @@
 
 from __future__ import annotations
 
-import argparse
+from typing import Annotated, Optional
+
+import typer
+
+app = typer.Typer(
+    name="bitcoin-script",
+    help="Bitcoin Script interpreter with K Framework integration.",
+)
 
 
-def create_parser() -> argparse.ArgumentParser:
-    """Create the argument parser with subcommands.
-
-    Subcommands:
-        execute  - Execute a script from hex or ASM
-        verify   - Verify a transaction input's scripts
-        parse    - Parse and display a raw transaction or block
-        validate - Validate blockchain from local block files
-    """
-    ...
-
-
-def cmd_execute(args: argparse.Namespace) -> None:
+@app.command()
+def execute(
+    script: Annotated[str, typer.Argument(help="Script in hex or ASM format.")],
+    hex: Annotated[
+        bool, typer.Option("--hex", help="Treat input as raw hex.")
+    ] = False,
+) -> None:
     """Execute a Bitcoin script and display the result."""
     ...
 
 
-def cmd_verify(args: argparse.Namespace) -> None:
+@app.command()
+def verify(
+    txid: Annotated[str, typer.Argument(help="Transaction ID to verify.")],
+    input_index: Annotated[
+        int, typer.Option("--input", "-i", help="Input index to verify.")
+    ] = 0,
+) -> None:
     """Verify a transaction input against its referenced output."""
     ...
 
 
-def cmd_parse(args: argparse.Namespace) -> None:
+@app.command()
+def parse(
+    raw: Annotated[str, typer.Argument(help="Raw transaction or block hex.")],
+    block: Annotated[
+        bool, typer.Option("--block", "-b", help="Parse as a block instead of a transaction.")
+    ] = False,
+) -> None:
     """Parse and display a raw transaction or block."""
     ...
 
 
-def cmd_validate(args: argparse.Namespace) -> None:
+@app.command()
+def validate(
+    path: Annotated[
+        Optional[str],
+        typer.Argument(help="Path to local block files directory."),
+    ] = None,
+) -> None:
     """Validate the blockchain from local block files."""
-    ...
-
-
-def main() -> None:
-    """CLI entry point."""
     ...
