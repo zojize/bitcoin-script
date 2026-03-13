@@ -25,6 +25,10 @@ packages = ["src/bitcoin_script"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+addopts = "-m 'not rpc'"
+markers = [
+    "rpc: tests that require a running Bitcoin Core RPC node",
+]
 
 [tool.mypy]
 python_version = "3.13"
@@ -41,5 +45,5 @@ dev = [
     "mypy>=1.19.1",
     "pytest>=9.0.2",
     "pytest-cov>=7.0.0",
-    "ruff>=0.15.5",
+    "ruff>=0.15.6",
 ]
