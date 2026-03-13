@@ -1,6 +1,5 @@
 """Tests for block and transaction validation."""
 
-from bitcoin_script.blockchain.validation import calculate_block_subsidy, validate_block, validate_transaction
 
 
 class TestBlockSubsidy:

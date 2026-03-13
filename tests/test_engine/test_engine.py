@@ -1,6 +1,5 @@
 """Tests for the ScriptEngine."""
 
-from bitcoin_script.engine.engine import ScriptEngine
 
 
 class TestScriptEngine:

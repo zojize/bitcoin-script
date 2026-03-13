@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from bitcoin_script.model.transaction import OutPoint, TxOut
+from bitcoin.core import COutPoint, CTxOut
 
 
 class UTXOSet:
@@ -12,13 +12,13 @@ class UTXOSet:
     by adding new outputs and removing spent ones.
     """
 
-    _utxos: dict[OutPoint, TxOut]
+    _utxos: dict[COutPoint, CTxOut]
 
     def __init__(self) -> None:
         """Initialize an empty UTXO set."""
         ...
 
-    def add(self, outpoint: OutPoint, txout: TxOut) -> None:
+    def add(self, outpoint: COutPoint, txout: CTxOut) -> None:
         """Add a new unspent output.
 
         Args:
@@ -27,32 +27,32 @@ class UTXOSet:
         """
         ...
 
-    def spend(self, outpoint: OutPoint) -> TxOut:
+    def spend(self, outpoint: COutPoint) -> CTxOut:
         """Mark an output as spent and return it.
 
         Args:
             outpoint: The outpoint to spend.
 
         Returns:
-            The spent TxOut.
+            The spent CTxOut.
 
         Raises:
             KeyError: If the outpoint is not in the UTXO set.
         """
         ...
 
-    def get(self, outpoint: OutPoint) -> TxOut | None:
+    def get(self, outpoint: COutPoint) -> CTxOut | None:
         """Look up an unspent output.
 
         Args:
             outpoint: The outpoint to look up.
 
         Returns:
-            The TxOut if found, None otherwise.
+            The CTxOut if found, None otherwise.
         """
         ...
 
-    def contains(self, outpoint: OutPoint) -> bool:
+    def contains(self, outpoint: COutPoint) -> bool:
         """Check if an outpoint exists in the UTXO set."""
         ...
 

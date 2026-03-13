@@ -1,6 +1,5 @@
 """End-to-end script execution tests."""
 
-from bitcoin_script.engine.engine import ScriptEngine
 
 
 class TestP2PKHExecution:

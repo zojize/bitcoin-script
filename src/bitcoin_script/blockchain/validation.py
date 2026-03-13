@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 from bitcoin_script.blockchain.utxo import UTXOSet
-from bitcoin_script.model.block import Block
-from bitcoin_script.model.transaction import Transaction
+from bitcoin.core import CBlock, CTransaction
 
 
-def validate_block(block: Block, prev_block_hash: bytes, height: int) -> bool:
+def validate_block(block: CBlock, prev_block_hash: bytes, height: int) -> bool:
     """Validate a block against consensus rules.
 
     Checks:
@@ -29,7 +28,7 @@ def validate_block(block: Block, prev_block_hash: bytes, height: int) -> bool:
 
 
 def validate_transaction(
-    tx: Transaction,
+    tx: CTransaction,
     utxo_set: UTXOSet,
     block_height: int,
     is_coinbase: bool = False,

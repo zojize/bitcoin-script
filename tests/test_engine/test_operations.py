@@ -2,17 +2,6 @@
 
 import pytest
 
-from bitcoin_script.engine.operations import (
-    op_add,
-    op_drop,
-    op_dup,
-    op_equal,
-    op_equalverify,
-    op_hash160,
-    op_sub,
-    op_swap,
-)
-from bitcoin_script.engine.stack import ScriptStack
 
 
 class TestStackOps:

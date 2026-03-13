@@ -4,17 +4,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Callable
 
-from bitcoin_script.opcodes.opcode import Opcode
-
 if TYPE_CHECKING:
+    from bitcoin.core import CTransaction
+
     from bitcoin_script.engine.stack import ScriptStack
-    from bitcoin_script.model.transaction import Transaction
 
 # Type alias for simple opcode handlers (stack-only)
 OpcodeHandler = Callable[["ScriptStack"], None]
 
 
-def get_handler(opcode: Opcode) -> OpcodeHandler:
+def get_handler(opcode: int) -> OpcodeHandler:
     """Return the handler function for the given opcode.
 
     Raises:
@@ -276,7 +275,7 @@ def op_hash256(stack: ScriptStack) -> None:
 
 def op_checksig(
     stack: ScriptStack,
-    tx: Transaction,
+    tx: CTransaction,
     input_index: int,
     input_value: int,
     script_code: bytes,
@@ -291,7 +290,7 @@ def op_checksig(
 
 def op_checksigverify(
     stack: ScriptStack,
-    tx: Transaction,
+    tx: CTransaction,
     input_index: int,
     input_value: int,
     script_code: bytes,
@@ -302,7 +301,7 @@ def op_checksigverify(
 
 def op_checkmultisig(
     stack: ScriptStack,
-    tx: Transaction,
+    tx: CTransaction,
     input_index: int,
     input_value: int,
     script_code: bytes,
@@ -317,7 +316,7 @@ def op_checkmultisig(
 
 def op_checkmultisigverify(
     stack: ScriptStack,
-    tx: Transaction,
+    tx: CTransaction,
     input_index: int,
     input_value: int,
     script_code: bytes,

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from bitcoin.core import CTransaction
+from bitcoin.core.script import CScript
+
 from bitcoin_script.engine.flags import ScriptVerifyFlag
 from bitcoin_script.engine.stack import ScriptStack
-from bitcoin_script.model.script import Script
-from bitcoin_script.model.transaction import Transaction
 
 
 class ScriptEngine:
@@ -17,7 +18,7 @@ class ScriptEngine:
 
     _stack: ScriptStack
     _flags: ScriptVerifyFlag
-    _tx: Transaction | None
+    _tx: CTransaction | None
     _input_index: int
     _input_value: int
 
@@ -34,9 +35,9 @@ class ScriptEngine:
 
     def verify(
         self,
-        script_sig: Script,
-        script_pubkey: Script,
-        tx: Transaction | None = None,
+        script_sig: CScript,
+        script_pubkey: CScript,
+        tx: CTransaction | None = None,
         input_index: int = 0,
         input_value: int = 0,
     ) -> bool:
@@ -57,7 +58,7 @@ class ScriptEngine:
         """
         ...
 
-    def execute(self, script: Script) -> bool:
+    def execute(self, script: CScript) -> bool:
         """Execute a single script on the current stack.
 
         Processes each opcode sequentially, managing the condition stack

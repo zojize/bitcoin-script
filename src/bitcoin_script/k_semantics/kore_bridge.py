@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 from bitcoin_script.engine.stack import ScriptStack
-from bitcoin_script.model.script import Script
+from bitcoin.core.script import CScript
 
 
 class KoreBridge:
@@ -29,7 +29,7 @@ class KoreBridge:
         """
         ...
 
-    def script_to_kore(self, script: Script) -> Any:
+    def script_to_kore(self, script: CScript) -> Any:
         """Convert a Script to a K term representation.
 
         Args:
