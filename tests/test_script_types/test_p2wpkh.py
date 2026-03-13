@@ -1,6 +1,5 @@
 """Tests for P2WPKH script handling."""
 
-from bitcoin_script.script_types.p2wpkh import create_script_pubkey, extract_pubkey_hash, witness_to_script_code
 
 
 class TestP2WPKH:

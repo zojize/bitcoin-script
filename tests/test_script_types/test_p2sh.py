@@ -1,6 +1,5 @@
 """Tests for P2SH script handling."""
 
-from bitcoin_script.script_types.p2sh import create_script_pubkey, deserialize_redeem_script, extract_script_hash
 
 
 class TestP2SH:

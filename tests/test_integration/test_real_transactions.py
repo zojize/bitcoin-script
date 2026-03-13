@@ -1,6 +1,5 @@
 """Tests against known real Bitcoin mainnet transactions."""
 
-from bitcoin_script.engine.engine import ScriptEngine
 
 
 class TestMainnetTransactions:

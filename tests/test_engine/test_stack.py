@@ -1,8 +1,6 @@
 """Tests for ScriptStack."""
 
-import pytest
 
-from bitcoin_script.engine.stack import ScriptStack
 
 
 class TestScriptStack:

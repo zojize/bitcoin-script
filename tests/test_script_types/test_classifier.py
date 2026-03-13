@@ -1,7 +1,5 @@
 """Tests for script type classification."""
 
-from bitcoin_script.model.script import ScriptType
-from bitcoin_script.script_types.classifier import classify, is_p2pkh, is_p2sh, is_p2wpkh, is_p2wsh
 
 
 class TestClassifier:

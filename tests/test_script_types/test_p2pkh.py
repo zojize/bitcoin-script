@@ -1,6 +1,5 @@
 """Tests for P2PKH script handling."""
 
-from bitcoin_script.script_types.p2pkh import create_script_pubkey, create_script_sig, extract_pubkey_hash
 
 
 class TestP2PKH:

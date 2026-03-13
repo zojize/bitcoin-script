@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import pytest
+from bitcoin.core import CMutableTxIn, CMutableTxOut, COutPoint, CTransaction
+from bitcoin.core.script import CScript
 
 from bitcoin_script.engine.stack import ScriptStack
-from bitcoin_script.model.script import Script
-from bitcoin_script.model.transaction import OutPoint, Transaction, TxIn, TxOut
-from bitcoin_script.types import ScriptBytes, TxId
 
 
 @pytest.fixture
@@ -17,13 +16,13 @@ def empty_stack() -> ScriptStack:
 
 
 @pytest.fixture
-def genesis_coinbase_tx() -> Transaction:
+def genesis_coinbase_tx() -> CTransaction:
     """The genesis block (block 0) coinbase transaction."""
     ...
 
 
 @pytest.fixture
-def p2pkh_script_pubkey() -> Script:
+def p2pkh_script_pubkey() -> CScript:
     """A sample P2PKH scriptPubKey.
 
     OP_DUP OP_HASH160 <20-byte-hash> OP_EQUALVERIFY OP_CHECKSIG
@@ -32,7 +31,7 @@ def p2pkh_script_pubkey() -> Script:
 
 
 @pytest.fixture
-def p2pkh_script_sig() -> Script:
+def p2pkh_script_sig() -> CScript:
     """A sample P2PKH scriptSig matching p2pkh_script_pubkey.
 
     <signature> <pubkey>
@@ -41,7 +40,7 @@ def p2pkh_script_sig() -> Script:
 
 
 @pytest.fixture
-def p2sh_script_pubkey() -> Script:
+def p2sh_script_pubkey() -> CScript:
     """A sample P2SH scriptPubKey.
 
     OP_HASH160 <20-byte-hash> OP_EQUAL
@@ -50,7 +49,7 @@ def p2sh_script_pubkey() -> Script:
 
 
 @pytest.fixture
-def p2wpkh_script_pubkey() -> Script:
+def p2wpkh_script_pubkey() -> CScript:
     """A sample P2WPKH scriptPubKey.
 
     OP_0 <20-byte-hash>
@@ -59,18 +58,18 @@ def p2wpkh_script_pubkey() -> Script:
 
 
 @pytest.fixture
-def sample_outpoint() -> OutPoint:
+def sample_outpoint() -> COutPoint:
     """A sample outpoint referencing a previous transaction output."""
     ...
 
 
 @pytest.fixture
-def sample_txin(sample_outpoint: OutPoint) -> TxIn:
+def sample_txin(sample_outpoint: COutPoint) -> CMutableTxIn:
     """A sample transaction input."""
     ...
 
 
 @pytest.fixture
-def sample_txout() -> TxOut:
+def sample_txout() -> CMutableTxOut:
     """A sample transaction output."""
     ...

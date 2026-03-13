@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from bitcoin_script.model.script import Script
+from bitcoin.core.script import CScript
 
 
-def extract_script_hash(script_pubkey: Script) -> bytes:
+def extract_script_hash(script_pubkey: CScript) -> bytes:
     """Extract the 20-byte script hash from a P2SH scriptPubKey.
 
     Raises:
@@ -14,7 +14,7 @@ def extract_script_hash(script_pubkey: Script) -> bytes:
     ...
 
 
-def create_script_pubkey(script_hash: bytes) -> Script:
+def create_script_pubkey(script_hash: bytes) -> CScript:
     """Create a P2SH scriptPubKey from a 20-byte script hash.
 
     Returns: OP_HASH160 <script_hash> OP_EQUAL
@@ -22,7 +22,7 @@ def create_script_pubkey(script_hash: bytes) -> Script:
     ...
 
 
-def deserialize_redeem_script(script_sig: Script) -> Script:
+def deserialize_redeem_script(script_sig: CScript) -> CScript:
     """Extract the serialized redeem script from a P2SH scriptSig.
 
     The redeem script is the last push in the scriptSig.
