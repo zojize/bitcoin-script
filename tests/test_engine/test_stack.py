@@ -1,8 +1,6 @@
 """Tests for ScriptStack."""
 
 
-
-
 class TestScriptStack:
     def test_push_pop_roundtrip(self) -> None:
         """Push then pop should return the same element."""

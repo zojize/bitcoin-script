@@ -1,7 +1,6 @@
 """Tests for P2WSH script handling."""
 
 
-
 class TestP2WSH:
     def test_extract_script_hash(self) -> None:
         """Should extract the 32-byte hash from a P2WSH scriptPubKey."""

@@ -47,7 +47,7 @@ def start_regtest_node() -> tuple[subprocess.Popen[bytes], str, str]:
         try:
             subprocess.run([*cli, "getblockchaininfo"], capture_output=True, check=True)
             break
-        except (subprocess.CalledProcessError, FileNotFoundError):
+        except subprocess.CalledProcessError, FileNotFoundError:
             time.sleep(0.5)
     else:
         proc.terminate()
@@ -76,7 +76,10 @@ def main() -> None:
         print(f"Using external node: {url}")
     else:
         if not shutil.which("bitcoind"):
-            print("ERROR: bitcoind not on PATH. Install Bitcoin Core first.", file=sys.stderr)
+            print(
+                "ERROR: bitcoind not on PATH. Install Bitcoin Core first.",
+                file=sys.stderr,
+            )
             sys.exit(1)
         print("Starting temporary regtest node...")
         proc, datadir, url = start_regtest_node()

@@ -137,9 +137,7 @@ class TestOpEqualVerify:
         hex_a = "aa" * 20
         hex_b = "bb" * 20
         result = k.run(
-            k.pattern(
-                f"OP_PUSHBYTES_20 {hex_a} OP_PUSHBYTES_20 {hex_b} OP_EQUALVERIFY"
-            )
+            k.pattern(f"OP_PUSHBYTES_20 {hex_a} OP_PUSHBYTES_20 {hex_b} OP_EQUALVERIFY")
         )
         assert k.is_stuck(result)
 

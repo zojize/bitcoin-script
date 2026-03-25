@@ -1,7 +1,6 @@
 """Tests against known real Bitcoin mainnet transactions."""
 
 
-
 class TestMainnetTransactions:
     def test_block_170_first_transaction(self) -> None:
         """First non-coinbase transaction ever: Satoshi -> Hal Finney.

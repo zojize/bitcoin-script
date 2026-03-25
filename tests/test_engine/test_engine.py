@@ -1,7 +1,6 @@
 """Tests for the ScriptEngine."""
 
 
-
 class TestScriptEngine:
     def test_empty_script_returns_false(self) -> None:
         """An empty script should evaluate to False (empty stack)."""

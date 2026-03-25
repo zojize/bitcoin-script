@@ -1,7 +1,6 @@
 """Tests for script type classification."""
 
 
-
 class TestClassifier:
     def test_classify_p2pkh(self) -> None:
         """Should identify P2PKH scripts."""

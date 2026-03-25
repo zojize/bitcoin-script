@@ -1,7 +1,6 @@
 """Tests for block and transaction validation."""
 
 
-
 class TestBlockSubsidy:
     def test_genesis_subsidy(self) -> None:
         """Block 0 subsidy should be 50 BTC (5_000_000_000 satoshis)."""

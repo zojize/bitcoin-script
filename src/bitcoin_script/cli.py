@@ -15,9 +15,7 @@ app = typer.Typer(
 @app.command()
 def execute(
     script: Annotated[str, typer.Argument(help="Script in hex or ASM format.")],
-    hex: Annotated[
-        bool, typer.Option("--hex", help="Treat input as raw hex.")
-    ] = False,
+    hex: Annotated[bool, typer.Option("--hex", help="Treat input as raw hex.")] = False,
 ) -> None:
     """Execute a Bitcoin script and display the result."""
     ...
@@ -38,7 +36,10 @@ def verify(
 def parse(
     raw: Annotated[str, typer.Argument(help="Raw transaction or block hex.")],
     block: Annotated[
-        bool, typer.Option("--block", "-b", help="Parse as a block instead of a transaction.")
+        bool,
+        typer.Option(
+            "--block", "-b", help="Parse as a block instead of a transaction."
+        ),
     ] = False,
 ) -> None:
     """Parse and display a raw transaction or block."""

@@ -39,6 +39,15 @@ markers = [
 target-version = "py314"
 src = ["src"]
 
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+exclude = [
+    ".venv",
+    "src/bitcoin_script/k_semantics/kdist/plugin/deps",
+    "src/bitcoin_script/k_semantics/kdist/plugin/krypto",
+]
+
 [dependency-groups]
 dev = [
     "ecdsa>=0.19.1",

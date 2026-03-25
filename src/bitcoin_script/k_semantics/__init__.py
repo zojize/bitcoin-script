@@ -2,6 +2,6 @@
 
 from __future__ import annotations
 
-__all__ = ['KBitcoinScript', 'ScriptDist']
+__all__ = ["KBitcoinScript", "ScriptDist"]
 
 from bitcoin_script.k_semantics.semantics import KBitcoinScript, ScriptDist

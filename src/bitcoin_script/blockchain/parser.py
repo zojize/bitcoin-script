@@ -161,4 +161,6 @@ class BlockFileParser:
             if i == height:
                 return block
             count = i + 1
-        raise IndexError(f"height {height} is beyond the available chain ({count} blocks)")
+        raise IndexError(
+            f"height {height} is beyond the available chain ({count} blocks)"
+        )

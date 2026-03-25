@@ -1,7 +1,6 @@
 """End-to-end script execution tests."""
 
 
-
 class TestP2PKHExecution:
     def test_valid_p2pkh_succeeds(self) -> None:
         """Valid P2PKH scriptSig + scriptPubKey should evaluate to True."""

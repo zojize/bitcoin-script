@@ -92,7 +92,7 @@ def _regtest_node() -> Generator[str]:
                 check=True,
             )
             break
-        except (subprocess.CalledProcessError, FileNotFoundError):
+        except subprocess.CalledProcessError, FileNotFoundError:
             time.sleep(0.5)
     else:
         proc.terminate()

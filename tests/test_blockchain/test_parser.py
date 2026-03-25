@@ -148,7 +148,10 @@ class TestBlockFileParser:
     def test_truncated_block_body_raises(self, data_dir: Path) -> None:
         """Should raise ValueError on a truncated block body."""
         # Valid header claiming 285 bytes, but only 10 bytes of body
-        truncated = _GENESIS_ENTRY[:HEADER_SIZE] + _GENESIS_ENTRY[HEADER_SIZE : HEADER_SIZE + 10]
+        truncated = (
+            _GENESIS_ENTRY[:HEADER_SIZE]
+            + _GENESIS_ENTRY[HEADER_SIZE : HEADER_SIZE + 10]
+        )
         _write_blk(data_dir, 0, truncated)
         parser = BlockFileParser(data_dir)
 

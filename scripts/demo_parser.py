@@ -14,7 +14,7 @@ MAX_TRANSACTIONS = 200
 data_dir = Path.home() / "Library/Application Support/Bitcoin"
 parser = BlockFileParser(data_dir)
 
-blocks = islice(parser.iter_blocks(start=170000), 5) 
+blocks = islice(parser.iter_blocks(start=170000), 5)
 
 tx_count = 0
 for block in blocks:

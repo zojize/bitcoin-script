@@ -3,7 +3,6 @@
 import pytest
 
 
-
 class TestStackOps:
     def test_op_dup(self) -> None:
         """OP_DUP should duplicate the top element."""

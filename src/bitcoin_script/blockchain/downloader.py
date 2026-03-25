@@ -115,7 +115,9 @@ class BlockchainDownloader:
 
     # -- transaction fetching --------------------------------------------------
 
-    def get_raw_transaction(self, txid: str, verbose: bool = False) -> str | dict[str, Any]:
+    def get_raw_transaction(
+        self, txid: str, verbose: bool = False
+    ) -> str | dict[str, Any]:
         """Fetch a transaction by txid.
 
         Returns hex string if *verbose* is ``False``, decoded dict otherwise.

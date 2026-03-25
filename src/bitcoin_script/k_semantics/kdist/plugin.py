@@ -16,10 +16,16 @@ PLUGIN_DIR: Final = Path(__file__).parent / "plugin"
 
 def _find_boost_prefix() -> str | None:
     """Find boost include prefix, checking nix store and homebrew."""
-    return _find_nix_or_brew("boost", nix_pattern="*-boost-*-dev", check_subdir="include/boost/container_hash")
+    return _find_nix_or_brew(
+        "boost",
+        nix_pattern="*-boost-*-dev",
+        check_subdir="include/boost/container_hash",
+    )
 
 
-def _find_nix_or_brew(name: str, *, nix_pattern: str | None = None, check_subdir: str = "include") -> str | None:
+def _find_nix_or_brew(
+    name: str, *, nix_pattern: str | None = None, check_subdir: str = "include"
+) -> str | None:
     """Find a library prefix in nix store or homebrew."""
     import glob
 
@@ -110,7 +116,9 @@ class PluginTarget(Target):
             "BOOST_PREFIX": _find_boost_prefix(),
             "GMP_PREFIX": _find_nix_or_brew("gmp", nix_pattern="*-gmp-*-dev"),
             "MPFR_PREFIX": _find_nix_or_brew("mpfr", nix_pattern="*-mpfr-*-dev"),
-            "OPENSSL_PREFIX": _find_nix_or_brew("openssl", nix_pattern="*-openssl-*-dev"),
+            "OPENSSL_PREFIX": _find_nix_or_brew(
+                "openssl", nix_pattern="*-openssl-*-dev"
+            ),
             "SECP256K1_PREFIX": _find_nix_prefix("*-secp256k1-[0-9]*"),
         }
         for var, val in _prefixes.items():
@@ -149,7 +157,9 @@ def _lib_ccopts(plugin_dir: Path) -> list[str]:
     # Add library search paths for nix/brew-installed dependencies
     openssl_lib = _find_nix_prefix("*-openssl-3*", check_subdir="lib/libssl.dylib")
     if not openssl_lib:
-        openssl_lib = _find_nix_or_brew("openssl", nix_pattern="*-openssl-3*", check_subdir="lib")
+        openssl_lib = _find_nix_or_brew(
+            "openssl", nix_pattern="*-openssl-3*", check_subdir="lib"
+        )
     if openssl_lib:
         ccopts.insert(0, f"-L{Path(openssl_lib) / 'lib'}")
     secp_lib = _find_nix_prefix("*-secp256k1-[0-9]*", check_subdir="lib")

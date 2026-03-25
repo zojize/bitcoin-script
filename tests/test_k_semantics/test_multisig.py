@@ -27,7 +27,9 @@ PRIVKEY_3 = (3).to_bytes(32, "big")
 
 def _pubkey_uncompressed(privkey: bytes) -> bytes:
     sk = SigningKey.from_string(privkey, curve=SECP256k1)
-    return b"\x04" + sk.verifying_key.to_string()
+    vk = sk.verifying_key
+    assert vk is not None
+    return b"\x04" + vk.to_string()
 
 
 PUBKEY_1 = _pubkey_uncompressed(PRIVKEY_1)
@@ -120,7 +122,9 @@ class TestOpCheckMultisig:
         msg_hash = hashlib.sha256(b"2of2").digest()
         sig1 = _sign_der(PRIVKEY_1, msg_hash)
         sig2 = _sign_der(PRIVKEY_2, msg_hash)
-        script = _multisig_script(msg_hash, [sig1, sig2], [PUBKEY_1, PUBKEY_2], m=2, n=2)
+        script = _multisig_script(
+            msg_hash, [sig1, sig2], [PUBKEY_1, PUBKEY_2], m=2, n=2
+        )
         result = k.run(k.pattern(script))
         assert not k.is_stuck(result)
         assert k.stack(result) == [b"\x01"]
