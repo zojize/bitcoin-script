@@ -23,7 +23,7 @@ src/bitcoin_script/
 
 ## Setup
 
-Requires Python 3.13+ and [uv](https://docs.astral.sh/uv/).
+Requires Python 3.14+ and [uv](https://docs.astral.sh/uv/).
 
 ```sh
 uv sync
@@ -31,11 +31,43 @@ uv sync
 
 ### K Framework
 
-To build and run the formal K semantics, you also need the [K Framework](https://kframework.org/) installed, plus native dependencies for the crypto plugin (OpenSSL, secp256k1, Boost, GMP, MPFR).
+The formal K semantics require the [K Framework](https://kframework.org/) and native dependencies for the crypto plugin.
+
+#### Install K Framework
+
+Install [kup](https://github.com/runtimeverification/kup) (the K package manager), then install K:
 
 ```sh
+bash <(curl https://kframework.org/install)
+kup install k
+```
+
+#### Install native dependencies
+
+The [blockchain-k-plugin](https://github.com/runtimeverification/blockchain-k-plugin) needs several C/C++ libraries for cryptographic operations.
+
+**macOS (Homebrew):**
+
+```sh
+brew install cmake boost openssl libsecp256k1 gmp mpfr crypto++
+```
+
+**Ubuntu/Debian:**
+
+```sh
+sudo apt-get install -y \
+  clang cmake pkg-config \
+  libboost-test-dev libcrypto++-dev libsecp256k1-dev \
+  libssl-dev libyaml-dev libgmp-dev libmpfr-dev \
+  llvm-dev
+```
+
+#### Initialize submodules, build, and test
+
+```sh
+git submodule update --init --recursive
 uv run kdist build bitcoin-script-semantics.llvm
-uv run pytest tests/test_k_semantics/ -m k -v
+uv run pytest -m k -v
 ```
 
 ## Development
@@ -43,6 +75,7 @@ uv run pytest tests/test_k_semantics/ -m k -v
 ```sh
 uv run pytest              # run tests (excludes K tests by default)
 uv run pytest -m k         # run K Framework tests
-uv run mypy src/           # type checking
 uv run ruff check src/     # linting
+uv run ruff format src/    # formatting
+uv run pyright src/        # type checking
 ```
