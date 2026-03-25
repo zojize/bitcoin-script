@@ -62,6 +62,8 @@ jobs:
     needs: code-quality
     container:
       image: runtimeverificationinc/kframework-k:ubuntu-jammy-7.1.313
+    env:
+      XDG_CACHE_HOME: /tmp/k-cache
     steps:
       - uses: actions/checkout@v6
         with:
@@ -91,9 +93,17 @@ jobs:
       - name: Install project dependencies
         run: uv sync --frozen
 
+      - name: Cache K build artifacts
+        uses: actions/cache@v4
+        with:
+          path: /tmp/k-cache
+          key: k-build-${{ hashFiles('src/bitcoin_script/k_semantics/kdist/plugin.py', 'src/bitcoin_script/k_semantics/kdist/script-semantics/**') }}
+          restore-keys: |
+            k-build-
+
       - name: Build K definition
         run: |
-          CXX=clang++-14 uv run kdist --verbose build -j$(nproc) bitcoin-script-semantics.llvm
+          CXX=clang++-14 uv run kdist --verbose build -j$(nproc) bitcoin-script-semantics.llvm bitcoin-script-semantics.llvm-lib
 
       - name: Run K Framework tests
         run: uv run pytest -m k --tb=short -q
