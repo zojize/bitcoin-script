@@ -97,6 +97,20 @@ class BlockFileParser:
 
             yield CBlock.deserialize(raw)
 
+    def _skip_block(self, f: BinaryIO) -> bool:
+        """Skip one block in the file without deserializing. Returns False at EOF."""
+        file_offset = f.tell()
+        header = f.read(HEADER_SIZE)
+        if len(header) < HEADER_SIZE:
+            return False
+
+        if self._xor_key is not None:
+            header = _xor_bytes(header, self._xor_key, file_offset)
+
+        _magic, size = struct.unpack("<4sI", header)
+        f.seek(size, 1)
+        return True
+
     def __iter__(self) -> Iterator[CBlock]:
         """Yield parsed Block objects from all .blk files in order.
 
@@ -106,8 +120,27 @@ class BlockFileParser:
         Note: Blocks in .blk files are stored in the order they were
         *received*, which may not match chain height order.
         """
+        yield from self.iter_blocks()
+
+    def iter_blocks(self, start: int = 0) -> Iterator[CBlock]:
+        """Yield parsed Block objects, optionally skipping the first *start* blocks.
+
+        Skipped blocks are not deserialized, so this is much faster than
+        iterating and discarding with ``islice``.
+
+        Args:
+            start: Number of blocks to skip before yielding (default: 0).
+        """
+        skipped = 0
         for path in self._blk_files():
             with path.open("rb") as f:
+                if skipped < start:
+                    while skipped < start:
+                        if not self._skip_block(f):
+                            break
+                        skipped += 1
+                    if skipped < start:
+                        continue
                 yield from self._iter_blocks_in_file(f)
 
     def get_block_at_height(self, height: int) -> CBlock:
