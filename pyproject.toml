@@ -5,6 +5,7 @@ description = "Bitcoin Script interpreter with K Framework integration"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "kframework>=7.1.313",
     "python-bitcoinlib>=0.12.2",
     "typer>=0.24.1",
 ]
@@ -14,6 +15,9 @@ bitcoin-script = "bitcoin_script.cli:app"
 
 [project.optional-dependencies]
 k = ["kframework"]
+
+[project.entry-points.kdist]
+bitcoin-script-semantics = "bitcoin_script.k_semantics.kdist.plugin"
 
 [build-system]
 requires = ["hatchling"]
@@ -25,9 +29,10 @@ packages = ["src/bitcoin_script"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-addopts = "-m 'not rpc'"
+addopts = "-m 'not rpc and not k'"
 markers = [
     "rpc: tests that require a running Bitcoin Core RPC node",
+    "k: tests that require K Framework and a compiled K definition",
 ]
 
 [tool.mypy]
@@ -42,6 +47,7 @@ src = ["src"]
 
 [dependency-groups]
 dev = [
+    "ecdsa>=0.19.1",
     "mypy>=1.19.1",
     "pytest>=9.0.2",
     "pytest-cov>=7.0.0",
