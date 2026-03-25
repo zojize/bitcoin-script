@@ -3,7 +3,7 @@ name = "bitcoin-script"
 version = "0.1.0"
 description = "Bitcoin Script interpreter with K Framework integration"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 dependencies = [
     "kframework>=7.1.313",
     "python-bitcoinlib>=0.12.2",
@@ -35,21 +35,15 @@ markers = [
     "k: tests that require K Framework and a compiled K definition",
 ]
 
-[tool.mypy]
-python_version = "3.13"
-strict = true
-packages = ["bitcoin_script"]
-mypy_path = "src"
-
 [tool.ruff]
-target-version = "py313"
+target-version = "py314"
 src = ["src"]
 
 [dependency-groups]
 dev = [
     "ecdsa>=0.19.1",
-    "mypy>=1.19.1",
+    "pyright>=1.1.408",
     "pytest>=9.0.2",
-    "pytest-cov>=7.0.0",
-    "ruff>=0.15.6",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.15.7",
 ]
