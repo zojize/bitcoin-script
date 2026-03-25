@@ -3,7 +3,7 @@
 Real Bitcoin blockchain data access: downloading, parsing, and validation from genesis.
 
 - `downloader.py` — `BlockchainDownloader` acquires blocks via Bitcoin Core RPC or reads from a local data directory. Supports downloading a range of block heights.
-- `parser.py` — `BlockFileParser` reads Bitcoin Core's `.blk` dat files (4-byte magic `0xF9BEB4D9` + 4-byte size + raw block, repeated) and yields `Block` model objects.
+- `parser.py` — `BlockFileParser` reads Bitcoin Core's `.blk` dat files (4-byte magic `0xF9BEB4D9` + 4-byte size + raw block, repeated) and yields `Block` model objects. Use `iter_blocks(start=N)` to skip the first *N* blocks efficiently without deserializing them.
 - `utxo.py` — `UTXOSet` tracks unspent transaction outputs in a dict keyed by `OutPoint`. Supports add, spend, get, and contains operations for chain validation.
 - `validation.py` — Consensus rule enforcement: proof-of-work, prev-hash linkage, Merkle root integrity, script verification for each input, value conservation, and block subsidy calculation (50 BTC halving every 210,000 blocks).
 
@@ -92,3 +92,28 @@ uv run python scripts/demo_downloader.py
 # Mainnet
 BITCOIN_RPC_URL=http://user:pass@127.0.0.1:8332 uv run python scripts/demo_downloader.py
 ```
+
+### Parsing local block files
+
+If you already have a Bitcoin Core data directory with `.blk` files, parse them
+directly with `BlockFileParser`:
+
+```python
+from pathlib import Path
+from itertools import islice
+from bitcoin_script.blockchain.parser import BlockFileParser
+
+data_dir = Path.home() / "Library/Application Support/Bitcoin"  # macOS default
+parser = BlockFileParser(data_dir)
+
+# Parse the first 10 blocks
+for block in islice(parser, 10):
+    print(block.GetHash()[::-1].hex())
+
+# Skip ahead efficiently — blocks before `start` are not deserialized
+for block in islice(parser.iter_blocks(start=170_000), 5):
+    print(block.GetHash()[::-1].hex(), len(block.vtx), "txs")
+```
+
+See `scripts/demo_parser.py` for a fuller example that prints transaction
+inputs and outputs.
