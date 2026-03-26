@@ -71,7 +71,10 @@ class TestOpCheckMultisig:
         result = k.verify_script(
             script_sig=script("OP_0", push(sig1.hex())),
             script_pubkey=script(
-                "OP_1", push(PUBKEY_1.hex()), "OP_1", "OP_CHECKMULTISIG",
+                "OP_1",
+                push(PUBKEY_1.hex()),
+                "OP_1",
+                "OP_CHECKMULTISIG",
             ),
             sighash=msg_hash,
         )
@@ -86,8 +89,10 @@ class TestOpCheckMultisig:
             script_sig=script("OP_0", push(sig1.hex())),
             script_pubkey=script(
                 "OP_1",
-                push(PUBKEY_1.hex()), push(PUBKEY_2.hex()),
-                "OP_2", "OP_CHECKMULTISIG",
+                push(PUBKEY_1.hex()),
+                push(PUBKEY_2.hex()),
+                "OP_2",
+                "OP_CHECKMULTISIG",
             ),
             sighash=msg_hash,
         )
@@ -101,8 +106,10 @@ class TestOpCheckMultisig:
             script_sig=script("OP_0", push(sig2.hex())),
             script_pubkey=script(
                 "OP_1",
-                push(PUBKEY_1.hex()), push(PUBKEY_2.hex()),
-                "OP_2", "OP_CHECKMULTISIG",
+                push(PUBKEY_1.hex()),
+                push(PUBKEY_2.hex()),
+                "OP_2",
+                "OP_CHECKMULTISIG",
             ),
             sighash=msg_hash,
         )
@@ -117,8 +124,10 @@ class TestOpCheckMultisig:
             script_sig=script("OP_0", push(sig1.hex()), push(sig2.hex())),
             script_pubkey=script(
                 "OP_2",
-                push(PUBKEY_1.hex()), push(PUBKEY_2.hex()),
-                "OP_2", "OP_CHECKMULTISIG",
+                push(PUBKEY_1.hex()),
+                push(PUBKEY_2.hex()),
+                "OP_2",
+                "OP_CHECKMULTISIG",
             ),
             sighash=msg_hash,
         )
@@ -134,8 +143,11 @@ class TestOpCheckMultisig:
             script_sig=script("OP_0", push(sig1.hex()), push(sig3.hex())),
             script_pubkey=script(
                 "OP_2",
-                push(PUBKEY_1.hex()), push(PUBKEY_2.hex()), push(PUBKEY_3.hex()),
-                "OP_3", "OP_CHECKMULTISIG",
+                push(PUBKEY_1.hex()),
+                push(PUBKEY_2.hex()),
+                push(PUBKEY_3.hex()),
+                "OP_3",
+                "OP_CHECKMULTISIG",
             ),
             sighash=msg_hash,
         )
@@ -150,8 +162,11 @@ class TestOpCheckMultisig:
             script_sig=script("OP_0", push(sig2.hex()), push(sig3.hex())),
             script_pubkey=script(
                 "OP_2",
-                push(PUBKEY_1.hex()), push(PUBKEY_2.hex()), push(PUBKEY_3.hex()),
-                "OP_3", "OP_CHECKMULTISIG",
+                push(PUBKEY_1.hex()),
+                push(PUBKEY_2.hex()),
+                push(PUBKEY_3.hex()),
+                "OP_3",
+                "OP_CHECKMULTISIG",
             ),
             sighash=msg_hash,
         )
@@ -165,7 +180,10 @@ class TestOpCheckMultisig:
         result = k.verify_script(
             script_sig=script("OP_0", push(wrong_sig.hex())),
             script_pubkey=script(
-                "OP_1", push(PUBKEY_1.hex()), "OP_1", "OP_CHECKMULTISIG",
+                "OP_1",
+                push(PUBKEY_1.hex()),
+                "OP_1",
+                "OP_CHECKMULTISIG",
             ),
             sighash=msg_hash,
         )
@@ -185,8 +203,10 @@ class TestOpCheckMultisig:
             script_sig=script("OP_0", push(sig2.hex()), push(sig1.hex())),
             script_pubkey=script(
                 "OP_2",
-                push(PUBKEY_1.hex()), push(PUBKEY_2.hex()),
-                "OP_2", "OP_CHECKMULTISIG",
+                push(PUBKEY_1.hex()),
+                push(PUBKEY_2.hex()),
+                "OP_2",
+                "OP_CHECKMULTISIG",
             ),
             sighash=msg_hash,
         )
@@ -203,8 +223,11 @@ class TestOpCheckMultisig:
             script_sig=script("OP_0", push(sig1.hex()), push(bad_sig.hex())),
             script_pubkey=script(
                 "OP_2",
-                push(PUBKEY_1.hex()), push(PUBKEY_2.hex()), push(PUBKEY_3.hex()),
-                "OP_3", "OP_CHECKMULTISIG",
+                push(PUBKEY_1.hex()),
+                push(PUBKEY_2.hex()),
+                push(PUBKEY_3.hex()),
+                "OP_3",
+                "OP_CHECKMULTISIG",
             ),
             sighash=msg_hash,
         )

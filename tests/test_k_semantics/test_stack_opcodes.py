@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from bitcoin_script.k_semantics import KBitcoinScript
-from .script_helpers import script, push, push_int
+from .script_helpers import script, push
 
 pytestmark = pytest.mark.k
 
@@ -23,7 +23,9 @@ class TestOpDrop:
 
 class TestOp2Drop:
     def test_2drop(self, k: KBitcoinScript) -> None:
-        result = k.verify_script(script_pubkey=script("OP_1", "OP_2", "OP_3", "OP_2DROP"))
+        result = k.verify_script(
+            script_pubkey=script("OP_1", "OP_2", "OP_3", "OP_2DROP")
+        )
         assert not k.is_stuck(result)
         assert k.stack(result) == [b"\x01"]
 
@@ -46,8 +48,12 @@ class TestOp3Dup:
         )
         assert not k.is_stuck(result)
         assert k.stack(result) == [
-            b"\x03", b"\x02", b"\x01",
-            b"\x03", b"\x02", b"\x01",
+            b"\x03",
+            b"\x02",
+            b"\x01",
+            b"\x03",
+            b"\x02",
+            b"\x01",
         ]
 
 
@@ -72,8 +78,12 @@ class TestOp2Over:
         )
         assert not k.is_stuck(result)
         assert k.stack(result) == [
-            b"\x02", b"\x01",
-            b"\x04", b"\x03", b"\x02", b"\x01",
+            b"\x02",
+            b"\x01",
+            b"\x04",
+            b"\x03",
+            b"\x02",
+            b"\x01",
         ]
 
 
@@ -106,13 +116,23 @@ class TestOp2Rot:
     def test_2rot(self, k: KBitcoinScript) -> None:
         result = k.verify_script(
             script_pubkey=script(
-                "OP_1", "OP_2", "OP_3", "OP_4", "OP_5", "OP_6", "OP_2ROT",
+                "OP_1",
+                "OP_2",
+                "OP_3",
+                "OP_4",
+                "OP_5",
+                "OP_6",
+                "OP_2ROT",
             ),
         )
         assert not k.is_stuck(result)
         assert k.stack(result) == [
-            b"\x02", b"\x01",
-            b"\x06", b"\x05", b"\x04", b"\x03",
+            b"\x02",
+            b"\x01",
+            b"\x06",
+            b"\x05",
+            b"\x04",
+            b"\x03",
         ]
 
 
@@ -205,7 +225,11 @@ class TestOpAltStack:
     def test_toaltstack_fromaltstack(self, k: KBitcoinScript) -> None:
         result = k.verify_script(
             script_pubkey=script(
-                "OP_1", "OP_2", "OP_TOALTSTACK", "OP_3", "OP_FROMALTSTACK",
+                "OP_1",
+                "OP_2",
+                "OP_TOALTSTACK",
+                "OP_3",
+                "OP_FROMALTSTACK",
             ),
         )
         assert not k.is_stuck(result)

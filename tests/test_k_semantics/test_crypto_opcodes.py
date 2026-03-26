@@ -166,9 +166,11 @@ class TestP2PKH:
         result = k.verify_script(
             script_sig=script(push(sig.hex()), push(PUBKEY_HEX)),
             script_pubkey=script(
-                "OP_DUP", "OP_HASH160",
+                "OP_DUP",
+                "OP_HASH160",
                 push(PUBKEY_HASH_HEX),
-                "OP_EQUALVERIFY", "OP_CHECKSIG",
+                "OP_EQUALVERIFY",
+                "OP_CHECKSIG",
             ),
             sighash=msg_hash,
         )
@@ -185,9 +187,11 @@ class TestP2PKH:
         result = k.verify_script(
             script_sig=script(push(sig.hex()), push(wrong_pubkey)),
             script_pubkey=script(
-                "OP_DUP", "OP_HASH160",
+                "OP_DUP",
+                "OP_HASH160",
                 push(PUBKEY_HASH_HEX),
-                "OP_EQUALVERIFY", "OP_CHECKSIG",
+                "OP_EQUALVERIFY",
+                "OP_CHECKSIG",
             ),
             sighash=msg_hash,
         )

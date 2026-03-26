@@ -31,7 +31,12 @@ class TestOpIf:
         """OP_1 OP_IF OP_2 OP_ELSE OP_3 OP_ENDIF -> stack: [2]"""
         result = k.verify_script(
             script_pubkey=script(
-                "OP_1", "OP_IF", "OP_2", "OP_ELSE", "OP_3", "OP_ENDIF",
+                "OP_1",
+                "OP_IF",
+                "OP_2",
+                "OP_ELSE",
+                "OP_3",
+                "OP_ENDIF",
             ),
         )
         assert not k.is_stuck(result)
@@ -41,7 +46,12 @@ class TestOpIf:
         """OP_0 OP_IF OP_2 OP_ELSE OP_3 OP_ENDIF -> stack: [3]"""
         result = k.verify_script(
             script_pubkey=script(
-                "OP_0", "OP_IF", "OP_2", "OP_ELSE", "OP_3", "OP_ENDIF",
+                "OP_0",
+                "OP_IF",
+                "OP_2",
+                "OP_ELSE",
+                "OP_3",
+                "OP_ENDIF",
             ),
         )
         assert not k.is_stuck(result)
@@ -69,7 +79,12 @@ class TestOpNotIf:
         """OP_1 OP_NOTIF OP_2 OP_ELSE OP_3 OP_ENDIF -> stack: [3]"""
         result = k.verify_script(
             script_pubkey=script(
-                "OP_1", "OP_NOTIF", "OP_2", "OP_ELSE", "OP_3", "OP_ENDIF",
+                "OP_1",
+                "OP_NOTIF",
+                "OP_2",
+                "OP_ELSE",
+                "OP_3",
+                "OP_ENDIF",
             ),
         )
         assert not k.is_stuck(result)
@@ -81,8 +96,12 @@ class TestNestedConditionals:
         """Nested IF/ENDIF with both conditions true."""
         result = k.verify_script(
             script_pubkey=script(
-                "OP_1", "OP_IF",
-                    "OP_1", "OP_IF", "OP_2", "OP_ENDIF",
+                "OP_1",
+                "OP_IF",
+                "OP_1",
+                "OP_IF",
+                "OP_2",
+                "OP_ENDIF",
                 "OP_ENDIF",
             ),
         )
@@ -93,8 +112,12 @@ class TestNestedConditionals:
         """Outer IF false: inner IF is skipped entirely."""
         result = k.verify_script(
             script_pubkey=script(
-                "OP_0", "OP_IF",
-                    "OP_1", "OP_IF", "OP_2", "OP_ENDIF",
+                "OP_0",
+                "OP_IF",
+                "OP_1",
+                "OP_IF",
+                "OP_2",
+                "OP_ENDIF",
                 "OP_ENDIF",
             ),
         )
@@ -105,9 +128,13 @@ class TestNestedConditionals:
         """Outer true, inner false: inner body skipped."""
         result = k.verify_script(
             script_pubkey=script(
-                "OP_1", "OP_IF",
-                    "OP_0", "OP_IF", "OP_2", "OP_ENDIF",
-                    "OP_3",
+                "OP_1",
+                "OP_IF",
+                "OP_0",
+                "OP_IF",
+                "OP_2",
+                "OP_ENDIF",
+                "OP_3",
                 "OP_ENDIF",
             ),
         )
@@ -118,10 +145,16 @@ class TestNestedConditionals:
         """Nested IF with ELSE branches."""
         result = k.verify_script(
             script_pubkey=script(
-                "OP_1", "OP_IF",
-                    "OP_0", "OP_IF", "OP_2", "OP_ELSE", "OP_3", "OP_ENDIF",
+                "OP_1",
+                "OP_IF",
+                "OP_0",
+                "OP_IF",
+                "OP_2",
                 "OP_ELSE",
-                    "OP_4",
+                "OP_3",
+                "OP_ENDIF",
+                "OP_ELSE",
+                "OP_4",
                 "OP_ENDIF",
             ),
         )
@@ -132,10 +165,16 @@ class TestNestedConditionals:
         """When outer is false, inner ELSE must NOT toggle to true."""
         result = k.verify_script(
             script_pubkey=script(
-                "OP_0", "OP_IF",
-                    "OP_1", "OP_IF", "OP_2", "OP_ELSE", "OP_3", "OP_ENDIF",
+                "OP_0",
+                "OP_IF",
+                "OP_1",
+                "OP_IF",
+                "OP_2",
                 "OP_ELSE",
-                    "OP_4",
+                "OP_3",
+                "OP_ENDIF",
+                "OP_ELSE",
+                "OP_4",
                 "OP_ENDIF",
             ),
         )
@@ -148,7 +187,11 @@ class TestConditionalPushSkip:
         """Push data in a false IF branch should be skipped."""
         result = k.verify_script(
             script_pubkey=script(
-                "OP_0", "OP_IF", push("deadbeef"), "OP_ENDIF", "OP_1",
+                "OP_0",
+                "OP_IF",
+                push("deadbeef"),
+                "OP_ENDIF",
+                "OP_1",
             ),
         )
         assert not k.is_stuck(result)
@@ -161,7 +204,12 @@ class TestConditionalIntegration:
         # Simplified: choose which value to leave on stack
         result = k.verify_script(
             script_pubkey=script(
-                "OP_1", "OP_IF", "OP_5", "OP_ELSE", "OP_3", "OP_ENDIF",
+                "OP_1",
+                "OP_IF",
+                "OP_5",
+                "OP_ELSE",
+                "OP_3",
+                "OP_ENDIF",
                 "OP_1ADD",
             ),
         )
@@ -173,7 +221,11 @@ class TestConditionalIntegration:
         result = k.verify_script(
             script_sig=script("OP_1"),
             script_pubkey=script(
-                "OP_IF", "OP_2", "OP_ELSE", "OP_3", "OP_ENDIF",
+                "OP_IF",
+                "OP_2",
+                "OP_ELSE",
+                "OP_3",
+                "OP_ENDIF",
             ),
         )
         assert not k.is_stuck(result)

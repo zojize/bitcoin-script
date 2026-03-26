@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from bitcoin_script.k_semantics import KBitcoinScript
-from .script_helpers import script, push, push_int
+from .script_helpers import script
 
 pytestmark = pytest.mark.k
 

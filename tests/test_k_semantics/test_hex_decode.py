@@ -157,8 +157,10 @@ class TestHexP2SHScriptPubKey:
 
         result = k.verify_script(
             script_pubkey=script(
-                push(pubkey_hex), "OP_HASH160",
-                push(h160.hex()), "OP_EQUAL",
+                push(pubkey_hex),
+                "OP_HASH160",
+                push(h160.hex()),
+                "OP_EQUAL",
             ),
         )
         assert not k.is_stuck(result)
@@ -176,8 +178,10 @@ class TestHexP2SHScriptPubKey:
 
         result = k.verify_script(
             script_pubkey=script(
-                push(pubkey_hex), "OP_HASH160",
-                push(wrong_hash), "OP_EQUAL",
+                push(pubkey_hex),
+                "OP_HASH160",
+                push(wrong_hash),
+                "OP_EQUAL",
             ),
         )
         assert not k.is_stuck(result)
@@ -201,9 +205,11 @@ class TestHexP2PKH:
         result = k.verify_script(
             script_sig=script(push(sig.hex()), push(pubkey.hex())),
             script_pubkey=script(
-                "OP_DUP", "OP_HASH160",
+                "OP_DUP",
+                "OP_HASH160",
                 push(h160.hex()),
-                "OP_EQUALVERIFY", "OP_CHECKSIG",
+                "OP_EQUALVERIFY",
+                "OP_CHECKSIG",
             ),
             sighash=msg_hash,
         )

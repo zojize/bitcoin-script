@@ -154,9 +154,11 @@ class TestP2PKHBlock50061:
         result = k.verify_script(
             script_sig=script(push(BLOCK50061_SIG_DER), push(BLOCK50061_PUBKEY)),
             script_pubkey=script(
-                "OP_DUP", "OP_HASH160",
+                "OP_DUP",
+                "OP_HASH160",
                 push(BLOCK50061_PUBKEY_HASH),
-                "OP_EQUALVERIFY", "OP_CHECKSIG",
+                "OP_EQUALVERIFY",
+                "OP_CHECKSIG",
             ),
             sighash=bytes.fromhex(BLOCK50061_SIGHASH),
         )
@@ -170,9 +172,11 @@ class TestP2PKHBlock50061:
         result = k.verify_script(
             script_sig=script(push(BLOCK50061_SIG_DER), push(BLOCK50061_PUBKEY)),
             script_pubkey=script(
-                "OP_DUP", "OP_HASH160",
+                "OP_DUP",
+                "OP_HASH160",
                 push(wrong_hash),
-                "OP_EQUALVERIFY", "OP_CHECKSIG",
+                "OP_EQUALVERIFY",
+                "OP_CHECKSIG",
             ),
             sighash=bytes.fromhex(BLOCK50061_SIGHASH),
         )
@@ -184,9 +188,11 @@ class TestP2PKHBlock50061:
         result = k.verify_script(
             script_sig=script(push(BLOCK50061_SIG_DER), push(BLOCK50061_PUBKEY)),
             script_pubkey=script(
-                "OP_DUP", "OP_HASH160",
+                "OP_DUP",
+                "OP_HASH160",
                 push(BLOCK50061_PUBKEY_HASH),
-                "OP_EQUALVERIFY", "OP_CHECKSIG",
+                "OP_EQUALVERIFY",
+                "OP_CHECKSIG",
             ),
             sighash=bytes.fromhex(wrong_hash),
         )
@@ -206,7 +212,8 @@ class TestBareMultisig1of2Block165084:
                 "OP_1",
                 push(BLOCK165084_PUBKEY_1),
                 push(BLOCK165084_PUBKEY_2),
-                "OP_2", "OP_CHECKMULTISIG",
+                "OP_2",
+                "OP_CHECKMULTISIG",
             ),
             sighash=bytes.fromhex(BLOCK165084_SIGHASH),
         )
@@ -222,7 +229,8 @@ class TestBareMultisig1of2Block165084:
                 "OP_1",
                 push(BLOCK165084_PUBKEY_1),
                 push(BLOCK165084_PUBKEY_2),
-                "OP_2", "OP_CHECKMULTISIG",
+                "OP_2",
+                "OP_CHECKMULTISIG",
             ),
             sighash=bytes.fromhex(wrong_hash),
         )
@@ -247,7 +255,8 @@ class TestBareMultisig2of3Block462235:
                 push(BLOCK462235_PUBKEY_1),
                 push(BLOCK462235_PUBKEY_2),
                 push(BLOCK462235_PUBKEY_3),
-                "OP_3", "OP_CHECKMULTISIG",
+                "OP_3",
+                "OP_CHECKMULTISIG",
             ),
             sighash=bytes.fromhex(BLOCK462235_SIGHASH),
         )
@@ -268,7 +277,8 @@ class TestBareMultisig2of3Block462235:
                 push(BLOCK462235_PUBKEY_1),
                 push(BLOCK462235_PUBKEY_2),
                 push(BLOCK462235_PUBKEY_3),
-                "OP_3", "OP_CHECKMULTISIG",
+                "OP_3",
+                "OP_CHECKMULTISIG",
             ),
             sighash=bytes.fromhex(wrong_hash),
         )
@@ -289,7 +299,8 @@ class TestBareMultisig2of3Block462235:
                 push(BLOCK462235_PUBKEY_1),
                 push(BLOCK462235_PUBKEY_2),
                 push(BLOCK462235_PUBKEY_3),
-                "OP_3", "OP_CHECKMULTISIG",
+                "OP_3",
+                "OP_CHECKMULTISIG",
             ),
             sighash=bytes.fromhex(BLOCK462235_SIGHASH),
         )
