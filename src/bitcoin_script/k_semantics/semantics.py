@@ -31,25 +31,61 @@ class ScriptDist:
     ) -> None:
         from pyk.utils import check_dir_path
 
-        source_dir = Path(source_dir)
-        check_dir_path(source_dir)
-
-        llvm_dir = Path(llvm_dir)
-        check_dir_path(llvm_dir)
-
-        llvm_lib_dir = Path(llvm_lib_dir)
-        check_dir_path(llvm_lib_dir)
-
-        object.__setattr__(self, "source_dir", source_dir)
-        object.__setattr__(self, "llvm_dir", llvm_dir)
-        object.__setattr__(self, "llvm_lib_dir", llvm_lib_dir)
+        for name, val in [
+            ("source_dir", source_dir),
+            ("llvm_dir", llvm_dir),
+            ("llvm_lib_dir", llvm_lib_dir),
+        ]:
+            path = Path(val)
+            check_dir_path(path)
+            object.__setattr__(self, name, path)
 
     @staticmethod
     def load() -> ScriptDist:
+        ScriptDist._rebuild_if_stale()
         return ScriptDist(
             source_dir=ScriptDist._find("source"),
             llvm_dir=ScriptDist._find("llvm"),
             llvm_lib_dir=ScriptDist._find("llvm-lib"),
+        )
+
+    @staticmethod
+    def _rebuild_if_stale() -> None:
+        """Rebuild K artifacts if .k source files are newer than the compiled output."""
+        import subprocess
+
+        src_dir = Path(__file__).parent / "kdist" / "script-semantics"
+        k_sources = list(src_dir.rglob("*.k"))
+        if not k_sources:
+            return
+
+        needs_rebuild = False
+        try:
+            from pyk.kdist import kdist  # pyright: ignore[reportPrivateImportUsage]
+
+            llvm_dir = kdist.get("bitcoin-script-semantics.llvm")
+            compiled = llvm_dir / "compiled.bin"
+            if not compiled.exists():
+                needs_rebuild = True
+            else:
+                newest_source = max(f.stat().st_mtime for f in k_sources)
+                needs_rebuild = newest_source > compiled.stat().st_mtime
+        except Exception:
+            needs_rebuild = True
+
+        if not needs_rebuild:
+            return
+
+        _LOGGER.info("K source files changed, rebuilding...")
+        subprocess.run(
+            [
+                "kdist",
+                "build",
+                "--force",
+                "bitcoin-script-semantics.source",
+                "bitcoin-script-semantics.llvm",
+            ],
+            check=True,
         )
 
     @staticmethod
@@ -76,7 +112,11 @@ class ScriptDist:
 @final
 @dataclass(frozen=True)
 class KBitcoinScript:
-    """Main interface for K-Python communication for Bitcoin Script."""
+    """Main interface for K-Python communication for Bitcoin Script.
+
+    All scripts are passed as raw bytes via config variables.
+    The K semantics handles multi-phase execution (scriptSig -> scriptPubKey -> P2SH redeem).
+    """
 
     dist: ScriptDist
 
@@ -104,25 +144,85 @@ class KBitcoinScript:
             definition_dir=self.dist.llvm_dir, pattern=pattern, depth=depth
         )
 
-    def pattern(self, script_text: str) -> Pattern:
-        """Build an initial KORE configuration from script ASM text.
+    def verify_script(
+        self,
+        script_pubkey: bytes,
+        *,
+        script_sig: bytes = b"",
+        sighash: bytes = b"",
+        timestamp: int = 0,
+        witness: bytes = b"",
+    ) -> Pattern:
+        """Build and run a full script verification.
 
         Args:
-            script_text: Script as ASM text (e.g. "OP_DUP OP_ADD").
+            script_pubkey: The scriptPubKey bytes.
+            script_sig: The scriptSig bytes (empty for scriptPubKey-only execution).
+            sighash: 32-byte transaction digest for signature verification.
+            timestamp: Block timestamp (for BIP-16 P2SH activation >= 1333238400).
+            witness: Witness data (reserved for future SegWit support).
+
+        Returns:
+            The final KORE pattern after execution.
+        """
+        pat = self.pattern(
+            script_sig=script_sig,
+            script_pubkey=script_pubkey,
+            sighash=sighash,
+            timestamp=timestamp,
+            witness=witness,
+        )
+        return self.run(pat)
+
+    def pattern(
+        self,
+        *,
+        script_sig: bytes = b"",
+        script_pubkey: bytes = b"",
+        sighash: bytes = b"",
+        timestamp: int = 0,
+        witness: bytes = b"",
+    ) -> Pattern:
+        """Build an initial KORE configuration.
+
+        Args:
+            script_sig: The scriptSig bytes (empty for scriptPubKey-only execution).
+            script_pubkey: The scriptPubKey bytes.
+            sighash: 32-byte transaction digest for signature verification.
+            timestamp: Block timestamp (for BIP-16 P2SH activation >= 1333238400).
+            witness: Witness data (reserved for future SegWit support).
+
+        Returns:
+            The initial KORE pattern.
         """
         from pyk.kore.prelude import SORT_K_ITEM, inj, top_cell_initializer
-        from pyk.kore.syntax import SortApp
+        from pyk.kore.syntax import DV, SortApp, String
 
-        pgm_pattern = self.parse(script_text)
+        # We need to provide all config variables, each injected into SortKItem
+
+        sort_bytes = SortApp("SortBytes")
+        sort_int = SortApp("SortInt")
+
+        def _bytes_var(data: bytes) -> Pattern:
+            return inj(
+                sort_bytes, SORT_K_ITEM, DV(sort_bytes, String(data.decode("latin-1")))
+            )
+
+        def _int_var(val: int) -> Pattern:
+            return inj(sort_int, SORT_K_ITEM, DV(sort_int, String(str(val))))
 
         return top_cell_initializer(
             {
-                "$PGM": inj(SortApp("SortScript"), SORT_K_ITEM, pgm_pattern),
+                "$SCRIPTSIG": _bytes_var(script_sig),
+                "$SCRIPTPUBKEY": _bytes_var(script_pubkey),
+                "$SIGHASH": _bytes_var(sighash),
+                "$TIMESTAMP": _int_var(timestamp),
+                "$WITNESS": _bytes_var(witness),
             }
         )
 
     def parse(self, script_text: str) -> Pattern:
-        """Parse script ASM text into a KORE term via the LLVM parser."""
+        """Parse script text into a KORE term via the LLVM parser."""
         from subprocess import CalledProcessError
 
         from pyk.kore.parser import KoreParser

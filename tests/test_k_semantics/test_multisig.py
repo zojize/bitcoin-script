@@ -9,13 +9,9 @@ from ecdsa import SECP256k1, SigningKey
 from ecdsa.util import sigencode_der
 
 from bitcoin_script.k_semantics import KBitcoinScript
+from .script_helpers import script, push
 
 pytestmark = pytest.mark.k
-
-
-@pytest.fixture(scope="session")
-def k() -> KBitcoinScript:
-    return KBitcoinScript()
 
 
 # --- Key material ---
@@ -43,49 +39,25 @@ def _sign_der(privkey: bytes, msg_hash: bytes) -> bytes:
     return sig_der + b"\x01"
 
 
-def _push_sig(sig: bytes) -> str:
-    return f"OP_PUSHBYTES_{len(sig)} {sig.hex()}"
-
-
-def _multisig_script(
-    sighash: bytes,
-    sigs: list[bytes],
-    pubkeys: list[bytes],
-    m: int,
-    n: int,
-) -> str:
-    """Build a complete multisig script string.
-
-    Stack layout: sighash dummy sig1..sigM OP_M pk1..pkN OP_N OP_CHECKMULTISIG
-    """
-    parts = [f"OP_PUSHBYTES_32 {sighash.hex()}", "OP_0"]  # sighash + dummy
-    for sig in sigs:
-        parts.append(_push_sig(sig))
-    parts.append(f"OP_{m}")
-    for pk in pubkeys:
-        parts.append(f"OP_PUSHBYTES_65 {pk.hex()}")
-    parts.append(f"OP_{n}")
-    parts.append("OP_CHECKMULTISIG")
-    return " ".join(parts)
-
-
 class TestOpNumberPush:
     """OP_0 through OP_16 push their numeric value as CScriptNum bytes."""
 
     def test_op_0(self, k: KBitcoinScript) -> None:
-        result = k.run(k.pattern("OP_0"))
+        result = k.verify_script(script_pubkey=script("OP_0"))
         assert not k.is_stuck(result)
         assert k.stack(result) == [b""]
 
     @pytest.mark.parametrize("n", range(1, 17))
     def test_op_n(self, k: KBitcoinScript, n: int) -> None:
-        result = k.run(k.pattern(f"OP_{n}"))
+        result = k.verify_script(script_pubkey=script(f"OP_{n}"))
         assert not k.is_stuck(result)
         assert k.stack(result) == [n.to_bytes(1, "little")]
 
     def test_op_numbers_compose(self, k: KBitcoinScript) -> None:
         """OP_3 OP_4 OP_ADD => 7"""
-        result = k.run(k.pattern("OP_3 OP_4 OP_ADD"))
+        result = k.verify_script(
+            script_pubkey=script("OP_3", "OP_4", "OP_ADD"),
+        )
         assert not k.is_stuck(result)
         assert k.stack(result) == [b"\x07"]
 
@@ -96,8 +68,13 @@ class TestOpCheckMultisig:
     def test_1_of_1(self, k: KBitcoinScript) -> None:
         msg_hash = hashlib.sha256(b"1of1").digest()
         sig1 = _sign_der(PRIVKEY_1, msg_hash)
-        script = _multisig_script(msg_hash, [sig1], [PUBKEY_1], m=1, n=1)
-        result = k.run(k.pattern(script))
+        result = k.verify_script(
+            script_sig=script("OP_0", push(sig1.hex())),
+            script_pubkey=script(
+                "OP_1", push(PUBKEY_1.hex()), "OP_1", "OP_CHECKMULTISIG",
+            ),
+            sighash=msg_hash,
+        )
         assert not k.is_stuck(result)
         assert k.success(result)
         assert k.stack(result) == [b"\x01"]
@@ -105,16 +82,30 @@ class TestOpCheckMultisig:
     def test_1_of_2_first_key(self, k: KBitcoinScript) -> None:
         msg_hash = hashlib.sha256(b"1of2-first").digest()
         sig1 = _sign_der(PRIVKEY_1, msg_hash)
-        script = _multisig_script(msg_hash, [sig1], [PUBKEY_1, PUBKEY_2], m=1, n=2)
-        result = k.run(k.pattern(script))
+        result = k.verify_script(
+            script_sig=script("OP_0", push(sig1.hex())),
+            script_pubkey=script(
+                "OP_1",
+                push(PUBKEY_1.hex()), push(PUBKEY_2.hex()),
+                "OP_2", "OP_CHECKMULTISIG",
+            ),
+            sighash=msg_hash,
+        )
         assert not k.is_stuck(result)
         assert k.stack(result) == [b"\x01"]
 
     def test_1_of_2_second_key(self, k: KBitcoinScript) -> None:
         msg_hash = hashlib.sha256(b"1of2-second").digest()
         sig2 = _sign_der(PRIVKEY_2, msg_hash)
-        script = _multisig_script(msg_hash, [sig2], [PUBKEY_1, PUBKEY_2], m=1, n=2)
-        result = k.run(k.pattern(script))
+        result = k.verify_script(
+            script_sig=script("OP_0", push(sig2.hex())),
+            script_pubkey=script(
+                "OP_1",
+                push(PUBKEY_1.hex()), push(PUBKEY_2.hex()),
+                "OP_2", "OP_CHECKMULTISIG",
+            ),
+            sighash=msg_hash,
+        )
         assert not k.is_stuck(result)
         assert k.stack(result) == [b"\x01"]
 
@@ -122,10 +113,15 @@ class TestOpCheckMultisig:
         msg_hash = hashlib.sha256(b"2of2").digest()
         sig1 = _sign_der(PRIVKEY_1, msg_hash)
         sig2 = _sign_der(PRIVKEY_2, msg_hash)
-        script = _multisig_script(
-            msg_hash, [sig1, sig2], [PUBKEY_1, PUBKEY_2], m=2, n=2
+        result = k.verify_script(
+            script_sig=script("OP_0", push(sig1.hex()), push(sig2.hex())),
+            script_pubkey=script(
+                "OP_2",
+                push(PUBKEY_1.hex()), push(PUBKEY_2.hex()),
+                "OP_2", "OP_CHECKMULTISIG",
+            ),
+            sighash=msg_hash,
         )
-        result = k.run(k.pattern(script))
         assert not k.is_stuck(result)
         assert k.stack(result) == [b"\x01"]
 
@@ -134,10 +130,15 @@ class TestOpCheckMultisig:
         msg_hash = hashlib.sha256(b"2of3").digest()
         sig1 = _sign_der(PRIVKEY_1, msg_hash)
         sig3 = _sign_der(PRIVKEY_3, msg_hash)
-        script = _multisig_script(
-            msg_hash, [sig1, sig3], [PUBKEY_1, PUBKEY_2, PUBKEY_3], m=2, n=3
+        result = k.verify_script(
+            script_sig=script("OP_0", push(sig1.hex()), push(sig3.hex())),
+            script_pubkey=script(
+                "OP_2",
+                push(PUBKEY_1.hex()), push(PUBKEY_2.hex()), push(PUBKEY_3.hex()),
+                "OP_3", "OP_CHECKMULTISIG",
+            ),
+            sighash=msg_hash,
         )
-        result = k.run(k.pattern(script))
         assert not k.is_stuck(result)
         assert k.stack(result) == [b"\x01"]
 
@@ -145,10 +146,15 @@ class TestOpCheckMultisig:
         msg_hash = hashlib.sha256(b"2of3-23").digest()
         sig2 = _sign_der(PRIVKEY_2, msg_hash)
         sig3 = _sign_der(PRIVKEY_3, msg_hash)
-        script = _multisig_script(
-            msg_hash, [sig2, sig3], [PUBKEY_1, PUBKEY_2, PUBKEY_3], m=2, n=3
+        result = k.verify_script(
+            script_sig=script("OP_0", push(sig2.hex()), push(sig3.hex())),
+            script_pubkey=script(
+                "OP_2",
+                push(PUBKEY_1.hex()), push(PUBKEY_2.hex()), push(PUBKEY_3.hex()),
+                "OP_3", "OP_CHECKMULTISIG",
+            ),
+            sighash=msg_hash,
         )
-        result = k.run(k.pattern(script))
         assert not k.is_stuck(result)
         assert k.stack(result) == [b"\x01"]
 
@@ -156,8 +162,13 @@ class TestOpCheckMultisig:
         """1-of-1 with a signature from the wrong key."""
         msg_hash = hashlib.sha256(b"wrong-sig").digest()
         wrong_sig = _sign_der(PRIVKEY_2, msg_hash)
-        script = _multisig_script(msg_hash, [wrong_sig], [PUBKEY_1], m=1, n=1)
-        result = k.run(k.pattern(script))
+        result = k.verify_script(
+            script_sig=script("OP_0", push(wrong_sig.hex())),
+            script_pubkey=script(
+                "OP_1", push(PUBKEY_1.hex()), "OP_1", "OP_CHECKMULTISIG",
+            ),
+            sighash=msg_hash,
+        )
         assert not k.is_stuck(result)
         assert k.stack(result) == [b""]
 
@@ -170,10 +181,15 @@ class TestOpCheckMultisig:
         msg_hash = hashlib.sha256(b"wrong-order").digest()
         sig1 = _sign_der(PRIVKEY_1, msg_hash)
         sig2 = _sign_der(PRIVKEY_2, msg_hash)
-        script = _multisig_script(
-            msg_hash, [sig2, sig1], [PUBKEY_1, PUBKEY_2], m=2, n=2
+        result = k.verify_script(
+            script_sig=script("OP_0", push(sig2.hex()), push(sig1.hex())),
+            script_pubkey=script(
+                "OP_2",
+                push(PUBKEY_1.hex()), push(PUBKEY_2.hex()),
+                "OP_2", "OP_CHECKMULTISIG",
+            ),
+            sighash=msg_hash,
         )
-        result = k.run(k.pattern(script))
         assert not k.is_stuck(result)
         assert k.stack(result) == [b""]
 
@@ -183,13 +199,20 @@ class TestOpCheckMultisig:
         sig1 = _sign_der(PRIVKEY_1, msg_hash)
         bad_privkey = (99).to_bytes(32, "big")
         bad_sig = _sign_der(bad_privkey, msg_hash)
-        script = _multisig_script(
-            msg_hash, [sig1, bad_sig], [PUBKEY_1, PUBKEY_2, PUBKEY_3], m=2, n=3
+        result = k.verify_script(
+            script_sig=script("OP_0", push(sig1.hex()), push(bad_sig.hex())),
+            script_pubkey=script(
+                "OP_2",
+                push(PUBKEY_1.hex()), push(PUBKEY_2.hex()), push(PUBKEY_3.hex()),
+                "OP_3", "OP_CHECKMULTISIG",
+            ),
+            sighash=msg_hash,
         )
-        result = k.run(k.pattern(script))
         assert not k.is_stuck(result)
         assert k.stack(result) == [b""]
 
     def test_empty_stack_stuck(self, k: KBitcoinScript) -> None:
-        result = k.run(k.pattern("OP_CHECKMULTISIG"))
+        result = k.verify_script(
+            script_pubkey=script("OP_CHECKMULTISIG"),
+        )
         assert k.is_stuck(result)
