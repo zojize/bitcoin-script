@@ -11,21 +11,25 @@ def extract_pubkey_hash(script_pubkey: CScript) -> bytes:
     Raises:
         ValueError: If the script is not a valid P2WPKH template.
     """
-    ...
+    r = bytes(script_pubkey)
+    if len(r) != 22 or r[0] != 0x00 or r[1] != 0x14:
+        raise ValueError("Not a P2WPKH scriptPubKey")
+    return r[2:]
 
 
 def create_script_pubkey(pubkey_hash: bytes) -> CScript:
-    """Create a P2WPKH scriptPubKey from a 20-byte public key hash.
-
-    Returns: OP_0 <pubkey_hash>
-    """
-    ...
+    """Create a P2WPKH scriptPubKey: OP_0 <pubkey_hash>"""
+    if len(pubkey_hash) != 20:
+        raise ValueError("pubkey_hash must be 20 bytes")
+    return CScript(b"\x00\x14" + pubkey_hash)
 
 
 def witness_to_script_code(pubkey_hash: bytes) -> bytes:
-    """Create the script code used in BIP143 sighash for P2WPKH.
+    """Create the BIP143 script code for P2WPKH sighash computation.
 
     Returns: OP_DUP OP_HASH160 <pubkey_hash> OP_EQUALVERIFY OP_CHECKSIG
-    (Same as P2PKH scriptPubKey)
+    (identical to a P2PKH scriptPubKey)
     """
-    ...
+    if len(pubkey_hash) != 20:
+        raise ValueError("pubkey_hash must be 20 bytes")
+    return b"\x76\xa9\x14" + pubkey_hash + b"\x88\xac"
