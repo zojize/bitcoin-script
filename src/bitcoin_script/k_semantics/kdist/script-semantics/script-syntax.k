@@ -60,6 +60,9 @@ module SCRIPT-SYNTAX
                   | "OP_CODESEPARATOR"
                   | "OP_CHECKSIGVERIFY"
                   | "OP_CHECKMULTISIGVERIFY"
+                  // NOP variants (OP_NOP2 = CHECKLOCKTIMEVERIFY, OP_NOP3 = CHECKSEQUENCEVERIFY)
+                  | "OP_NOP1" | "OP_NOP2" | "OP_NOP3" | "OP_NOP4" | "OP_NOP5"
+                  | "OP_NOP6" | "OP_NOP7" | "OP_NOP8" | "OP_NOP9" | "OP_NOP10"
 
   // --- Script is a sequence of opcodes (whitespace-separated) ---
   syntax Script ::= OpCode | Script Script [left]

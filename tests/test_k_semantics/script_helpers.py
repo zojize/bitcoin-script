@@ -94,6 +94,47 @@ OPCODES: dict[str, str] = {
     "OP_CHECKSIGVERIFY": "ad",
     "OP_CHECKMULTISIG": "ae",
     "OP_CHECKMULTISIGVERIFY": "af",
+    # NOP variants
+    "OP_NOP1": "b0",
+    "OP_NOP2": "b1",
+    "OP_NOP3": "b2",
+    "OP_NOP4": "b3",
+    "OP_NOP5": "b4",
+    "OP_NOP6": "b5",
+    "OP_NOP7": "b6",
+    "OP_NOP8": "b7",
+    "OP_NOP9": "b8",
+    "OP_NOP10": "b9",
+    # Timelock (aliases for NOP2/NOP3)
+    "OP_CHECKLOCKTIMEVERIFY": "b1",
+    "OP_CHECKSEQUENCEVERIFY": "b2",
+    # PUSHDATA
+    "OP_PUSHDATA1": "4c",
+    "OP_PUSHDATA2": "4d",
+    "OP_PUSHDATA4": "4e",
+    # Disabled opcodes
+    "OP_CAT": "7e",
+    "OP_SUBSTR": "7f",
+    "OP_LEFT": "80",
+    "OP_RIGHT": "81",
+    "OP_INVERT": "83",
+    "OP_AND": "84",
+    "OP_OR": "85",
+    "OP_XOR": "86",
+    "OP_2MUL": "8d",
+    "OP_2DIV": "8e",
+    "OP_MUL": "95",
+    "OP_DIV": "96",
+    "OP_MOD": "97",
+    "OP_LSHIFT": "98",
+    "OP_RSHIFT": "99",
+    # Reserved
+    "OP_RESERVED": "50",
+    "OP_VER": "62",
+    "OP_VERIF": "65",
+    "OP_VERNOTIF": "66",
+    "OP_RESERVED1": "89",
+    "OP_RESERVED2": "8a",
 }
 
 

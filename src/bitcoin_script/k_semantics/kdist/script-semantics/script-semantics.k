@@ -17,6 +17,9 @@ module SCRIPT-SEMANTICS
   imports LIST
   imports BYTES
 
+  // --- Phase sort ---
+  syntax Phase ::= "scriptSig" | "scriptPubKey" | "p2sh-redeem" | "done"
+
   // --- Configuration ---
   configuration
     <T>
@@ -24,7 +27,7 @@ module SCRIPT-SEMANTICS
       <stack> .List </stack>
       <altstack> .List </altstack>
       <exec> .List </exec>
-      <phase> "scriptSig":String </phase>
+      <phase> scriptSig </phase>
       <sighash> $SIGHASH:Bytes </sighash>
       <timestamp> $TIMESTAMP:Int </timestamp>
       <scriptSigBytes> $SCRIPTSIG:Bytes </scriptSigBytes>
@@ -49,7 +52,7 @@ module SCRIPT-SEMANTICS
   rule <k> #init => #decodeScript(PK) ~> #phaseComplete ...</k>
        <scriptSigBytes> SIG </scriptSigBytes>
        <scriptPubKeyBytes> PK </scriptPubKeyBytes>
-       <phase> _ => "scriptPubKey" </phase>
+       <phase> _ => scriptPubKey </phase>
     requires lengthBytes(SIG) ==Int 0
 
   // =========================================================================
@@ -58,7 +61,7 @@ module SCRIPT-SEMANTICS
 
   // After scriptSig completes: save stack if P2SH, then run scriptPubKey
   rule <k> #phaseComplete => #decodeScript(PK) ~> #phaseComplete ...</k>
-       <phase> "scriptSig" => "scriptPubKey" </phase>
+       <phase> scriptSig => scriptPubKey </phase>
        <scriptPubKeyBytes> PK </scriptPubKeyBytes>
        <stack> ST </stack>
        <savedStack> _ => ST </savedStack>
@@ -66,14 +69,14 @@ module SCRIPT-SEMANTICS
     requires #isP2SH(PK) andBool TS >=Int 1333238400
 
   rule <k> #phaseComplete => #decodeScript(PK) ~> #phaseComplete ...</k>
-       <phase> "scriptSig" => "scriptPubKey" </phase>
+       <phase> scriptSig => scriptPubKey </phase>
        <scriptPubKeyBytes> PK </scriptPubKeyBytes>
        <timestamp> TS </timestamp>
     requires notBool #isP2SH(PK) orBool TS <Int 1333238400
 
   // After scriptPubKey completes, NOT P2SH: done
   rule <k> #phaseComplete => .K ...</k>
-       <phase> "scriptPubKey" => "done" </phase>
+       <phase> scriptPubKey => done </phase>
        <scriptPubKeyBytes> PK </scriptPubKeyBytes>
        <timestamp> TS </timestamp>
     requires notBool #isP2SH(PK) orBool TS <Int 1333238400
@@ -81,7 +84,7 @@ module SCRIPT-SEMANTICS
   // After scriptPubKey completes, IS P2SH, scriptPubKey succeeded:
   // restore saved stack, pop redeem script, decode and execute it
   rule <k> #phaseComplete => #decodeScript(REDEEM) ~> #phaseComplete ...</k>
-       <phase> "scriptPubKey" => "p2sh-redeem" </phase>
+       <phase> scriptPubKey => p2sh-redeem </phase>
        <scriptPubKeyBytes> PK </scriptPubKeyBytes>
        <timestamp> TS </timestamp>
        <stack> ListItem(V:Bytes) _ => REST </stack>
@@ -94,7 +97,7 @@ module SCRIPT-SEMANTICS
   // After scriptPubKey completes, IS P2SH, but scriptPubKey FAILED (stack top falsy):
   // do not execute redeem script, just finish
   rule <k> #phaseComplete => .K ...</k>
-       <phase> "scriptPubKey" => "done" </phase>
+       <phase> scriptPubKey => done </phase>
        <stack> ListItem(V:Bytes) _ </stack>
        <scriptPubKeyBytes> PK </scriptPubKeyBytes>
        <timestamp> TS </timestamp>
@@ -105,7 +108,7 @@ module SCRIPT-SEMANTICS
 
   // After p2sh-redeem completes: done
   rule <k> #phaseComplete => .K ...</k>
-       <phase> "p2sh-redeem" => "done" </phase>
+       <phase> p2sh-redeem => done </phase>
 
   // =========================================================================
   // P2SH detection and push-only check
@@ -125,12 +128,32 @@ module SCRIPT-SEMANTICS
   rule #isPushOnly(B) => true
     requires lengthBytes(B) ==Int 0
 
+  // PUSHBYTES_1 through PUSHBYTES_75: skip 1 + N bytes
   rule #isPushOnly(B) => #isPushOnly(substrBytes(B, 1 +Int #scriptByte(B), lengthBytes(B)))
     requires lengthBytes(B) >Int 0
      andBool #scriptByte(B) >=Int 1
      andBool #scriptByte(B) <=Int 75
      andBool lengthBytes(B) >Int #scriptByte(B)
 
+  // PUSHDATA1 (0x4c = 76): skip 1 (opcode) + 1 (length byte) + N (data)
+  rule #isPushOnly(B) => #isPushOnly(substrBytes(B, 2 +Int Bytes2Int(substrBytes(B, 1, 2), BE, Unsigned), lengthBytes(B)))
+    requires lengthBytes(B) >Int 1
+     andBool #scriptByte(B) ==Int 76
+     andBool lengthBytes(B) >=Int 2 +Int Bytes2Int(substrBytes(B, 1, 2), BE, Unsigned)
+
+  // PUSHDATA2 (0x4d = 77): skip 1 + 2 (LE length) + N
+  rule #isPushOnly(B) => #isPushOnly(substrBytes(B, 3 +Int Bytes2Int(substrBytes(B, 1, 3), LE, Unsigned), lengthBytes(B)))
+    requires lengthBytes(B) >Int 2
+     andBool #scriptByte(B) ==Int 77
+     andBool lengthBytes(B) >=Int 3 +Int Bytes2Int(substrBytes(B, 1, 3), LE, Unsigned)
+
+  // PUSHDATA4 (0x4e = 78): skip 1 + 4 (LE length) + N
+  rule #isPushOnly(B) => #isPushOnly(substrBytes(B, 5 +Int Bytes2Int(substrBytes(B, 1, 5), LE, Unsigned), lengthBytes(B)))
+    requires lengthBytes(B) >Int 4
+     andBool #scriptByte(B) ==Int 78
+     andBool lengthBytes(B) >=Int 5 +Int Bytes2Int(substrBytes(B, 1, 5), LE, Unsigned)
+
+  // OP_0, OP_1NEGATE, OP_1..OP_16
   rule #isPushOnly(B) => #isPushOnly(#scriptTail(B))
     requires lengthBytes(B) >Int 0
      andBool ( #scriptByte(B) ==Int 0
@@ -182,6 +205,33 @@ module SCRIPT-SEMANTICS
        <exec> EX </exec>
     requires lengthBytes(B) >=Int N
      andBool #allTrue(EX)
+
+  // OP_PUSHDATA1 (0x4c = 76): next byte is length, then that many bytes of data
+  rule <k> #decodeScript(B) =>
+      #decodePush(
+        Bytes2Int(substrBytes(B, 1, 2), BE, Unsigned),
+        substrBytes(B, 2, lengthBytes(B))
+      ) ...</k>
+    requires lengthBytes(B) >Int 1
+     andBool #scriptByte(B) ==Int 76
+
+  // OP_PUSHDATA2 (0x4d = 77): next 2 bytes (LE) are length, then data
+  rule <k> #decodeScript(B) =>
+      #decodePush(
+        Bytes2Int(substrBytes(B, 1, 3), LE, Unsigned),
+        substrBytes(B, 3, lengthBytes(B))
+      ) ...</k>
+    requires lengthBytes(B) >Int 2
+     andBool #scriptByte(B) ==Int 77
+
+  // OP_PUSHDATA4 (0x4e = 78): next 4 bytes (LE) are length, then data
+  rule <k> #decodeScript(B) =>
+      #decodePush(
+        Bytes2Int(substrBytes(B, 1, 5), LE, Unsigned),
+        substrBytes(B, 5, lengthBytes(B))
+      ) ...</k>
+    requires lengthBytes(B) >Int 4
+     andBool #scriptByte(B) ==Int 78
 
   // OP_1NEGATE (0x4f = 79)
   rule <k> #decodeScript(B) => OP_1NEGATE ~> #decodeScript(#scriptTail(B)) ...</k>
@@ -457,6 +507,46 @@ module SCRIPT-SEMANTICS
   rule <k> #decodeScript(B) => OP_CHECKMULTISIGVERIFY ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 175
 
+  // OP_NOP1 (0xb0 = 176)
+  rule <k> #decodeScript(B) => OP_NOP1 ~> #decodeScript(#scriptTail(B)) ...</k>
+    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 176
+
+  // OP_NOP2 / OP_CHECKLOCKTIMEVERIFY (0xb1 = 177)
+  rule <k> #decodeScript(B) => OP_NOP2 ~> #decodeScript(#scriptTail(B)) ...</k>
+    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 177
+
+  // OP_NOP3 / OP_CHECKSEQUENCEVERIFY (0xb2 = 178)
+  rule <k> #decodeScript(B) => OP_NOP3 ~> #decodeScript(#scriptTail(B)) ...</k>
+    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 178
+
+  // OP_NOP4 (0xb3 = 179)
+  rule <k> #decodeScript(B) => OP_NOP4 ~> #decodeScript(#scriptTail(B)) ...</k>
+    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 179
+
+  // OP_NOP5 (0xb4 = 180)
+  rule <k> #decodeScript(B) => OP_NOP5 ~> #decodeScript(#scriptTail(B)) ...</k>
+    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 180
+
+  // OP_NOP6 (0xb5 = 181)
+  rule <k> #decodeScript(B) => OP_NOP6 ~> #decodeScript(#scriptTail(B)) ...</k>
+    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 181
+
+  // OP_NOP7 (0xb6 = 182)
+  rule <k> #decodeScript(B) => OP_NOP7 ~> #decodeScript(#scriptTail(B)) ...</k>
+    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 182
+
+  // OP_NOP8 (0xb7 = 183)
+  rule <k> #decodeScript(B) => OP_NOP8 ~> #decodeScript(#scriptTail(B)) ...</k>
+    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 183
+
+  // OP_NOP9 (0xb8 = 184)
+  rule <k> #decodeScript(B) => OP_NOP9 ~> #decodeScript(#scriptTail(B)) ...</k>
+    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 184
+
+  // OP_NOP10 (0xb9 = 185)
+  rule <k> #decodeScript(B) => OP_NOP10 ~> #decodeScript(#scriptTail(B)) ...</k>
+    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 185
+
   // =========================================================================
   // OP_PUSHBYTES_* (ASM syntax — shared implementation via #pushBytes)
   // =========================================================================
@@ -525,6 +615,18 @@ module SCRIPT-SEMANTICS
   rule <k> OP_NOP => .K ...</k>
        <exec> EX </exec>
     requires #allTrue(EX)
+
+  // OP_NOP1-NOP10: all no-ops (NOP2/NOP3 = CLTV/CSV, treated as NOP pre-softfork)
+  rule <k> OP_NOP1  => .K ...</k> <exec> EX </exec> requires #allTrue(EX)
+  rule <k> OP_NOP2  => .K ...</k> <exec> EX </exec> requires #allTrue(EX)
+  rule <k> OP_NOP3  => .K ...</k> <exec> EX </exec> requires #allTrue(EX)
+  rule <k> OP_NOP4  => .K ...</k> <exec> EX </exec> requires #allTrue(EX)
+  rule <k> OP_NOP5  => .K ...</k> <exec> EX </exec> requires #allTrue(EX)
+  rule <k> OP_NOP6  => .K ...</k> <exec> EX </exec> requires #allTrue(EX)
+  rule <k> OP_NOP7  => .K ...</k> <exec> EX </exec> requires #allTrue(EX)
+  rule <k> OP_NOP8  => .K ...</k> <exec> EX </exec> requires #allTrue(EX)
+  rule <k> OP_NOP9  => .K ...</k> <exec> EX </exec> requires #allTrue(EX)
+  rule <k> OP_NOP10 => .K ...</k> <exec> EX </exec> requires #allTrue(EX)
 
   // =========================================================================
   // OP_VERIFY: pop top, continue if truthy, get stuck if falsy
