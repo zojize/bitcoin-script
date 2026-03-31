@@ -237,9 +237,7 @@ def classify_vector(entry: list) -> str | None:
     if expected in _RESOURCE_ERRORS:
         return f"resource limit: {expected}"
 
-    # --- SCRIPTNUM: 4-byte integer range not enforced ---
-    if expected == "SCRIPTNUM":
-        return "SCRIPTNUM range not enforced"
+    # (SCRIPTNUM range is now enforced via scriptNumToInt <=4 byte check)
 
     # --- Locktime errors ---
     if expected in ("UNSATISFIED_LOCKTIME", "NEGATIVE_LOCKTIME"):
@@ -253,15 +251,7 @@ def classify_vector(entry: list) -> str | None:
     if expected.startswith("WITNESS"):
         return f"witness: {expected}"
 
-    # --- 5-byte integer results: K #intToBytes may crash or differ from CScriptNum ---
-    # Arithmetic on max-int values produces >4-byte results that K can't handle
-    if expected == "OK":
-        for big in ("4294967294", "-4294967294", "2147483648", "-2147483648"):
-            if big in tokens:
-                return "5-byte integer encoding mismatch"
-        # Also catch "1ADD" on 2147483647 which produces 2147483648
-        if "2147483647" in tokens and "1ADD" in tokens:
-            return "5-byte integer from 1ADD overflow"
+    # (5-byte integer encoding now supported via intToScriptNumAbs 5-byte rule)
 
     # --- Flag-based enforcement we don't do ---
     if "DISCOURAGE_UPGRADABLE_NOPS" in flags and expected != "OK":

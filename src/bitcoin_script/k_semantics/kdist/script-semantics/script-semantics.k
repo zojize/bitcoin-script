@@ -797,6 +797,7 @@ module SCRIPT-SEMANTICS
   rule <k> OP_ADD => .K ...</k>
        <stack> ListItem(A:Bytes) ListItem(B:Bytes) ST
             => ListItem(intToScriptNum(scriptNumToInt(A) +Int scriptNumToInt(B))) ST </stack>
+    requires validNum(A) andBool validNum(B)
 
   // =========================================================================
   // OP_HASH160: RIPEMD160(SHA256(data))
@@ -866,6 +867,7 @@ module SCRIPT-SEMANTICS
   // Step 1: Pop N from stack (CScriptNum), begin collecting pubkeys
   rule <k> OP_CHECKMULTISIG => #collectPubKeys(scriptNumToInt(N), .List) ...</k>
        <stack> ListItem(N:Bytes) ST => ST </stack>
+    requires validNum(N)
 
   // Step 2a: Pop one pubkey, prepend to collected list
   rule <k> #collectPubKeys(N, PKs) => #collectPubKeys(N -Int 1, ListItem(PK) PKs) ...</k>
@@ -875,6 +877,7 @@ module SCRIPT-SEMANTICS
   // Step 2b: All N pubkeys collected; pop M (CScriptNum) and begin collecting sigs
   rule <k> #collectPubKeys(0, PKs) => #collectSigs(scriptNumToInt(M), PKs, .List) ...</k>
        <stack> ListItem(M:Bytes) ST => ST </stack>
+    requires validNum(M)
 
   // Step 3a: Pop one sig, prepend to collected list
   rule <k> #collectSigs(M, PKs, Sigs) => #collectSigs(M -Int 1, PKs, ListItem(SIG) Sigs) ...</k>

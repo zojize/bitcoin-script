@@ -68,6 +68,7 @@ module SCRIPT-STACK
 
   rule <k> OP_PICK => #pick(scriptNumToInt(N), .List, ST) ...</k>
        <stack> ListItem(N:Bytes) ST => .List </stack>
+    requires validNum(N)
 
   // Found the item at depth 0
   rule <k> #pick(0, Skipped, ListItem(V) REST) => .K ...</k>
@@ -86,6 +87,7 @@ module SCRIPT-STACK
 
   rule <k> OP_ROLL => #roll(scriptNumToInt(N), .List, ST) ...</k>
        <stack> ListItem(N:Bytes) ST => .List </stack>
+    requires validNum(N)
 
   // Found the item at depth 0 — remove from original position
   rule <k> #roll(0, Skipped, ListItem(V) REST) => .K ...</k>

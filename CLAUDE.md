@@ -40,7 +40,7 @@ tests/
 - **K Framework** (`pyk` library) for formal semantics, compiled to LLVM backend
 - **blockchain-k-plugin** for crypto hooks (SHA256, RIPEMD160, ECDSA)
 - **pytest** for testing, **ruff** for linting/formatting, **pyright** for type checking
-- **just** as task runner (`justfile`)
+- **just** as task runner (`justfile`); all tools run via `uv run`
 
 ## Key commands
 

@@ -21,6 +21,8 @@ module SCRIPT-NUM
   // =========================================================================
 
   // --- Decode: Bytes -> Int ---
+  // NOTE: scriptNumToInt must be total (LLVM backend crashes on partial functions).
+  // The 4-byte limit (nMaxNumSize) is enforced at the opcode rule level, not here.
   syntax Int ::= scriptNumToInt(Bytes) [function]
 
   // Empty bytes = 0
@@ -40,6 +42,10 @@ module SCRIPT-NUM
         LE, Unsigned)
     requires lengthBytes(B) >Int 0
      andBool Bytes2Int(substrBytes(B, lengthBytes(B) -Int 1, lengthBytes(B)), BE, Unsigned) &Int 128 =/=Int 0
+
+  // --- 4-byte limit predicate (used by opcode rules) ---
+  syntax Bool ::= validNum(Bytes) [function, total]
+  rule validNum(B) => lengthBytes(B) <=Int 4
 
   // --- Encode: Int -> Bytes ---
   syntax Bytes ::= intToScriptNum(Int) [function]
@@ -82,6 +88,10 @@ module SCRIPT-NUM
   rule intToScriptNumAbs(I) => Int2Bytes(4, I, LE)
     requires I >=Int 8388608 andBool I <Int 2147483648
      andBool I &Int 2147483648 ==Int 0
+
+  // 5 bytes: value needs 4 unsigned bytes but high bit (bit 31) is set
+  rule intToScriptNumAbs(I) => Int2Bytes(4, I, LE) +Bytes Int2Bytes(1, 0, BE)
+    requires I >=Int 2147483648 andBool I <Int 4294967296
 
   // Set the sign bit (high bit of last byte) for negative encoding
   syntax Bytes ::= "#setSignBit" "(" Bytes ")" [function]
