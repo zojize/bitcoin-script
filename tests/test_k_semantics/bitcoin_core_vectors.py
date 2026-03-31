@@ -204,10 +204,9 @@ _FLAG_ERRORS = {
     "SIG_NULLDUMMY", "SIG_NULLFAIL",
 }
 
-# Resource limit errors we don't enforce
+# Resource limit errors we don't enforce (STACK_SIZE still pending)
 _RESOURCE_ERRORS = {
-    "PUSH_SIZE", "OP_COUNT", "STACK_SIZE", "SCRIPT_SIZE",
-    "PUBKEY_COUNT", "SIG_COUNT",
+    "STACK_SIZE",
 }
 
 
