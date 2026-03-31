@@ -178,7 +178,7 @@ def _int_to_scriptnum_hex(n: int) -> str:
     absval = abs(n)
 
     # Encode as little-endian bytes
-    result = []
+    result: list[int] = []
     while absval > 0:
         result.append(absval & 0xFF)
         absval >>= 8

@@ -60,23 +60,30 @@ module SCRIPT-SEMANTICS
   // =========================================================================
 
   // After scriptSig completes: save stack if P2SH, then run scriptPubKey
+  // Altstack is cleared between phases; exec stack must be empty (balanced IF/ENDIF)
   rule <k> #phaseComplete => #decodeScript(PK) ~> #phaseComplete ...</k>
        <phase> scriptSig => scriptPubKey </phase>
        <scriptPubKeyBytes> PK </scriptPubKeyBytes>
        <stack> ST </stack>
        <savedStack> _ => ST </savedStack>
+       <altstack> _ => .List </altstack>
+       <exec> .List </exec>
        <timestamp> TS </timestamp>
     requires #isP2SH(PK) andBool TS >=Int 1333238400
 
   rule <k> #phaseComplete => #decodeScript(PK) ~> #phaseComplete ...</k>
        <phase> scriptSig => scriptPubKey </phase>
        <scriptPubKeyBytes> PK </scriptPubKeyBytes>
+       <altstack> _ => .List </altstack>
+       <exec> .List </exec>
        <timestamp> TS </timestamp>
     requires notBool #isP2SH(PK) orBool TS <Int 1333238400
 
   // After scriptPubKey completes, NOT P2SH: done
+  // Exec stack must be empty (balanced IF/ENDIF)
   rule <k> #phaseComplete => .K ...</k>
        <phase> scriptPubKey => done </phase>
+       <exec> .List </exec>
        <scriptPubKeyBytes> PK </scriptPubKeyBytes>
        <timestamp> TS </timestamp>
     requires notBool #isP2SH(PK) orBool TS <Int 1333238400
@@ -85,6 +92,7 @@ module SCRIPT-SEMANTICS
   // restore saved stack, pop redeem script, decode and execute it
   rule <k> #phaseComplete => #decodeScript(REDEEM) ~> #phaseComplete ...</k>
        <phase> scriptPubKey => p2sh-redeem </phase>
+       <exec> .List </exec>
        <scriptPubKeyBytes> PK </scriptPubKeyBytes>
        <timestamp> TS </timestamp>
        <stack> ListItem(V:Bytes) _ => REST </stack>
@@ -98,6 +106,7 @@ module SCRIPT-SEMANTICS
   // do not execute redeem script, just finish
   rule <k> #phaseComplete => .K ...</k>
        <phase> scriptPubKey => done </phase>
+       <exec> .List </exec>
        <stack> ListItem(V:Bytes) _ </stack>
        <scriptPubKeyBytes> PK </scriptPubKeyBytes>
        <timestamp> TS </timestamp>
@@ -109,6 +118,7 @@ module SCRIPT-SEMANTICS
   // After p2sh-redeem completes: done
   rule <k> #phaseComplete => .K ...</k>
        <phase> p2sh-redeem => done </phase>
+       <exec> .List </exec>
 
   // =========================================================================
   // P2SH detection and push-only check
@@ -547,6 +557,55 @@ module SCRIPT-SEMANTICS
   rule <k> #decodeScript(B) => OP_NOP10 ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 185
 
+  // OP_RESERVED_OP: reserved opcodes that fail when executed but are OK in dead branches
+  // 0x50 (80) = OP_RESERVED
+  rule <k> #decodeScript(B) => OP_RESERVED_OP ~> #decodeScript(#scriptTail(B)) ...</k>
+    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 80
+  // 0x62 (98) = OP_VER
+  rule <k> #decodeScript(B) => OP_RESERVED_OP ~> #decodeScript(#scriptTail(B)) ...</k>
+    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 98
+  // 0x89 (137) = OP_RESERVED1
+  rule <k> #decodeScript(B) => OP_RESERVED_OP ~> #decodeScript(#scriptTail(B)) ...</k>
+    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 137
+  // 0x8a (138) = OP_RESERVED2
+  rule <k> #decodeScript(B) => OP_RESERVED_OP ~> #decodeScript(#scriptTail(B)) ...</k>
+    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 138
+
+  // OP_INVALIDOPCODE: opcodes that always fail (even in dead branches)
+  // 0x65 (101) = OP_VERIF
+  rule <k> #decodeScript(B) => OP_INVALIDOPCODE ~> #decodeScript(#scriptTail(B)) ...</k>
+    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 101
+  // 0x66 (102) = OP_VERNOTIF
+  rule <k> #decodeScript(B) => OP_INVALIDOPCODE ~> #decodeScript(#scriptTail(B)) ...</k>
+    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 102
+
+  // Disabled opcodes: always fail even in dead branches
+  // 0x7e (126) = OP_CAT, 0x7f (127) = OP_SUBSTR
+  rule <k> #decodeScript(B) => OP_INVALIDOPCODE ~> #decodeScript(#scriptTail(B)) ...</k>
+    requires lengthBytes(B) >Int 0
+     andBool #scriptByte(B) >=Int 126 andBool #scriptByte(B) <=Int 127
+  // 0x80 (128) = OP_LEFT, 0x81 (129) = OP_RIGHT
+  rule <k> #decodeScript(B) => OP_INVALIDOPCODE ~> #decodeScript(#scriptTail(B)) ...</k>
+    requires lengthBytes(B) >Int 0
+     andBool #scriptByte(B) >=Int 128 andBool #scriptByte(B) <=Int 129
+  // 0x83 (131) = OP_INVERT, 0x84 (132) = OP_AND, 0x85 (133) = OP_OR, 0x86 (134) = OP_XOR
+  rule <k> #decodeScript(B) => OP_INVALIDOPCODE ~> #decodeScript(#scriptTail(B)) ...</k>
+    requires lengthBytes(B) >Int 0
+     andBool #scriptByte(B) >=Int 131 andBool #scriptByte(B) <=Int 134
+  // 0x8d (141) = OP_2MUL, 0x8e (142) = OP_2DIV
+  rule <k> #decodeScript(B) => OP_INVALIDOPCODE ~> #decodeScript(#scriptTail(B)) ...</k>
+    requires lengthBytes(B) >Int 0
+     andBool #scriptByte(B) >=Int 141 andBool #scriptByte(B) <=Int 142
+  // 0x95 (149) = OP_MUL, 0x96 (150) = OP_DIV, 0x97 (151) = OP_MOD
+  // 0x98 (152) = OP_LSHIFT, 0x99 (153) = OP_RSHIFT
+  rule <k> #decodeScript(B) => OP_INVALIDOPCODE ~> #decodeScript(#scriptTail(B)) ...</k>
+    requires lengthBytes(B) >Int 0
+     andBool #scriptByte(B) >=Int 149 andBool #scriptByte(B) <=Int 153
+
+  // Undefined opcodes: 0xba-0xff (186-255) — fail when executed, OK in dead branches
+  rule <k> #decodeScript(B) => OP_RESERVED_OP ~> #decodeScript(#scriptTail(B)) ...</k>
+    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) >=Int 186
+
   // =========================================================================
   // OP_PUSHBYTES_* (ASM syntax — shared implementation via #pushBytes)
   // =========================================================================
@@ -646,6 +705,19 @@ module SCRIPT-SEMANTICS
   // No rule for OP_RETURN — execution gets stuck
 
   // =========================================================================
+  // OP_RESERVED_OP: reserved opcodes fail when executed, skip in dead branches
+  // =========================================================================
+  // No rule when #allTrue(EX) — execution gets stuck (= failure)
+  // The generic dead-branch skip rule (priority 25) handles non-executing context.
+  // But OP_INVALIDOPCODE must NOT be skipped — it overrides the generic skip.
+
+  // =========================================================================
+  // OP_INVALIDOPCODE: disabled/undefined opcodes always fail (even in dead branches)
+  // =========================================================================
+  // No rule for OP_INVALIDOPCODE — execution gets stuck
+  // Excluded from the generic dead-branch skip via #isFlowControl
+
+  // =========================================================================
   // IF/ELSE/ENDIF conditional execution
   // =========================================================================
   // The <exec> cell holds a list of booleans tracking nested IF state.
@@ -710,6 +782,7 @@ module SCRIPT-SEMANTICS
   rule #isFlowControl(OP_NOTIF) => true
   rule #isFlowControl(OP_ELSE) => true
   rule #isFlowControl(OP_ENDIF) => true
+  rule #isFlowControl(OP_INVALIDOPCODE) => true
   rule #isFlowControl(_) => false [owise]
 
   // Skip push data in non-executing context

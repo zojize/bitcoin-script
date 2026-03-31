@@ -196,17 +196,6 @@ def parse_flags(flags_str: str) -> set[str]:
     return set(flags_str.split(","))
 
 
-# Opcodes that the K decoder doesn't handle (will get stuck)
-_DISABLED_OPCODES = {
-    "CAT", "SUBSTR", "LEFT", "RIGHT", "INVERT",
-    "AND", "OR", "XOR", "2MUL", "2DIV",
-    "MUL", "DIV", "MOD", "LSHIFT", "RSHIFT",
-}
-
-_RESERVED_OPCODES = {
-    "RESERVED", "VER", "VERIF", "VERNOTIF", "RESERVED1", "RESERVED2",
-}
-
 # Expected-result strings that correspond to validation flags we don't enforce
 _FLAG_ERRORS = {
     "CLEANSTACK", "MINIMALDATA", "DERSIG", "SIG_DER",
@@ -222,32 +211,6 @@ _RESOURCE_ERRORS = {
 }
 
 
-def _has_unknown_bytes(asm: str) -> bool:
-    """Check if ASM contains raw hex bytes the K decoder doesn't recognize."""
-    for token in asm.split():
-        if not (token.startswith("0x") or token.startswith("0X")):
-            continue
-        hex_str = token[2:]
-        if len(hex_str) % 2 != 0:
-            continue
-        try:
-            raw = bytes.fromhex(hex_str)
-        except ValueError:
-            continue
-
-        if len(raw) == 1:
-            byte_val = raw[0]
-            if byte_val > 0xB9 or byte_val == 0x50:
-                return True
-        elif len(raw) > 1:
-            # Multi-byte hex: check each byte for unknown opcodes
-            # These get emitted as raw bytes in the script
-            for b in raw:
-                if b > 0xB9 or b == 0x50:
-                    return True
-    return False
-
-
 def classify_vector(entry: list) -> str | None:
     """Return an xfail reason if this vector can't run, or None if it can."""
     sig_asm = entry[0]
@@ -257,21 +220,6 @@ def classify_vector(entry: list) -> str | None:
     combined = f"{sig_asm} {pubkey_asm}"
     tokens = combined.split()
     flags = parse_flags(flags_str)
-
-    # --- Scripts with unknown/reserved raw byte values ---
-    # The K decoder gets stuck on unrecognized byte values even in dead branches
-    if _has_unknown_bytes(combined):
-        return "unknown opcode bytes in script"
-
-    # --- Disabled opcodes (OP_CAT etc.) ---
-    for op in _DISABLED_OPCODES:
-        if op in tokens:
-            return f"disabled opcode: {op}"
-
-    # --- Reserved opcodes ---
-    for op in _RESERVED_OPCODES:
-        if op in tokens:
-            return f"reserved opcode: {op}"
 
     # --- OP_SHA1: no KRYPTO hook ---
     if "SHA1" in tokens:
@@ -318,13 +266,6 @@ def classify_vector(entry: list) -> str | None:
     if expected in ("SIG_HASHTYPE", "SIG_HIGH_S"):
         return f"sig validation: {expected}"
 
-    # --- UNBALANCED_CONDITIONAL: IF/ENDIF spanning scriptSig/scriptPubKey ---
-    if expected == "UNBALANCED_CONDITIONAL":
-        return "unbalanced conditional not enforced"
-
-    # --- INVALID_ALTSTACK_OPERATION: altstack not isolated between phases ---
-    if expected == "INVALID_ALTSTACK_OPERATION":
-        return "altstack isolation not enforced"
 
     # --- Witness program errors ---
     if expected.startswith("WITNESS"):
