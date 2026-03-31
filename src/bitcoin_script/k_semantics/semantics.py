@@ -152,6 +152,7 @@ class KBitcoinScript:
         sighash: bytes = b"",
         timestamp: int = 0,
         witness: bytes = b"",
+        flags: int = 0,
     ) -> Pattern:
         """Build and run a full script verification.
 
@@ -161,6 +162,7 @@ class KBitcoinScript:
             sighash: 32-byte transaction digest for signature verification.
             timestamp: Block timestamp (for BIP-16 P2SH activation >= 1333238400).
             witness: Witness data (reserved for future SegWit support).
+            flags: Verification flags bitmask (Bitcoin Core SCRIPT_VERIFY_* values).
 
         Returns:
             The final KORE pattern after execution.
@@ -171,6 +173,7 @@ class KBitcoinScript:
             sighash=sighash,
             timestamp=timestamp,
             witness=witness,
+            flags=flags,
         )
         return self.run(pat)
 
@@ -182,6 +185,7 @@ class KBitcoinScript:
         sighash: bytes = b"",
         timestamp: int = 0,
         witness: bytes = b"",
+        flags: int = 0,
     ) -> Pattern:
         """Build an initial KORE configuration.
 
@@ -191,6 +195,7 @@ class KBitcoinScript:
             sighash: 32-byte transaction digest for signature verification.
             timestamp: Block timestamp (for BIP-16 P2SH activation >= 1333238400).
             witness: Witness data (reserved for future SegWit support).
+            flags: Verification flags bitmask (Bitcoin Core SCRIPT_VERIFY_* values).
 
         Returns:
             The initial KORE pattern.
@@ -218,6 +223,7 @@ class KBitcoinScript:
                 "$SIGHASH": _bytes_var(sighash),
                 "$TIMESTAMP": _int_var(timestamp),
                 "$WITNESS": _bytes_var(witness),
+                "$FLAGS": _int_var(flags),
             }
         )
 

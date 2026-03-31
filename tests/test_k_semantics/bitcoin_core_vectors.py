@@ -198,10 +198,10 @@ def parse_flags(flags_str: str) -> set[str]:
 
 # Expected-result strings that correspond to validation flags we don't enforce
 _FLAG_ERRORS = {
-    "CLEANSTACK", "MINIMALDATA", "DERSIG", "SIG_DER",
-    "DISCOURAGE_UPGRADABLE_NOPS", "NULLDUMMY", "NULLFAIL",
-    "MINIMALIF", "SIG_PUSHONLY", "PUBKEYTYPE",
-    "SIG_NULLDUMMY", "SIG_NULLFAIL",
+    "MINIMALDATA", "DERSIG", "SIG_DER",
+    "NULLFAIL",
+    "MINIMALIF", "PUBKEYTYPE",
+    "SIG_NULLFAIL",
 }
 
 # Resource limit errors we don't enforce (STACK_SIZE still pending)
@@ -249,18 +249,11 @@ def classify_vector(entry: list) -> str | None:
     # (5-byte integer encoding now supported via intToScriptNumAbs 5-byte rule)
 
     # --- Flag-based enforcement we don't do ---
-    if "DISCOURAGE_UPGRADABLE_NOPS" in flags and expected != "OK":
-        return "DISCOURAGE_UPGRADABLE_NOPS not enforced"
-    if "CLEANSTACK" in flags and expected != "OK":
-        return "CLEANSTACK not enforced"
+    # (DISCOURAGE_UPGRADABLE_NOPS, CLEANSTACK, NULLDUMMY, SIG_PUSHONLY now enforced)
     if "MINIMALDATA" in flags and expected != "OK":
         return "MINIMALDATA not enforced"
-    if "NULLDUMMY" in flags and expected != "OK":
-        return "NULLDUMMY not enforced"
     if "NULLFAIL" in flags and expected != "OK":
         return "NULLFAIL not enforced"
-    if "SIGPUSHONLY" in flags and expected != "OK":
-        return "SIGPUSHONLY not enforced"
     if "CONST_SCRIPTCODE" in flags and expected != "OK":
         return "CONST_SCRIPTCODE not enforced"
     # --- Sig encoding flags: only relevant when sig ops are present ---

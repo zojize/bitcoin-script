@@ -25,6 +25,34 @@ VECTOR_URLS = {
     "tx_invalid.json": f"{_VECTOR_BASE}/tx_invalid.json",
 }
 
+# Bitcoin Core SCRIPT_VERIFY_* flags (bitmask values)
+SCRIPT_FLAGS: dict[str, int] = {
+    "P2SH": 1 << 0,
+    "STRICTENC": 1 << 1,
+    "DERSIG": 1 << 2,
+    "LOW_S": 1 << 3,
+    "NULLDUMMY": 1 << 4,
+    "SIGPUSHONLY": 1 << 5,
+    "MINIMALDATA": 1 << 6,
+    "DISCOURAGE_UPGRADABLE_NOPS": 1 << 7,
+    "CLEANSTACK": 1 << 8,
+    "CHECKLOCKTIMEVERIFY": 1 << 9,
+    "CHECKSEQUENCEVERIFY": 1 << 10,
+    "MINIMALIF": 1 << 13,
+    "NULLFAIL": 1 << 14,
+    "COMPRESSED_PUBKEYTYPE": 1 << 15,
+    "CONST_SCRIPTCODE": 1 << 16,
+}
+
+
+def flags_to_bitmask(flags: set[str]) -> int:
+    """Convert a set of flag name strings to a bitmask integer."""
+    mask = 0
+    for f in flags:
+        mask |= SCRIPT_FLAGS.get(f, 0)
+    return mask
+
+
 # All standard hashtype values
 _STANDARD_HASHTYPES = [
     SIGHASH_ALL,                            # 0x01

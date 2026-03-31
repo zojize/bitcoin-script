@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from .bitcoin_core_vectors import classify_vector, parse_bitcoin_core_asm, parse_flags
-from .conftest import compute_sighash_blob, load_vector
+from .conftest import compute_sighash_blob, flags_to_bitmask, load_vector
 
 pytestmark = pytest.mark.k
 
@@ -46,12 +46,14 @@ def test_script_vector(k, entry):
 
     timestamp = 1333238400 if "P2SH" in flags else 0
     sighash = compute_sighash_blob(pubkey_bytes, sig_bytes)
+    flags_mask = flags_to_bitmask(flags)
 
     result = k.verify_script(
         script_sig=sig_bytes,
         script_pubkey=pubkey_bytes,
         sighash=sighash,
         timestamp=timestamp,
+        flags=flags_mask,
     )
 
     if expected == "OK":

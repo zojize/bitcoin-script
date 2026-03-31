@@ -36,7 +36,38 @@ module SCRIPT-SEMANTICS
       <witness> $WITNESS:Bytes </witness>
       <savedStack> .List </savedStack>
       <opCount> 0 </opCount>
+      <flags> $FLAGS:Int </flags>
     </T>
+
+  // --- Flag checking (Bitcoin Core verification flags as bitmask) ---
+  syntax Int ::= "FLAG_P2SH"                        [macro]
+               | "FLAG_STRICTENC"                    [macro]
+               | "FLAG_DERSIG"                       [macro]
+               | "FLAG_LOW_S"                        [macro]
+               | "FLAG_NULLDUMMY"                    [macro]
+               | "FLAG_SIGPUSHONLY"                   [macro]
+               | "FLAG_MINIMALDATA"                  [macro]
+               | "FLAG_DISCOURAGE_UPGRADABLE_NOPS"   [macro]
+               | "FLAG_CLEANSTACK"                   [macro]
+               | "FLAG_CHECKLOCKTIMEVERIFY"          [macro]
+               | "FLAG_CHECKSEQUENCEVERIFY"          [macro]
+               | "FLAG_NULLFAIL"                     [macro]
+
+  rule FLAG_P2SH                        => 1
+  rule FLAG_STRICTENC                   => 2
+  rule FLAG_DERSIG                      => 4
+  rule FLAG_LOW_S                       => 8
+  rule FLAG_NULLDUMMY                   => 16
+  rule FLAG_SIGPUSHONLY                  => 32
+  rule FLAG_MINIMALDATA                 => 64
+  rule FLAG_DISCOURAGE_UPGRADABLE_NOPS  => 128
+  rule FLAG_CLEANSTACK                  => 256
+  rule FLAG_CHECKLOCKTIMEVERIFY         => 512
+  rule FLAG_CHECKSEQUENCEVERIFY         => 1024
+  rule FLAG_NULLFAIL                    => 16384
+
+  syntax Bool ::= hasFlag(Int, Int) [function, total]
+  rule hasFlag(FLAGS, BIT) => (FLAGS &Int BIT) =/=Int 0
 
   // --- Error mechanism ---
   // #fail(code) sets the error cell and halts execution by clearing the k cell.
@@ -52,10 +83,20 @@ module SCRIPT-SEMANTICS
                  | "#phaseComplete"
 
   // scriptSig is non-empty: decode and execute it (max 10000 bytes)
+  // SIG_PUSHONLY: when flag set, scriptSig must contain only push opcodes
   rule <k> #init => #decodeScript(SIG) ~> #phaseComplete ...</k>
        <scriptSigBytes> SIG </scriptSigBytes>
+       <flags> F </flags>
     requires lengthBytes(SIG) >Int 0
      andBool lengthBytes(SIG) <=Int 10000
+     andBool (notBool hasFlag(F, FLAG_SIGPUSHONLY) orBool #isPushOnly(SIG))
+
+  rule <k> #init => #fail("SIG_PUSHONLY") ...</k>
+       <scriptSigBytes> SIG </scriptSigBytes>
+       <flags> F </flags>
+    requires lengthBytes(SIG) >Int 0
+     andBool hasFlag(F, FLAG_SIGPUSHONLY)
+     andBool notBool #isPushOnly(SIG)
 
   rule <k> #init => #fail("SCRIPT_SIZE") ...</k>
        <scriptSigBytes> SIG </scriptSigBytes>
@@ -105,12 +146,26 @@ module SCRIPT-SEMANTICS
 
   // After scriptPubKey completes, NOT P2SH: done
   // Exec stack must be empty (balanced IF/ENDIF)
+  // CLEANSTACK: when flag set, stack must have exactly 1 element
   rule <k> #phaseComplete => .K ...</k>
        <phase> scriptPubKey => done </phase>
        <exec> .List </exec>
+       <stack> ST </stack>
+       <flags> F </flags>
        <scriptPubKeyBytes> PK </scriptPubKeyBytes>
        <timestamp> TS </timestamp>
-    requires notBool #isP2SH(PK) orBool TS <Int 1333238400
+    requires (notBool #isP2SH(PK) orBool TS <Int 1333238400)
+     andBool (notBool hasFlag(F, FLAG_CLEANSTACK) orBool size(ST) ==Int 1)
+
+  rule <k> #phaseComplete => #fail("CLEANSTACK") ...</k>
+       <phase> scriptPubKey </phase>
+       <exec> .List </exec>
+       <stack> ST </stack>
+       <flags> F </flags>
+       <scriptPubKeyBytes> PK </scriptPubKeyBytes>
+       <timestamp> TS </timestamp>
+    requires (notBool #isP2SH(PK) orBool TS <Int 1333238400)
+     andBool hasFlag(F, FLAG_CLEANSTACK) andBool size(ST) =/=Int 1
 
   // After scriptPubKey completes, IS P2SH, scriptPubKey succeeded:
   // restore saved stack, pop redeem script, decode and execute it
@@ -141,10 +196,20 @@ module SCRIPT-SEMANTICS
      andBool #isPushOnly(SIG)
      andBool notBool #isTruthy(V)
 
-  // After p2sh-redeem completes: done
+  // After p2sh-redeem completes: done (CLEANSTACK check)
   rule <k> #phaseComplete => .K ...</k>
        <phase> p2sh-redeem => done </phase>
        <exec> .List </exec>
+       <stack> ST </stack>
+       <flags> F </flags>
+    requires notBool hasFlag(F, FLAG_CLEANSTACK) orBool size(ST) ==Int 1
+
+  rule <k> #phaseComplete => #fail("CLEANSTACK") ...</k>
+       <phase> p2sh-redeem </phase>
+       <exec> .List </exec>
+       <stack> ST </stack>
+       <flags> F </flags>
+    requires hasFlag(F, FLAG_CLEANSTACK) andBool size(ST) =/=Int 1
 
   // =========================================================================
   // P2SH detection and push-only check
@@ -707,17 +772,28 @@ module SCRIPT-SEMANTICS
 
   rule <k> OP_NOP => .K ...</k>
 
-  // OP_NOP1-NOP10: all no-ops (NOP2/NOP3 = CLTV/CSV, treated as NOP pre-softfork)
-  rule <k> OP_NOP1  => .K ...</k>
-  rule <k> OP_NOP2  => .K ...</k>
-  rule <k> OP_NOP3  => .K ...</k>
-  rule <k> OP_NOP4  => .K ...</k>
-  rule <k> OP_NOP5  => .K ...</k>
-  rule <k> OP_NOP6  => .K ...</k>
-  rule <k> OP_NOP7  => .K ...</k>
-  rule <k> OP_NOP8  => .K ...</k>
-  rule <k> OP_NOP9  => .K ...</k>
-  rule <k> OP_NOP10 => .K ...</k>
+  // OP_NOP1-NOP10: no-ops, but fail with DISCOURAGE_UPGRADABLE_NOPS flag
+  rule <k> OP_NOP1  => .K ...</k> <flags> F </flags> requires notBool hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_NOPS)
+  rule <k> OP_NOP2  => .K ...</k> <flags> F </flags> requires notBool hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_NOPS)
+  rule <k> OP_NOP3  => .K ...</k> <flags> F </flags> requires notBool hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_NOPS)
+  rule <k> OP_NOP4  => .K ...</k> <flags> F </flags> requires notBool hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_NOPS)
+  rule <k> OP_NOP5  => .K ...</k> <flags> F </flags> requires notBool hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_NOPS)
+  rule <k> OP_NOP6  => .K ...</k> <flags> F </flags> requires notBool hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_NOPS)
+  rule <k> OP_NOP7  => .K ...</k> <flags> F </flags> requires notBool hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_NOPS)
+  rule <k> OP_NOP8  => .K ...</k> <flags> F </flags> requires notBool hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_NOPS)
+  rule <k> OP_NOP9  => .K ...</k> <flags> F </flags> requires notBool hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_NOPS)
+  rule <k> OP_NOP10 => .K ...</k> <flags> F </flags> requires notBool hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_NOPS)
+
+  rule <k> OP_NOP1  => #fail("DISCOURAGE_UPGRADABLE_NOPS") ...</k> <flags> F </flags> requires hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_NOPS)
+  rule <k> OP_NOP2  => #fail("DISCOURAGE_UPGRADABLE_NOPS") ...</k> <flags> F </flags> requires hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_NOPS)
+  rule <k> OP_NOP3  => #fail("DISCOURAGE_UPGRADABLE_NOPS") ...</k> <flags> F </flags> requires hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_NOPS)
+  rule <k> OP_NOP4  => #fail("DISCOURAGE_UPGRADABLE_NOPS") ...</k> <flags> F </flags> requires hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_NOPS)
+  rule <k> OP_NOP5  => #fail("DISCOURAGE_UPGRADABLE_NOPS") ...</k> <flags> F </flags> requires hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_NOPS)
+  rule <k> OP_NOP6  => #fail("DISCOURAGE_UPGRADABLE_NOPS") ...</k> <flags> F </flags> requires hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_NOPS)
+  rule <k> OP_NOP7  => #fail("DISCOURAGE_UPGRADABLE_NOPS") ...</k> <flags> F </flags> requires hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_NOPS)
+  rule <k> OP_NOP8  => #fail("DISCOURAGE_UPGRADABLE_NOPS") ...</k> <flags> F </flags> requires hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_NOPS)
+  rule <k> OP_NOP9  => #fail("DISCOURAGE_UPGRADABLE_NOPS") ...</k> <flags> F </flags> requires hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_NOPS)
+  rule <k> OP_NOP10 => #fail("DISCOURAGE_UPGRADABLE_NOPS") ...</k> <flags> F </flags> requires hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_NOPS)
 
   // =========================================================================
   // OP_VERIFY: pop top, continue if truthy, get stuck if falsy
@@ -976,8 +1052,16 @@ module SCRIPT-SEMANTICS
     requires M >Int 0
 
   // Step 3b: All M sigs collected; pop dummy element, begin verification
+  // NULLDUMMY: when flag set, dummy must be empty
   rule <k> #collectSigs(0, PKs, Sigs) => #verifyMultisig(PKs, Sigs) ...</k>
-       <stack> ListItem(_) ST => ST </stack>
+       <stack> ListItem(DUMMY:Bytes) ST => ST </stack>
+       <flags> F </flags>
+    requires notBool hasFlag(F, FLAG_NULLDUMMY) orBool lengthBytes(DUMMY) ==Int 0
+
+  rule <k> #collectSigs(0, _, _) => #fail("NULLDUMMY") ...</k>
+       <stack> ListItem(DUMMY:Bytes) ST => ST </stack>
+       <flags> F </flags>
+    requires hasFlag(F, FLAG_NULLDUMMY) andBool lengthBytes(DUMMY) >Int 0
 
   // Step 4a: All sigs verified (sigs list exhausted) — push true
   rule <k> #verifyMultisig(_, .List) => .K ...</k>
