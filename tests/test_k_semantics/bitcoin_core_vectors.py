@@ -224,11 +224,7 @@ def classify_vector(entry: list) -> str | None:
     if "SHA1" in tokens:
         return "OP_SHA1 not implemented"
 
-    # --- CLTV/CSV: treated as NOPs, tests expecting failure will break ---
-    if expected != "OK":
-        for op in ("CHECKLOCKTIMEVERIFY", "CHECKSEQUENCEVERIFY", "NOP2", "NOP3"):
-            if op in tokens:
-                return f"CLTV/CSV treated as NOP: {op}"
+    # (CLTV/CSV: partially implemented — some vectors may still fail)
 
     # --- Expected errors that correspond to unimplemented validation ---
     if expected in _FLAG_ERRORS:
