@@ -93,7 +93,6 @@ module SCRIPT-NUM
   // Hex literal to Bytes conversion
   // =========================================================================
 
-  syntax String ::= HexLiteral2String(HexLiteral) [function, total, hook(STRING.token2string)]
   syntax String ::= HexPgm2String(HexPgm) [function, total, hook(STRING.token2string)]
 
   // Convert a hex string (e.g. "abcd01") to raw Bytes

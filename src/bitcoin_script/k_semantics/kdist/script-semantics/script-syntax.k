@@ -3,9 +3,6 @@ module SCRIPT-SYNTAX
   imports STRING-SYNTAX
   imports BYTES-SYNTAX
 
-  // --- Hex literal token ---
-  syntax HexLiteral ::= r"[0-9a-fA-F]+" [token]
-
   // --- Opcodes ---
   syntax OpCode ::= "OP_DUP"
                   | "OP_ADD"
@@ -14,21 +11,12 @@ module SCRIPT-SYNTAX
                   | "OP_HASH160"
                   | "OP_CHECKSIG"
                   | "OP_CHECKMULTISIG"
-                  | "OP_PUSHBYTES_20" HexLiteral
-                  | "OP_PUSHBYTES_32" HexLiteral
-                  | "OP_PUSHBYTES_33" HexLiteral
-                  | "OP_PUSHBYTES_65" HexLiteral
-                  | "OP_PUSHBYTES_70" HexLiteral
-                  | "OP_PUSHBYTES_71" HexLiteral
-                  | "OP_PUSHBYTES_72" HexLiteral
-                  | "OP_PUSHBYTES_73" HexLiteral
-                  | "OP_PUSH" Int
+                  | "OP_PUSHDATA" "(" Bytes ")"
                   | "OP_0"  | "OP_1"  | "OP_2"  | "OP_3"
                   | "OP_4"  | "OP_5"  | "OP_6"  | "OP_7"
                   | "OP_8"  | "OP_9"  | "OP_10" | "OP_11"
                   | "OP_12" | "OP_13" | "OP_14" | "OP_15"
                   | "OP_16"
-                  // New opcodes for P2SH support
                   | "OP_1NEGATE"
                   | "OP_NOP"
                   | "OP_IF" | "OP_NOTIF" | "OP_ELSE" | "OP_ENDIF"
@@ -67,9 +55,6 @@ module SCRIPT-SYNTAX
                   | "OP_INVALIDOPCODE"
                   // Reserved opcodes — fail when executed, OK in dead branches
                   | "OP_RESERVED_OP"
-
-  // --- Script is a sequence of opcodes (whitespace-separated) ---
-  syntax Script ::= OpCode | Script Script [left]
 
   // --- Hex script token: 0x-prefixed hex bytes (e.g. 0x76a914...88ac) ---
   syntax HexPgm ::= r"0x[0-9a-fA-F]+" [token]

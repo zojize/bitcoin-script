@@ -172,11 +172,6 @@ module SCRIPT-SEMANTICS
   rule #isPushOnly(_) => false [owise]
 
   // =========================================================================
-  // Script sequencing: flatten Script Script into K sequence
-  // =========================================================================
-  rule <k> S1:Script S2:Script => S1 ~> S2 ...</k>
-
-  // =========================================================================
   // Hex script decoding: HexPgm -> Bytes -> opcodes
   // =========================================================================
 
@@ -199,7 +194,7 @@ module SCRIPT-SEMANTICS
     requires lengthBytes(B) ==Int 0
 
   // OP_0 (0x00)
-  rule <k> #decodeScript(B) => OP_0 ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_0) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0
      andBool #scriptByte(B) ==Int 0
 
@@ -210,11 +205,9 @@ module SCRIPT-SEMANTICS
      andBool #scriptByte(B) >=Int 1
      andBool #scriptByte(B) <=Int 75
 
-  rule <k> #decodePush(N, B) => #decodeScript(substrBytes(B, N, lengthBytes(B))) ...</k>
-       <stack> ST => ListItem(substrBytes(B, 0, N)) ST </stack>
-       <exec> EX </exec>
+  rule <k> #decodePush(N, B) => #guardExec(OP_PUSHDATA(substrBytes(B, 0, N)))
+        ~> #decodeScript(substrBytes(B, N, lengthBytes(B))) ...</k>
     requires lengthBytes(B) >=Int N
-     andBool #allTrue(EX)
 
   // OP_PUSHDATA1 (0x4c = 76): next byte is length, then that many bytes of data
   rule <k> #decodeScript(B) =>
@@ -244,45 +237,45 @@ module SCRIPT-SEMANTICS
      andBool #scriptByte(B) ==Int 78
 
   // OP_1NEGATE (0x4f = 79)
-  rule <k> #decodeScript(B) => OP_1NEGATE ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_1NEGATE) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 79
 
   // OP_1 through OP_16 (0x51 - 0x60)
-  rule <k> #decodeScript(B) => OP_1  ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_1)  ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 81
-  rule <k> #decodeScript(B) => OP_2  ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_2)  ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 82
-  rule <k> #decodeScript(B) => OP_3  ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_3)  ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 83
-  rule <k> #decodeScript(B) => OP_4  ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_4)  ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 84
-  rule <k> #decodeScript(B) => OP_5  ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_5)  ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 85
-  rule <k> #decodeScript(B) => OP_6  ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_6)  ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 86
-  rule <k> #decodeScript(B) => OP_7  ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_7)  ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 87
-  rule <k> #decodeScript(B) => OP_8  ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_8)  ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 88
-  rule <k> #decodeScript(B) => OP_9  ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_9)  ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 89
-  rule <k> #decodeScript(B) => OP_10 ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_10) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 90
-  rule <k> #decodeScript(B) => OP_11 ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_11) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 91
-  rule <k> #decodeScript(B) => OP_12 ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_12) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 92
-  rule <k> #decodeScript(B) => OP_13 ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_13) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 93
-  rule <k> #decodeScript(B) => OP_14 ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_14) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 94
-  rule <k> #decodeScript(B) => OP_15 ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_15) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 95
-  rule <k> #decodeScript(B) => OP_16 ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_16) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 96
 
   // OP_NOP (0x61 = 97)
-  rule <k> #decodeScript(B) => OP_NOP ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_NOP) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 97
 
   // OP_IF (0x63 = 99)
@@ -302,273 +295,273 @@ module SCRIPT-SEMANTICS
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 104
 
   // OP_VERIFY (0x69 = 105)
-  rule <k> #decodeScript(B) => OP_VERIFY ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_VERIFY) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 105
 
   // OP_RETURN (0x6a = 106)
-  rule <k> #decodeScript(B) => OP_RETURN ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_RETURN) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 106
 
   // OP_TOALTSTACK (0x6b = 107)
-  rule <k> #decodeScript(B) => OP_TOALTSTACK ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_TOALTSTACK) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 107
 
   // OP_FROMALTSTACK (0x6c = 108)
-  rule <k> #decodeScript(B) => OP_FROMALTSTACK ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_FROMALTSTACK) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 108
 
   // OP_2DROP (0x6d = 109)
-  rule <k> #decodeScript(B) => OP_2DROP ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_2DROP) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 109
 
   // OP_2DUP (0x6e = 110)
-  rule <k> #decodeScript(B) => OP_2DUP ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_2DUP) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 110
 
   // OP_3DUP (0x6f = 111)
-  rule <k> #decodeScript(B) => OP_3DUP ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_3DUP) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 111
 
   // OP_2OVER (0x70 = 112)
-  rule <k> #decodeScript(B) => OP_2OVER ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_2OVER) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 112
 
   // OP_2ROT (0x71 = 113)
-  rule <k> #decodeScript(B) => OP_2ROT ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_2ROT) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 113
 
   // OP_2SWAP (0x72 = 114)
-  rule <k> #decodeScript(B) => OP_2SWAP ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_2SWAP) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 114
 
   // OP_IFDUP (0x73 = 115)
-  rule <k> #decodeScript(B) => OP_IFDUP ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_IFDUP) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 115
 
   // OP_DEPTH (0x74 = 116)
-  rule <k> #decodeScript(B) => OP_DEPTH ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_DEPTH) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 116
 
   // OP_DROP (0x75 = 117)
-  rule <k> #decodeScript(B) => OP_DROP ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_DROP) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 117
 
   // OP_DUP (0x76 = 118)
-  rule <k> #decodeScript(B) => OP_DUP ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_DUP) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 118
 
   // OP_NIP (0x77 = 119)
-  rule <k> #decodeScript(B) => OP_NIP ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_NIP) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 119
 
   // OP_OVER (0x78 = 120)
-  rule <k> #decodeScript(B) => OP_OVER ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_OVER) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 120
 
   // OP_PICK (0x79 = 121)
-  rule <k> #decodeScript(B) => OP_PICK ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_PICK) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 121
 
   // OP_ROLL (0x7a = 122)
-  rule <k> #decodeScript(B) => OP_ROLL ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_ROLL) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 122
 
   // OP_ROT (0x7b = 123)
-  rule <k> #decodeScript(B) => OP_ROT ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_ROT) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 123
 
   // OP_SWAP (0x7c = 124)
-  rule <k> #decodeScript(B) => OP_SWAP ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_SWAP) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 124
 
   // OP_TUCK (0x7d = 125)
-  rule <k> #decodeScript(B) => OP_TUCK ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_TUCK) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 125
 
   // OP_SIZE (0x82 = 130)
-  rule <k> #decodeScript(B) => OP_SIZE ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_SIZE) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 130
 
   // OP_EQUAL (0x87 = 135)
-  rule <k> #decodeScript(B) => OP_EQUAL ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_EQUAL) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 135
 
   // OP_EQUALVERIFY (0x88 = 136)
-  rule <k> #decodeScript(B) => OP_EQUALVERIFY ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_EQUALVERIFY) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 136
 
   // OP_1ADD (0x8b = 139)
-  rule <k> #decodeScript(B) => OP_1ADD ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_1ADD) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 139
 
   // OP_1SUB (0x8c = 140)
-  rule <k> #decodeScript(B) => OP_1SUB ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_1SUB) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 140
 
   // OP_NEGATE (0x8f = 143)
-  rule <k> #decodeScript(B) => OP_NEGATE ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_NEGATE) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 143
 
   // OP_ABS (0x90 = 144)
-  rule <k> #decodeScript(B) => OP_ABS ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_ABS) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 144
 
   // OP_NOT (0x91 = 145)
-  rule <k> #decodeScript(B) => OP_NOT ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_NOT) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 145
 
   // OP_0NOTEQUAL (0x92 = 146)
-  rule <k> #decodeScript(B) => OP_0NOTEQUAL ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_0NOTEQUAL) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 146
 
   // OP_ADD (0x93 = 147)
-  rule <k> #decodeScript(B) => OP_ADD ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_ADD) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 147
 
   // OP_SUB (0x94 = 148)
-  rule <k> #decodeScript(B) => OP_SUB ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_SUB) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 148
 
   // OP_BOOLAND (0x9a = 154)
-  rule <k> #decodeScript(B) => OP_BOOLAND ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_BOOLAND) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 154
 
   // OP_BOOLOR (0x9b = 155)
-  rule <k> #decodeScript(B) => OP_BOOLOR ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_BOOLOR) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 155
 
   // OP_NUMEQUAL (0x9c = 156)
-  rule <k> #decodeScript(B) => OP_NUMEQUAL ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_NUMEQUAL) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 156
 
   // OP_NUMEQUALVERIFY (0x9d = 157)
-  rule <k> #decodeScript(B) => OP_NUMEQUALVERIFY ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_NUMEQUALVERIFY) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 157
 
   // OP_NUMNOTEQUAL (0x9e = 158)
-  rule <k> #decodeScript(B) => OP_NUMNOTEQUAL ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_NUMNOTEQUAL) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 158
 
   // OP_LESSTHAN (0x9f = 159)
-  rule <k> #decodeScript(B) => OP_LESSTHAN ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_LESSTHAN) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 159
 
   // OP_GREATERTHAN (0xa0 = 160)
-  rule <k> #decodeScript(B) => OP_GREATERTHAN ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_GREATERTHAN) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 160
 
   // OP_LESSTHANOREQUAL (0xa1 = 161)
-  rule <k> #decodeScript(B) => OP_LESSTHANOREQUAL ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_LESSTHANOREQUAL) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 161
 
   // OP_GREATERTHANOREQUAL (0xa2 = 162)
-  rule <k> #decodeScript(B) => OP_GREATERTHANOREQUAL ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_GREATERTHANOREQUAL) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 162
 
   // OP_MIN (0xa3 = 163)
-  rule <k> #decodeScript(B) => OP_MIN ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_MIN) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 163
 
   // OP_MAX (0xa4 = 164)
-  rule <k> #decodeScript(B) => OP_MAX ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_MAX) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 164
 
   // OP_WITHIN (0xa5 = 165)
-  rule <k> #decodeScript(B) => OP_WITHIN ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_WITHIN) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 165
 
   // OP_RIPEMD160 (0xa6 = 166)
-  rule <k> #decodeScript(B) => OP_RIPEMD160 ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_RIPEMD160) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 166
 
   // OP_SHA1 (0xa7 = 167)
-  rule <k> #decodeScript(B) => OP_SHA1 ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_SHA1) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 167
 
   // OP_SHA256 (0xa8 = 168)
-  rule <k> #decodeScript(B) => OP_SHA256 ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_SHA256) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 168
 
   // OP_HASH160 (0xa9 = 169)
-  rule <k> #decodeScript(B) => OP_HASH160 ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_HASH160) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 169
 
   // OP_HASH256 (0xaa = 170)
-  rule <k> #decodeScript(B) => OP_HASH256 ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_HASH256) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 170
 
   // OP_CODESEPARATOR (0xab = 171)
-  rule <k> #decodeScript(B) => OP_CODESEPARATOR ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_CODESEPARATOR) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 171
 
   // OP_CHECKSIG (0xac = 172)
-  rule <k> #decodeScript(B) => OP_CHECKSIG ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_CHECKSIG) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 172
 
   // OP_CHECKSIGVERIFY (0xad = 173)
-  rule <k> #decodeScript(B) => OP_CHECKSIGVERIFY ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_CHECKSIGVERIFY) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 173
 
   // OP_CHECKMULTISIG (0xae = 174)
-  rule <k> #decodeScript(B) => OP_CHECKMULTISIG ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_CHECKMULTISIG) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 174
 
   // OP_CHECKMULTISIGVERIFY (0xaf = 175)
-  rule <k> #decodeScript(B) => OP_CHECKMULTISIGVERIFY ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_CHECKMULTISIGVERIFY) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 175
 
   // OP_NOP1 (0xb0 = 176)
-  rule <k> #decodeScript(B) => OP_NOP1 ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_NOP1) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 176
 
   // OP_NOP2 / OP_CHECKLOCKTIMEVERIFY (0xb1 = 177)
-  rule <k> #decodeScript(B) => OP_NOP2 ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_NOP2) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 177
 
   // OP_NOP3 / OP_CHECKSEQUENCEVERIFY (0xb2 = 178)
-  rule <k> #decodeScript(B) => OP_NOP3 ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_NOP3) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 178
 
   // OP_NOP4 (0xb3 = 179)
-  rule <k> #decodeScript(B) => OP_NOP4 ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_NOP4) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 179
 
   // OP_NOP5 (0xb4 = 180)
-  rule <k> #decodeScript(B) => OP_NOP5 ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_NOP5) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 180
 
   // OP_NOP6 (0xb5 = 181)
-  rule <k> #decodeScript(B) => OP_NOP6 ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_NOP6) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 181
 
   // OP_NOP7 (0xb6 = 182)
-  rule <k> #decodeScript(B) => OP_NOP7 ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_NOP7) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 182
 
   // OP_NOP8 (0xb7 = 183)
-  rule <k> #decodeScript(B) => OP_NOP8 ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_NOP8) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 183
 
   // OP_NOP9 (0xb8 = 184)
-  rule <k> #decodeScript(B) => OP_NOP9 ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_NOP9) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 184
 
   // OP_NOP10 (0xb9 = 185)
-  rule <k> #decodeScript(B) => OP_NOP10 ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_NOP10) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 185
 
   // OP_RESERVED_OP: reserved opcodes that fail when executed but are OK in dead branches
   // 0x50 (80) = OP_RESERVED
-  rule <k> #decodeScript(B) => OP_RESERVED_OP ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_RESERVED_OP) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 80
   // 0x62 (98) = OP_VER
-  rule <k> #decodeScript(B) => OP_RESERVED_OP ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_RESERVED_OP) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 98
   // 0x89 (137) = OP_RESERVED1
-  rule <k> #decodeScript(B) => OP_RESERVED_OP ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_RESERVED_OP) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 137
   // 0x8a (138) = OP_RESERVED2
-  rule <k> #decodeScript(B) => OP_RESERVED_OP ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_RESERVED_OP) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 138
 
   // OP_INVALIDOPCODE: opcodes that always fail (even in dead branches)
@@ -603,60 +596,37 @@ module SCRIPT-SEMANTICS
      andBool #scriptByte(B) >=Int 149 andBool #scriptByte(B) <=Int 153
 
   // Undefined opcodes: 0xba-0xff (186-255) — fail when executed, OK in dead branches
-  rule <k> #decodeScript(B) => OP_RESERVED_OP ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decodeScript(B) => #guardExec(OP_RESERVED_OP) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) >=Int 186
 
   // =========================================================================
-  // OP_PUSHBYTES_* (ASM syntax — shared implementation via #pushBytes)
+  // OP_PUSHDATA: push raw bytes onto the stack (emitted by decoder for data pushes)
   // =========================================================================
 
-  syntax KItem ::= "#pushBytes" "(" Int "," HexLiteral ")"
-
-  rule <k> OP_PUSHBYTES_20 H => #pushBytes(20, H) ...</k>
-  rule <k> OP_PUSHBYTES_32 H => #pushBytes(32, H) ...</k>
-  rule <k> OP_PUSHBYTES_33 H => #pushBytes(33, H) ...</k>
-  rule <k> OP_PUSHBYTES_65 H => #pushBytes(65, H) ...</k>
-  rule <k> OP_PUSHBYTES_70 H => #pushBytes(70, H) ...</k>
-  rule <k> OP_PUSHBYTES_71 H => #pushBytes(71, H) ...</k>
-  rule <k> OP_PUSHBYTES_72 H => #pushBytes(72, H) ...</k>
-  rule <k> OP_PUSHBYTES_73 H => #pushBytes(73, H) ...</k>
-
-  rule <k> #pushBytes(N, H) => .K ...</k>
-       <stack> ST => ListItem(hexStringToBytes(HexLiteral2String(H))) ST </stack>
-       <exec> EX </exec>
-    requires lengthString(HexLiteral2String(H)) ==Int 2 *Int N
-     andBool #allTrue(EX)
-
-  // =========================================================================
-  // OP_PUSH (test helper: push integer onto stack as CScriptNum bytes)
-  // =========================================================================
-
-  rule <k> OP_PUSH I:Int => .K ...</k>
-       <stack> ST => ListItem(intToScriptNum(I)) ST </stack>
-       <exec> EX </exec>
-    requires #allTrue(EX)
+  rule <k> OP_PUSHDATA(D) => .K ...</k>
+       <stack> ST => ListItem(D) ST </stack>
 
   // =========================================================================
   // OP_0 through OP_16: push small integer constants as CScriptNum bytes
   // =========================================================================
 
-  rule <k> OP_0  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(0))  ST </stack>  <exec> EX </exec>  requires #allTrue(EX)
-  rule <k> OP_1  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(1))  ST </stack>  <exec> EX </exec>  requires #allTrue(EX)
-  rule <k> OP_2  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(2))  ST </stack>  <exec> EX </exec>  requires #allTrue(EX)
-  rule <k> OP_3  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(3))  ST </stack>  <exec> EX </exec>  requires #allTrue(EX)
-  rule <k> OP_4  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(4))  ST </stack>  <exec> EX </exec>  requires #allTrue(EX)
-  rule <k> OP_5  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(5))  ST </stack>  <exec> EX </exec>  requires #allTrue(EX)
-  rule <k> OP_6  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(6))  ST </stack>  <exec> EX </exec>  requires #allTrue(EX)
-  rule <k> OP_7  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(7))  ST </stack>  <exec> EX </exec>  requires #allTrue(EX)
-  rule <k> OP_8  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(8))  ST </stack>  <exec> EX </exec>  requires #allTrue(EX)
-  rule <k> OP_9  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(9))  ST </stack>  <exec> EX </exec>  requires #allTrue(EX)
-  rule <k> OP_10 => .K ...</k>  <stack> ST => ListItem(intToScriptNum(10)) ST </stack>  <exec> EX </exec>  requires #allTrue(EX)
-  rule <k> OP_11 => .K ...</k>  <stack> ST => ListItem(intToScriptNum(11)) ST </stack>  <exec> EX </exec>  requires #allTrue(EX)
-  rule <k> OP_12 => .K ...</k>  <stack> ST => ListItem(intToScriptNum(12)) ST </stack>  <exec> EX </exec>  requires #allTrue(EX)
-  rule <k> OP_13 => .K ...</k>  <stack> ST => ListItem(intToScriptNum(13)) ST </stack>  <exec> EX </exec>  requires #allTrue(EX)
-  rule <k> OP_14 => .K ...</k>  <stack> ST => ListItem(intToScriptNum(14)) ST </stack>  <exec> EX </exec>  requires #allTrue(EX)
-  rule <k> OP_15 => .K ...</k>  <stack> ST => ListItem(intToScriptNum(15)) ST </stack>  <exec> EX </exec>  requires #allTrue(EX)
-  rule <k> OP_16 => .K ...</k>  <stack> ST => ListItem(intToScriptNum(16)) ST </stack>  <exec> EX </exec>  requires #allTrue(EX)
+  rule <k> OP_0  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(0))  ST </stack>
+  rule <k> OP_1  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(1))  ST </stack>
+  rule <k> OP_2  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(2))  ST </stack>
+  rule <k> OP_3  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(3))  ST </stack>
+  rule <k> OP_4  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(4))  ST </stack>
+  rule <k> OP_5  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(5))  ST </stack>
+  rule <k> OP_6  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(6))  ST </stack>
+  rule <k> OP_7  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(7))  ST </stack>
+  rule <k> OP_8  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(8))  ST </stack>
+  rule <k> OP_9  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(9))  ST </stack>
+  rule <k> OP_10 => .K ...</k>  <stack> ST => ListItem(intToScriptNum(10)) ST </stack>
+  rule <k> OP_11 => .K ...</k>  <stack> ST => ListItem(intToScriptNum(11)) ST </stack>
+  rule <k> OP_12 => .K ...</k>  <stack> ST => ListItem(intToScriptNum(12)) ST </stack>
+  rule <k> OP_13 => .K ...</k>  <stack> ST => ListItem(intToScriptNum(13)) ST </stack>
+  rule <k> OP_14 => .K ...</k>  <stack> ST => ListItem(intToScriptNum(14)) ST </stack>
+  rule <k> OP_15 => .K ...</k>  <stack> ST => ListItem(intToScriptNum(15)) ST </stack>
+  rule <k> OP_16 => .K ...</k>  <stack> ST => ListItem(intToScriptNum(16)) ST </stack>
 
   // =========================================================================
   // OP_1NEGATE: push -1 as CScriptNum
@@ -664,28 +634,24 @@ module SCRIPT-SEMANTICS
 
   rule <k> OP_1NEGATE => .K ...</k>
        <stack> ST => ListItem(intToScriptNum(-1)) ST </stack>
-       <exec> EX </exec>
-    requires #allTrue(EX)
 
   // =========================================================================
   // OP_NOP: do nothing
   // =========================================================================
 
   rule <k> OP_NOP => .K ...</k>
-       <exec> EX </exec>
-    requires #allTrue(EX)
 
   // OP_NOP1-NOP10: all no-ops (NOP2/NOP3 = CLTV/CSV, treated as NOP pre-softfork)
-  rule <k> OP_NOP1  => .K ...</k> <exec> EX </exec> requires #allTrue(EX)
-  rule <k> OP_NOP2  => .K ...</k> <exec> EX </exec> requires #allTrue(EX)
-  rule <k> OP_NOP3  => .K ...</k> <exec> EX </exec> requires #allTrue(EX)
-  rule <k> OP_NOP4  => .K ...</k> <exec> EX </exec> requires #allTrue(EX)
-  rule <k> OP_NOP5  => .K ...</k> <exec> EX </exec> requires #allTrue(EX)
-  rule <k> OP_NOP6  => .K ...</k> <exec> EX </exec> requires #allTrue(EX)
-  rule <k> OP_NOP7  => .K ...</k> <exec> EX </exec> requires #allTrue(EX)
-  rule <k> OP_NOP8  => .K ...</k> <exec> EX </exec> requires #allTrue(EX)
-  rule <k> OP_NOP9  => .K ...</k> <exec> EX </exec> requires #allTrue(EX)
-  rule <k> OP_NOP10 => .K ...</k> <exec> EX </exec> requires #allTrue(EX)
+  rule <k> OP_NOP1  => .K ...</k>
+  rule <k> OP_NOP2  => .K ...</k>
+  rule <k> OP_NOP3  => .K ...</k>
+  rule <k> OP_NOP4  => .K ...</k>
+  rule <k> OP_NOP5  => .K ...</k>
+  rule <k> OP_NOP6  => .K ...</k>
+  rule <k> OP_NOP7  => .K ...</k>
+  rule <k> OP_NOP8  => .K ...</k>
+  rule <k> OP_NOP9  => .K ...</k>
+  rule <k> OP_NOP10 => .K ...</k>
 
   // =========================================================================
   // OP_VERIFY: pop top, continue if truthy, get stuck if falsy
@@ -693,9 +659,7 @@ module SCRIPT-SEMANTICS
 
   rule <k> OP_VERIFY => .K ...</k>
        <stack> ListItem(V:Bytes) ST => ST </stack>
-       <exec> EX </exec>
     requires #isTruthy(V)
-     andBool #allTrue(EX)
 
   // OP_VERIFY with falsy value: execution gets stuck (no rule matches)
 
@@ -705,17 +669,15 @@ module SCRIPT-SEMANTICS
   // No rule for OP_RETURN — execution gets stuck
 
   // =========================================================================
-  // OP_RESERVED_OP: reserved opcodes fail when executed, skip in dead branches
+  // OP_RESERVED_OP: reserved opcodes fail when executed
   // =========================================================================
-  // No rule when #allTrue(EX) — execution gets stuck (= failure)
-  // The generic dead-branch skip rule (priority 25) handles non-executing context.
-  // But OP_INVALIDOPCODE must NOT be skipped — it overrides the generic skip.
+  // No execution rule — gets stuck. Dead branches handled by #guardExec.
 
   // =========================================================================
   // OP_INVALIDOPCODE: disabled/undefined opcodes always fail (even in dead branches)
   // =========================================================================
-  // No rule for OP_INVALIDOPCODE — execution gets stuck
-  // Excluded from the generic dead-branch skip via #isFlowControl
+  // No execution rule — gets stuck. Emitted directly by decoder (not wrapped
+  // in #guardExec) so it fires even in dead branches.
 
   // =========================================================================
   // IF/ELSE/ENDIF conditional execution
@@ -727,6 +689,22 @@ module SCRIPT-SEMANTICS
   rule #allTrue(.List) => true
   rule #allTrue(ListItem(true) REST) => #allTrue(REST)
   rule #allTrue(ListItem(false) _) => false
+
+  // =========================================================================
+  // #guardExec: centralized execution guard
+  // =========================================================================
+  // All non-flow-control opcodes are wrapped in #guardExec by the decoder.
+  // When executing (#allTrue), unwrap to the opcode; when skipping, discard.
+
+  syntax KItem ::= "#guardExec" "(" OpCode ")"
+
+  rule <k> #guardExec(OP) => OP ...</k>
+       <exec> EX </exec>
+    requires #allTrue(EX)
+
+  rule <k> #guardExec(_) => .K ...</k>
+       <exec> EX </exec>
+    requires notBool #allTrue(EX)
 
   // --- When currently executing (#allTrue(<exec>) is true) ---
 
@@ -772,33 +750,6 @@ module SCRIPT-SEMANTICS
   rule <k> OP_ENDIF => .K ...</k>
        <exec> ListItem(_) REST => REST </exec>
 
-  // --- Skip rules for non-executing context ---
-  // When not executing, opcodes are consumed but have no effect.
-  // Push operations skip their data without pushing to stack.
-
-  // Helper to identify flow-control opcodes that must still fire in non-executing context
-  syntax Bool ::= #isFlowControl(OpCode) [function]
-  rule #isFlowControl(OP_IF) => true
-  rule #isFlowControl(OP_NOTIF) => true
-  rule #isFlowControl(OP_ELSE) => true
-  rule #isFlowControl(OP_ENDIF) => true
-  rule #isFlowControl(OP_INVALIDOPCODE) => true
-  rule #isFlowControl(_) => false [owise]
-
-  // Skip push data in non-executing context
-  rule <k> #decodePush(N, B) => #decodeScript(substrBytes(B, N, lengthBytes(B))) ...</k>
-       <exec> EX </exec>
-    requires notBool #allTrue(EX)
-     andBool lengthBytes(B) >=Int N
-
-  // Skip all non-flow-control opcodes in non-executing context.
-  // Priority 25 fires before default-priority (50) execution rules.
-  rule <k> OP:OpCode => .K ...</k>
-       <exec> EX </exec>
-    requires notBool #allTrue(EX)
-     andBool notBool #isFlowControl(OP)
-    [priority(25)]
-
   // =========================================================================
   // #isTruthy: Bitcoin truthiness check
   // =========================================================================
@@ -838,8 +789,6 @@ module SCRIPT-SEMANTICS
 
   rule <k> OP_DUP => .K ...</k>
        <stack> ListItem(V) ST => ListItem(V) ListItem(V) ST </stack>
-       <exec> EX </exec>
-    requires #allTrue(EX)
 
   // =========================================================================
   // OP_ADD: pop two CScriptNum bytes, add, push result as CScriptNum bytes
@@ -848,8 +797,6 @@ module SCRIPT-SEMANTICS
   rule <k> OP_ADD => .K ...</k>
        <stack> ListItem(A:Bytes) ListItem(B:Bytes) ST
             => ListItem(intToScriptNum(scriptNumToInt(A) +Int scriptNumToInt(B))) ST </stack>
-       <exec> EX </exec>
-    requires #allTrue(EX)
 
   // =========================================================================
   // OP_HASH160: RIPEMD160(SHA256(data))
@@ -857,8 +804,6 @@ module SCRIPT-SEMANTICS
 
   rule <k> OP_HASH160 => .K ...</k>
        <stack> ListItem(V:Bytes) ST => ListItem(RipEmd160raw(Sha256raw(V))) ST </stack>
-       <exec> EX </exec>
-    requires #allTrue(EX)
 
   // =========================================================================
   // OP_EQUAL: pop two byte values, push 1 if equal, 0 if not
@@ -868,15 +813,11 @@ module SCRIPT-SEMANTICS
   rule <k> OP_EQUAL => .K ...</k>
        <stack> ListItem(V:Bytes) ListItem(V:Bytes) ST
             => ListItem(intToScriptNum(1)) ST </stack>
-       <exec> EX </exec>
-    requires #allTrue(EX)
 
   // Not equal: owise catches the case where A =/= B
   rule <k> OP_EQUAL => .K ...</k>
        <stack> ListItem(_:Bytes) ListItem(_:Bytes) ST
             => ListItem(intToScriptNum(0)) ST </stack>
-       <exec> EX </exec>
-    requires #allTrue(EX)
     [owise]
 
   // =========================================================================
@@ -885,8 +826,6 @@ module SCRIPT-SEMANTICS
 
   rule <k> OP_EQUALVERIFY => .K ...</k>
        <stack> ListItem(V:Bytes) ListItem(V:Bytes) ST => ST </stack>
-       <exec> EX </exec>
-    requires #allTrue(EX)
 
   // =========================================================================
   // OP_CHECKSIG (reads sighash from <sighash> cell)
@@ -896,17 +835,13 @@ module SCRIPT-SEMANTICS
        <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST
             => ListItem(intToScriptNum(1)) ST </stack>
        <sighash> SIGHASH </sighash>
-       <exec> EX </exec>
     requires ecdsaVerify(PK, SIG, SIGHASH)
-     andBool #allTrue(EX)
 
   rule <k> OP_CHECKSIG => .K ...</k>
        <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST
             => ListItem(intToScriptNum(0)) ST </stack>
        <sighash> SIGHASH </sighash>
-       <exec> EX </exec>
     requires notBool ecdsaVerify(PK, SIG, SIGHASH)
-     andBool #allTrue(EX)
     [owise]
 
   // =========================================================================
@@ -922,8 +857,6 @@ module SCRIPT-SEMANTICS
   // Step 1: Pop N from stack (CScriptNum), begin collecting pubkeys
   rule <k> OP_CHECKMULTISIG => #collectPubKeys(scriptNumToInt(N), .List) ...</k>
        <stack> ListItem(N:Bytes) ST => ST </stack>
-       <exec> EX </exec>
-    requires #allTrue(EX)
 
   // Step 2a: Pop one pubkey, prepend to collected list
   rule <k> #collectPubKeys(N, PKs) => #collectPubKeys(N -Int 1, ListItem(PK) PKs) ...</k>
@@ -970,27 +903,19 @@ module SCRIPT-SEMANTICS
   // OP_RIPEMD160: RIPEMD160(data) — single hash
   rule <k> OP_RIPEMD160 => .K ...</k>
        <stack> ListItem(V:Bytes) ST => ListItem(RipEmd160raw(V)) ST </stack>
-       <exec> EX </exec>
-    requires #allTrue(EX)
 
   // OP_SHA1: not implemented (no SHA1 hook in KRYPTO) — gets stuck
 
   // OP_SHA256: SHA256(data) — single hash
   rule <k> OP_SHA256 => .K ...</k>
        <stack> ListItem(V:Bytes) ST => ListItem(Sha256raw(V)) ST </stack>
-       <exec> EX </exec>
-    requires #allTrue(EX)
 
   // OP_HASH256: SHA256(SHA256(data)) — double hash
   rule <k> OP_HASH256 => .K ...</k>
        <stack> ListItem(V:Bytes) ST => ListItem(Sha256raw(Sha256raw(V))) ST </stack>
-       <exec> EX </exec>
-    requires #allTrue(EX)
 
   // OP_CODESEPARATOR: NOP for now
   rule <k> OP_CODESEPARATOR => .K ...</k>
-       <exec> EX </exec>
-    requires #allTrue(EX)
 
   // =========================================================================
   // OP_CHECKSIGVERIFY: CHECKSIG then VERIFY
@@ -999,9 +924,7 @@ module SCRIPT-SEMANTICS
   rule <k> OP_CHECKSIGVERIFY => .K ...</k>
        <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
        <sighash> SIGHASH </sighash>
-       <exec> EX </exec>
     requires ecdsaVerify(PK, SIG, SIGHASH)
-     andBool #allTrue(EX)
 
   // Invalid signature: execution gets stuck (no rule matches)
 
@@ -1012,7 +935,5 @@ module SCRIPT-SEMANTICS
   // Reuse CHECKMULTISIG collection pipeline, then verify the result
   rule <k> OP_CHECKMULTISIGVERIFY
         => OP_CHECKMULTISIG ~> OP_VERIFY ...</k>
-       <exec> EX </exec>
-    requires #allTrue(EX)
 
 endmodule
