@@ -225,23 +225,6 @@ def classify_vector(entry: list) -> str | None:
     if "SHA1" in tokens:
         return "OP_SHA1 not implemented"
 
-    # --- Signature operations requiring real sighash ---
-    # Check both bare tokens and hex-encoded scripts (P2SH redeem scripts
-    # contain CHECKSIG bytes like 0xac/0xae inside hex push data)
-    sig_ops = {"CHECKSIG", "CHECKSIGVERIFY", "CHECKMULTISIG", "CHECKMULTISIGVERIFY"}
-    has_sig_op = any(op in tokens for op in sig_ops)
-    # Also detect sig ops embedded in hex push data (P2SH redeem scripts)
-    if not has_sig_op:
-        for tok in tokens:
-            if tok.startswith("0x") and len(tok) > 4:
-                hex_data = tok[2:]
-                # 0xac=CHECKSIG, 0xae=CHECKMULTISIG in raw hex
-                if "ac" in hex_data or "ae" in hex_data:
-                    has_sig_op = True
-                    break
-    if has_sig_op:
-        return "signature ops require real sighash"
-
     # --- CLTV/CSV: treated as NOPs, tests expecting failure will break ---
     if expected != "OK":
         for op in ("CHECKLOCKTIMEVERIFY", "CHECKSEQUENCEVERIFY", "NOP2", "NOP3"):
@@ -262,10 +245,9 @@ def classify_vector(entry: list) -> str | None:
     if expected in ("UNSATISFIED_LOCKTIME", "NEGATIVE_LOCKTIME"):
         return f"locktime: {expected}"
 
-    # --- SIG_HASHTYPE / SIG_HIGH_S: signature validation not enforced ---
-    if expected in ("SIG_HASHTYPE", "SIG_HIGH_S"):
+    # --- Signature validation errors we don't enforce ---
+    if expected in ("SIG_HASHTYPE", "SIG_HIGH_S", "SIG_DER"):
         return f"sig validation: {expected}"
-
 
     # --- Witness program errors ---
     if expected.startswith("WITNESS"):
@@ -296,5 +278,13 @@ def classify_vector(entry: list) -> str | None:
         return "SIGPUSHONLY not enforced"
     if "CONST_SCRIPTCODE" in flags and expected != "OK":
         return "CONST_SCRIPTCODE not enforced"
+    # --- Sig encoding flags: only relevant when sig ops are present ---
+    sig_ops = {"CHECKSIG", "CHECKSIGVERIFY", "CHECKMULTISIG", "CHECKMULTISIGVERIFY"}
+    has_sig_op = any(op in tokens for op in sig_ops)
+    if has_sig_op and expected != "OK":
+        if "LOW_S" in flags:
+            return "LOW_S not enforced"
+        if "STRICTENC" in flags:
+            return "STRICTENC not enforced"
 
     return None

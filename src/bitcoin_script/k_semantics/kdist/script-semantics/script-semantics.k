@@ -828,20 +828,29 @@ module SCRIPT-SEMANTICS
        <stack> ListItem(V:Bytes) ListItem(V:Bytes) ST => ST </stack>
 
   // =========================================================================
-  // OP_CHECKSIG (reads sighash from <sighash> cell)
+  // OP_CHECKSIG (extracts hashtype from sig, looks up sighash in blob)
   // =========================================================================
 
+  // Empty signature: always pushes false (no sighash lookup needed)
+  rule <k> OP_CHECKSIG => .K ...</k>
+       <stack> ListItem(_PK:Bytes) ListItem(SIG:Bytes) ST
+            => ListItem(intToScriptNum(0)) ST </stack>
+    requires lengthBytes(SIG) ==Int 0
+
+  // Non-empty signature: extract hashtype, look up sighash, verify
   rule <k> OP_CHECKSIG => .K ...</k>
        <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST
             => ListItem(intToScriptNum(1)) ST </stack>
-       <sighash> SIGHASH </sighash>
-    requires ecdsaVerify(PK, SIG, SIGHASH)
+       <sighash> SIGHASHBLOB </sighash>
+    requires lengthBytes(SIG) >Int 0
+     andBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG)))
 
   rule <k> OP_CHECKSIG => .K ...</k>
        <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST
             => ListItem(intToScriptNum(0)) ST </stack>
-       <sighash> SIGHASH </sighash>
-    requires notBool ecdsaVerify(PK, SIG, SIGHASH)
+       <sighash> SIGHASHBLOB </sighash>
+    requires lengthBytes(SIG) >Int 0
+     andBool notBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG)))
     [owise]
 
   // =========================================================================
@@ -884,17 +893,24 @@ module SCRIPT-SEMANTICS
   rule <k> #verifyMultisig(.List, ListItem(_) _) => .K ...</k>
        <stack> ST => ListItem(intToScriptNum(0)) ST </stack>
 
-  // Step 4c: Current sig matches current pubkey — advance both
+  // Step 4c: Empty sig in multisig — always fails to match, advance pubkey only
+  rule <k> #verifyMultisig(ListItem(_PK:Bytes) PKs, ListItem(SIG:Bytes) Sigs)
+        => #verifyMultisig(PKs, ListItem(SIG) Sigs) ...</k>
+    requires lengthBytes(SIG) ==Int 0
+
+  // Step 4d: Current sig matches current pubkey — advance both
   rule <k> #verifyMultisig(ListItem(PK:Bytes) PKs, ListItem(SIG:Bytes) Sigs)
         => #verifyMultisig(PKs, Sigs) ...</k>
-       <sighash> SIGHASH </sighash>
-    requires ecdsaVerify(PK, SIG, SIGHASH)
+       <sighash> SIGHASHBLOB </sighash>
+    requires lengthBytes(SIG) >Int 0
+     andBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG)))
 
-  // Step 4d: Current sig does not match current pubkey — advance pubkey only
+  // Step 4e: Current sig does not match current pubkey — advance pubkey only
   rule <k> #verifyMultisig(ListItem(PK:Bytes) PKs, ListItem(SIG:Bytes) Sigs)
         => #verifyMultisig(PKs, ListItem(SIG) Sigs) ...</k>
-       <sighash> SIGHASH </sighash>
-    requires notBool ecdsaVerify(PK, SIG, SIGHASH)
+       <sighash> SIGHASHBLOB </sighash>
+    requires lengthBytes(SIG) >Int 0
+     andBool notBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG)))
 
   // =========================================================================
   // Additional hash opcodes
@@ -923,10 +939,11 @@ module SCRIPT-SEMANTICS
 
   rule <k> OP_CHECKSIGVERIFY => .K ...</k>
        <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
-       <sighash> SIGHASH </sighash>
-    requires ecdsaVerify(PK, SIG, SIGHASH)
+       <sighash> SIGHASHBLOB </sighash>
+    requires lengthBytes(SIG) >Int 0
+     andBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG)))
 
-  // Invalid signature: execution gets stuck (no rule matches)
+  // Invalid or empty signature: execution gets stuck (no rule matches)
 
   // =========================================================================
   // OP_CHECKMULTISIGVERIFY: CHECKMULTISIG then VERIFY
