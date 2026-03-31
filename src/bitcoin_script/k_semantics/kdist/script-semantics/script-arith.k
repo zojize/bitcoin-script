@@ -194,7 +194,10 @@ module SCRIPT-ARITH
     requires validNum(A) andBool validNum(B)
      andBool scriptNumToInt(A) ==Int scriptNumToInt(B)
 
-  // Not equal or invalid num: execution gets stuck (no rule matches)
+  rule <k> OP_NUMEQUALVERIFY => #fail("NUMEQUALVERIFY") ...</k>
+       <stack> ListItem(B:Bytes) ListItem(A:Bytes) ST => ST </stack>
+    requires validNum(A) andBool validNum(B)
+     andBool scriptNumToInt(A) =/=Int scriptNumToInt(B)
 
   // =========================================================================
   // OP_WITHIN: (x min max -- out), true if min <= x < max

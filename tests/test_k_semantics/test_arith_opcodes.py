@@ -291,11 +291,12 @@ class TestOpNumEqualVerify:
         assert not k.is_stuck(result)
         assert k.stack(result) == [b"\x01"]
 
-    def test_not_equal_stuck(self, k: KBitcoinScript) -> None:
+    def test_not_equal_fails(self, k: KBitcoinScript) -> None:
         result = k.verify_script(
             script_pubkey=script("OP_3", "OP_4", "OP_NUMEQUALVERIFY"),
         )
-        assert k.is_stuck(result)
+        assert not k.success(result)
+        assert k.error(result) == "NUMEQUALVERIFY"
 
 
 class TestOp1Negate:
@@ -330,12 +331,14 @@ class TestOpVerify:
         assert not k.is_stuck(result)
         assert k.stack(result) == [b"\x02"]
 
-    def test_verify_falsy_stuck(self, k: KBitcoinScript) -> None:
+    def test_verify_falsy_fails(self, k: KBitcoinScript) -> None:
         result = k.verify_script(script_pubkey=script("OP_0", "OP_VERIFY"))
-        assert k.is_stuck(result)
+        assert not k.success(result)
+        assert k.error(result) == "VERIFY"
 
 
 class TestOpReturn:
-    def test_return_stuck(self, k: KBitcoinScript) -> None:
+    def test_return_fails(self, k: KBitcoinScript) -> None:
         result = k.verify_script(script_pubkey=script("OP_1", "OP_RETURN"))
-        assert k.is_stuck(result)
+        assert not k.success(result)
+        assert k.error(result) == "OP_RETURN"

@@ -8,7 +8,7 @@ from collections.abc import Callable
 from typing import final, Final
 
 from pyk.kast.outer import KDefinition
-from pyk.kore.syntax import App, Pattern
+from pyk.kore.syntax import DV, App, Pattern, String
 
 _LOGGER: Final = logging.getLogger(__name__)
 
@@ -267,12 +267,28 @@ class KBitcoinScript:
             case _:
                 return True
 
+    def error(self, pattern: Pattern) -> str | None:
+        """Extract the error code from the <error> cell, or None if no error.
+
+        Returns the error string set by #fail(), or None if the error cell
+        is empty. A non-None result means an explicit error was raised.
+        If the result is None but is_stuck() is True, the failure was implicit
+        (e.g., stack underflow via pattern-matching failure).
+        """
+        match _find_cell(pattern, "Lbl'-LT-'error'-GT-'"):
+            case App(args=[DV(value=String(value=s)), *_]):
+                return s if s else None
+            case _:
+                return None
+
     def success(self, pattern: Pattern) -> bool:
         """Check if script execution succeeded.
 
-        A script succeeds when the k cell is empty and the top
-        stack element is truthy (non-zero, non-empty).
+        A script succeeds when: no error was raised, the k cell is empty,
+        and the top stack element is truthy (non-zero, non-empty).
         """
+        if self.error(pattern) is not None:
+            return False
         if self.is_stuck(pattern):
             return False
         match self.stack(pattern):

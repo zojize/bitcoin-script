@@ -28,6 +28,7 @@ module SCRIPT-SEMANTICS
       <altstack> .List </altstack>
       <exec> .List </exec>
       <phase> scriptSig </phase>
+      <error> "" </error>
       <sighash> $SIGHASH:Bytes </sighash>
       <timestamp> $TIMESTAMP:Int </timestamp>
       <scriptSigBytes> $SCRIPTSIG:Bytes </scriptSigBytes>
@@ -36,6 +37,12 @@ module SCRIPT-SEMANTICS
       <savedStack> .List </savedStack>
       <opCount> 0 </opCount>
     </T>
+
+  // --- Error mechanism ---
+  // #fail(code) sets the error cell and halts execution by clearing the k cell.
+  syntax KItem ::= "#fail" "(" String ")"
+  rule <k> #fail(ERR) ~> _:K => .K </k>
+       <error> _ => ERR </error>
 
   // =========================================================================
   // Initialization: start executing scriptSig (or skip to scriptPubKey)
@@ -50,6 +57,10 @@ module SCRIPT-SEMANTICS
     requires lengthBytes(SIG) >Int 0
      andBool lengthBytes(SIG) <=Int 10000
 
+  rule <k> #init => #fail("SCRIPT_SIZE") ...</k>
+       <scriptSigBytes> SIG </scriptSigBytes>
+    requires lengthBytes(SIG) >Int 10000
+
   // scriptSig is empty: skip straight to scriptPubKey
   rule <k> #init => #decodeScript(PK) ~> #phaseComplete ...</k>
        <scriptSigBytes> SIG </scriptSigBytes>
@@ -57,6 +68,12 @@ module SCRIPT-SEMANTICS
        <phase> _ => scriptPubKey </phase>
     requires lengthBytes(SIG) ==Int 0
      andBool lengthBytes(PK) <=Int 10000
+
+  rule <k> #init => #fail("SCRIPT_SIZE") ...</k>
+       <scriptSigBytes> SIG </scriptSigBytes>
+       <scriptPubKeyBytes> PK </scriptPubKeyBytes>
+    requires lengthBytes(SIG) ==Int 0
+     andBool lengthBytes(PK) >Int 10000
 
   // =========================================================================
   // Phase transitions
@@ -205,12 +222,18 @@ module SCRIPT-SEMANTICS
        <opCount> N => N +Int 1 </opCount>
     requires N +Int 1 <=Int 201
 
+  rule <k> #countOp => #fail("OP_COUNT") ...</k>
+       <opCount> N </opCount>
+    requires N +Int 1 >Int 201
+
   // Count N ops at once (used by CHECKMULTISIG for pubkey count)
   rule <k> #countOps(M) => .K ...</k>
        <opCount> N => N +Int M </opCount>
     requires N +Int M <=Int 201
 
-  // If either exceeds 201, no rule matches → stuck (= OP_COUNT error)
+  rule <k> #countOps(M) => #fail("OP_COUNT") ...</k>
+       <opCount> N </opCount>
+    requires N +Int M >Int 201
 
   // --- Decode entry point ---
   // #decodeScript dispatches to #decode1, counting opcodes > OP_16 (byte > 96).
@@ -248,6 +271,9 @@ module SCRIPT-SEMANTICS
         ~> #decodeScript(substrBytes(B, N, lengthBytes(B))) ...</k>
     requires lengthBytes(B) >=Int N
      andBool N <=Int 520
+
+  rule <k> #decodePush(N, _) => #fail("PUSH_SIZE") ...</k>
+    requires N >Int 520
 
   // OP_PUSHDATA1 (0x4c = 76): next byte is length, then that many bytes of data
   rule <k> #decode1(B) =>
@@ -701,23 +727,28 @@ module SCRIPT-SEMANTICS
        <stack> ListItem(V:Bytes) ST => ST </stack>
     requires #isTruthy(V)
 
-  // OP_VERIFY with falsy value: execution gets stuck (no rule matches)
+  rule <k> OP_VERIFY => #fail("VERIFY") ...</k>
+       <stack> ListItem(V:Bytes) ST => ST </stack>
+    requires notBool #isTruthy(V)
 
   // =========================================================================
-  // OP_RETURN: immediately fail (get stuck)
+  // OP_RETURN: immediately fail
   // =========================================================================
-  // No rule for OP_RETURN — execution gets stuck
+
+  rule <k> OP_RETURN => #fail("OP_RETURN") ...</k>
 
   // =========================================================================
-  // OP_RESERVED_OP: reserved opcodes fail when executed
+  // OP_RESERVED_OP: reserved opcodes fail when executed (OK in dead branches)
   // =========================================================================
-  // No execution rule — gets stuck. Dead branches handled by #guardExec.
+
+  rule <k> OP_RESERVED_OP => #fail("BAD_OPCODE") ...</k>
 
   // =========================================================================
-  // OP_INVALIDOPCODE: disabled/undefined opcodes always fail (even in dead branches)
+  // OP_INVALIDOPCODE: disabled/undefined opcodes always fail
   // =========================================================================
-  // No execution rule — gets stuck. Emitted directly by decoder (not wrapped
-  // in #guardExec) so it fires even in dead branches.
+  // Emitted directly by decoder (not via #guardExec) — fires even in dead branches.
+
+  rule <k> OP_INVALIDOPCODE => #fail("DISABLED_OPCODE") ...</k>
 
   // =========================================================================
   // IF/ELSE/ENDIF conditional execution
@@ -862,11 +893,15 @@ module SCRIPT-SEMANTICS
     [owise]
 
   // =========================================================================
-  // OP_EQUALVERIFY: pop two byte values, continue if equal, otherwise stuck
+  // OP_EQUALVERIFY: pop two byte values, continue if equal, fail if not
   // =========================================================================
 
   rule <k> OP_EQUALVERIFY => .K ...</k>
        <stack> ListItem(V:Bytes) ListItem(V:Bytes) ST => ST </stack>
+
+  rule <k> OP_EQUALVERIFY => #fail("EQUALVERIFY") ...</k>
+       <stack> ListItem(A:Bytes) ListItem(B:Bytes) ST => ST </stack>
+    requires A =/=K B
 
   // =========================================================================
   // OP_CHECKSIG (extracts hashtype from sig, looks up sighash in blob)
@@ -912,6 +947,11 @@ module SCRIPT-SEMANTICS
      andBool scriptNumToInt(N) >=Int 0
      andBool scriptNumToInt(N) <=Int 20
 
+  rule <k> OP_CHECKMULTISIG => #fail("PUBKEY_COUNT") ...</k>
+       <stack> ListItem(N:Bytes) ST => ST </stack>
+    requires validNum(N)
+     andBool (scriptNumToInt(N) <Int 0 orBool scriptNumToInt(N) >Int 20)
+
   // Step 2a: Pop one pubkey, prepend to collected list
   rule <k> #collectPubKeys(N, PKs) => #collectPubKeys(N -Int 1, ListItem(PK) PKs) ...</k>
        <stack> ListItem(PK) ST => ST </stack>
@@ -924,6 +964,11 @@ module SCRIPT-SEMANTICS
     requires validNum(M)
      andBool scriptNumToInt(M) >=Int 0
      andBool scriptNumToInt(M) <=Int size(PKs)
+
+  rule <k> #collectPubKeys(0, PKs) => #fail("SIG_COUNT") ...</k>
+       <stack> ListItem(M:Bytes) ST => ST </stack>
+    requires validNum(M)
+     andBool (scriptNumToInt(M) <Int 0 orBool scriptNumToInt(M) >Int size(PKs))
 
   // Step 3a: Pop one sig, prepend to collected list
   rule <k> #collectSigs(M, PKs, Sigs) => #collectSigs(M -Int 1, PKs, ListItem(SIG) Sigs) ...</k>
@@ -992,7 +1037,15 @@ module SCRIPT-SEMANTICS
     requires lengthBytes(SIG) >Int 0
      andBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG)))
 
-  // Invalid or empty signature: execution gets stuck (no rule matches)
+  rule <k> OP_CHECKSIGVERIFY => #fail("CHECKSIGVERIFY") ...</k>
+       <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
+       <sighash> SIGHASHBLOB </sighash>
+    requires lengthBytes(SIG) >Int 0
+     andBool notBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG)))
+
+  rule <k> OP_CHECKSIGVERIFY => #fail("CHECKSIGVERIFY") ...</k>
+       <stack> ListItem(_PK:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
+    requires lengthBytes(SIG) ==Int 0
 
   // =========================================================================
   // OP_CHECKMULTISIGVERIFY: CHECKMULTISIG then VERIFY
