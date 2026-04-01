@@ -191,7 +191,14 @@ def compute_tx_sighash_blob(
         try:
             sh = SignatureHash(CScript(legacy_subscript), tx, input_index, ht)
             parts.append(bytes([ht]) + bytes(sh))
-        except (AssertionError, ValueError, CScriptTruncatedPushDataError):
+        except (ValueError, CScriptTruncatedPushDataError):
+            # SIGHASH_SINGLE bug: when input_index >= len(outputs),
+            # Bitcoin Core returns uint256(1) as the sighash (little-endian)
+            if (ht & 0x1F) == SIGHASH_SINGLE and input_index >= len(tx.vout):
+                sighash_single_bug = b"\x01" + b"\x00" * 31
+                parts.append(bytes([ht]) + sighash_single_bug)
+            continue
+        except AssertionError:
             continue
 
     return b"".join(parts)

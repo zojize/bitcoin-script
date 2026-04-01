@@ -241,7 +241,7 @@ module SCRIPT-FLOW
      andBool scriptNumToInt(V) >=Int 0
      andBool scriptNumToInt(V) &Int 2147483648 =/=Int 0
 
-  // UNSATISFIED_LOCKTIME: tx version < 2
+  // UNSATISFIED_LOCKTIME: tx version < 2 (unsigned comparison per Bitcoin Core)
   rule <k> OP_NOP3 => #fail("UNSATISFIED_LOCKTIME") ...</k>
        <stack> ListItem(V:Bytes) _ST </stack>
        <flags> F </flags>
@@ -250,7 +250,7 @@ module SCRIPT-FLOW
      andBool validNum5(V) andBool (notBool hasFlag(F, FLAG_MINIMALDATA) orBool #isMinimalNum(V))
      andBool scriptNumToInt(V) >=Int 0
      andBool scriptNumToInt(V) &Int 2147483648 ==Int 0
-     andBool VER <Int 2
+     andBool (VER &Int 4294967295) <Int 2
 
   // UNSATISFIED_LOCKTIME: nSequence disable flag set (tx input opted out)
   rule <k> OP_NOP3 => #fail("UNSATISFIED_LOCKTIME") ...</k>
@@ -262,7 +262,7 @@ module SCRIPT-FLOW
      andBool validNum5(V) andBool (notBool hasFlag(F, FLAG_MINIMALDATA) orBool #isMinimalNum(V))
      andBool scriptNumToInt(V) >=Int 0
      andBool scriptNumToInt(V) &Int 2147483648 ==Int 0
-     andBool VER >=Int 2
+     andBool (VER &Int 4294967295) >=Int 2
      andBool SEQ &Int 2147483648 =/=Int 0
 
   // UNSATISFIED_LOCKTIME: type flag mismatch (one time-based, other block-based)
@@ -275,7 +275,7 @@ module SCRIPT-FLOW
      andBool validNum5(V) andBool (notBool hasFlag(F, FLAG_MINIMALDATA) orBool #isMinimalNum(V))
      andBool scriptNumToInt(V) >=Int 0
      andBool scriptNumToInt(V) &Int 2147483648 ==Int 0
-     andBool VER >=Int 2
+     andBool (VER &Int 4294967295) >=Int 2
      andBool SEQ &Int 2147483648 ==Int 0
      andBool (scriptNumToInt(V) &Int 4194304) =/=Int (SEQ &Int 4194304)
 
@@ -289,7 +289,7 @@ module SCRIPT-FLOW
      andBool validNum5(V) andBool (notBool hasFlag(F, FLAG_MINIMALDATA) orBool #isMinimalNum(V))
      andBool scriptNumToInt(V) >=Int 0
      andBool scriptNumToInt(V) &Int 2147483648 ==Int 0
-     andBool VER >=Int 2
+     andBool (VER &Int 4294967295) >=Int 2
      andBool SEQ &Int 2147483648 ==Int 0
      andBool (scriptNumToInt(V) &Int 4194304) ==Int (SEQ &Int 4194304)
      andBool (scriptNumToInt(V) &Int 4259839) >Int (SEQ &Int 4259839)
@@ -304,7 +304,7 @@ module SCRIPT-FLOW
      andBool validNum5(V) andBool (notBool hasFlag(F, FLAG_MINIMALDATA) orBool #isMinimalNum(V))
      andBool scriptNumToInt(V) >=Int 0
      andBool scriptNumToInt(V) &Int 2147483648 ==Int 0
-     andBool VER >=Int 2
+     andBool (VER &Int 4294967295) >=Int 2
      andBool SEQ &Int 2147483648 ==Int 0
      andBool (scriptNumToInt(V) &Int 4194304) ==Int (SEQ &Int 4194304)
      andBool (scriptNumToInt(V) &Int 4259839) <=Int (SEQ &Int 4259839)

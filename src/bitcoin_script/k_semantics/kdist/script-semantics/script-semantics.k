@@ -371,8 +371,8 @@ module SCRIPT-SEMANTICS
   syntax KItem ::= "#witnessVerify" "(" Int "," Bytes ")"
                  | "#witnessComplete"
 
-  // Empty witness stack → error
-  rule <k> #witnessVerify(_, _) => #fail("WITNESS_PROGRAM_WITNESS_EMPTY") ...</k>
+  // Version 0, empty witness stack → error
+  rule <k> #witnessVerify(0, _) => #fail("WITNESS_PROGRAM_WITNESS_EMPTY") ...</k>
        <witness> W </witness>
     requires #witnessCount(W) ==Int 0
 
@@ -435,18 +435,16 @@ module SCRIPT-SEMANTICS
 
   // --- Version 1+: DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM ---
   rule <k> #witnessVerify(V, _) => #fail("DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM") ...</k>
-       <witness> W </witness>
        <flags> F </flags>
-    requires V >Int 0 andBool #witnessCount(W) >Int 0
+    requires V >Int 0
      andBool hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_WITNESS)
 
   // --- Version 1+: future witness versions (anyone-can-spend, no discourage) ---
   rule <k> #witnessVerify(V, _) => .K ...</k>
        <phase> _ => done </phase>
-       <witness> W </witness>
        <flags> F </flags>
        <witnessUsed> _ => true </witnessUsed>
-    requires V >Int 0 andBool #witnessCount(W) >Int 0
+    requires V >Int 0
      andBool notBool hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_WITNESS)
 
   // --- Witness execution complete ---

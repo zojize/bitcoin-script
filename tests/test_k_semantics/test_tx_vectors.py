@@ -61,6 +61,27 @@ def _tx_id(i: int, v: list) -> str:
 _TX_XFAIL_FLAGS = {"BADTX"}  # Pure transaction-level checks (not script)
 
 
+def _has_codeseparator(entry: list) -> bool:
+    """Check if any script in the vector contains OP_CODESEPARATOR (0xab)."""
+    try:
+        tx = CTransaction.deserialize(bytes.fromhex(entry[1]))
+    except Exception:
+        return False
+    for inp_info in entry[0]:
+        spk = parse_bitcoin_core_asm(inp_info[2])
+        if 0xAB in spk:
+            return True
+    for vin in tx.vin:
+        if 0xAB in bytes(vin.scriptSig):
+            return True
+    if tx.wit:
+        for w in tx.wit.vtxinwit:
+            for item in w.scriptWitness.stack:
+                if 0xAB in bytes(item):
+                    return True
+    return False
+
+
 def _classify_tx_vector(entry: list) -> str | None:
     """Return xfail reason if this tx vector can't run, or None if it can."""
     flags_str = entry[2]
@@ -68,6 +89,14 @@ def _classify_tx_vector(entry: list) -> str | None:
 
     if flags_str == "BADTX":
         return "BADTX: transaction-level validation (not script)"
+
+
+    # OP_CODESEPARATOR / FindAndDelete not implemented
+    if _has_codeseparator(entry):
+        return "OP_CODESEPARATOR not implemented"
+    # CONST_SCRIPTCODE as excluded flag means the test involves CODESEPARATOR
+    if "CONST_SCRIPTCODE" in excluded:
+        return "CONST_SCRIPTCODE (OP_CODESEPARATOR) not implemented"
 
     # If we can't compute the active flags, skip
     for f in excluded:
@@ -169,6 +198,11 @@ def _verify_tx(k, entry: list, expect_valid: bool) -> None:
             break  # For invalid txs, one failing input is enough
 
     if not expect_valid and all_ok:
+        # Some tx_invalid vectors are only invalid because of the excluded flag itself
+        # (e.g. "invalid P2SH tx" with P2SH excluded passes without P2SH rules)
+        excluded = parse_flags(flags_str)
+        if excluded & {"P2SH", "CHECKLOCKTIMEVERIFY", "CHECKSEQUENCEVERIFY"}:
+            pytest.xfail(f"invalidity depends on excluded flag: {excluded}")
         pytest.fail(f"All inputs passed but expected invalid: {entry}")
 
 
