@@ -256,13 +256,13 @@ def classify_vector(entry: list) -> str | None:
         return "flag-dependent error: NULLFAIL"
     if "CONST_SCRIPTCODE" in flags and expected != "OK":
         return "CONST_SCRIPTCODE not enforced"
-    # --- Sig encoding flags: only relevant when sig ops are present ---
+    # STRICTENC pubkey validation in CHECKMULTISIG not yet implemented
     sig_ops = {"CHECKSIG", "CHECKSIGVERIFY", "CHECKMULTISIG", "CHECKMULTISIGVERIFY"}
     has_sig_op = any(op in tokens for op in sig_ops)
-    if has_sig_op and expected != "OK":
-        if "LOW_S" in flags:
-            return "LOW_S not enforced"
-        if "STRICTENC" in flags:
-            return "STRICTENC not enforced"
+    if has_sig_op and expected == "PUBKEYTYPE" and "STRICTENC" in flags:
+        # Check if any pubkey in the script is invalid (0, hybrid 06/07 prefix)
+        for tok in tokens:
+            if tok == "0" or (tok.startswith("0x") and len(tok) >= 4 and tok[2:4] in ("06", "07")):
+                return "STRICTENC PUBKEYTYPE in multisig not enforced"
 
     return None
