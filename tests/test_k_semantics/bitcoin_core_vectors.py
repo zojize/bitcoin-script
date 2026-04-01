@@ -201,6 +201,19 @@ _FLAG_ERRORS = {
     "SIG_NULLFAIL",
 }
 
+def classify_tx_vector(entry: list) -> str | None:
+    """Return an xfail reason for tx vectors, or None if runnable."""
+    flags_str = entry[2] if len(entry) > 2 else ""
+    flags = parse_flags(flags_str)
+
+    if "BADTX" in flags:
+        return "BADTX: tests malformed tx deserialization"
+    if "CONST_SCRIPTCODE" in flags:
+        return "CONST_SCRIPTCODE not enforced"
+    if "TAPROOT" in flags:
+        return "taproot not implemented"
+    return None
+
 # (All resource limits now enforced)
 _RESOURCE_ERRORS: set[str] = set()
 

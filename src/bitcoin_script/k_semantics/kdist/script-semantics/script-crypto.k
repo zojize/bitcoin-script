@@ -132,7 +132,8 @@ module SCRIPT-CRYPTO
      // R not negative, no excessive padding
      andBool Bytes2Int(substrBytes(SIG, 4, 5), BE, Unsigned) &Int 128 ==Int 0
      andBool (#derRL(SIG) <=Int 1
-        orBool Bytes2Int(substrBytes(SIG, 4, 5), BE, Unsigned) =/=Int 0)
+        orBool Bytes2Int(substrBytes(SIG, 4, 5), BE, Unsigned) =/=Int 0
+        orBool Bytes2Int(substrBytes(SIG, 5, 6), BE, Unsigned) &Int 128 =/=Int 0)
      // S tag
      andBool Bytes2Int(substrBytes(SIG, 4 +Int #derRL(SIG),
                                         5 +Int #derRL(SIG)), BE, Unsigned) ==Int 2
@@ -143,7 +144,8 @@ module SCRIPT-CRYPTO
      andBool Bytes2Int(substrBytes(SIG, #derSO(SIG), #derSO(SIG) +Int 1), BE, Unsigned) &Int 128 ==Int 0
      // No excessive S padding
      andBool (#derSL(SIG) <=Int 1
-        orBool Bytes2Int(substrBytes(SIG, #derSO(SIG), #derSO(SIG) +Int 1), BE, Unsigned) =/=Int 0)
+        orBool Bytes2Int(substrBytes(SIG, #derSO(SIG), #derSO(SIG) +Int 1), BE, Unsigned) =/=Int 0
+        orBool Bytes2Int(substrBytes(SIG, #derSO(SIG) +Int 1, #derSO(SIG) +Int 2), BE, Unsigned) &Int 128 =/=Int 0)
 
   rule #checkDERInner(_) => false [owise]
 
@@ -155,7 +157,7 @@ module SCRIPT-CRYPTO
   syntax Bool ::= validHashType(Int) [function, total]
   rule validHashType(HT) => true
     requires (HT &Int 31) >=Int 1 andBool (HT &Int 31) <=Int 3
-     andBool (HT &Int 224) ==Int 0  // only bits 0-4 and bit 7 allowed
+     andBool (HT &Int 96) ==Int 0  // only bits 0-4 and bit 7 (ANYONECANPAY) allowed
   rule validHashType(_) => false [owise]
 
   // Valid pubkey: 33-byte compressed (02/03 prefix) or 65-byte uncompressed (04 prefix)
