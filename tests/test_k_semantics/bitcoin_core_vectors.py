@@ -198,7 +198,6 @@ def parse_flags(flags_str: str) -> set[str]:
 
 # Expected-result strings that correspond to validation flags we don't enforce
 _FLAG_ERRORS = {
-    "DERSIG", "SIG_DER",
     "MINIMALIF",
     "SIG_NULLFAIL",
 }
@@ -240,8 +239,16 @@ def classify_vector(entry: list) -> str | None:
         return f"locktime: {expected}"
 
     # --- Signature validation errors we don't enforce ---
-    if expected in ("SIG_HIGH_S", "SIG_DER"):
+    if expected in ("SIG_HIGH_S",):
         return f"sig validation: {expected}"
+
+    # SIG_DER in CHECKMULTISIG: Bitcoin Core's CheckSig sets error during
+    # multisig verification but only propagates it when multisig fails overall.
+    # Our K semantics don't model this intermediate error tracking.
+    if expected == "SIG_DER":
+        sig_ops = {"CHECKMULTISIG", "CHECKMULTISIGVERIFY"}
+        if any(op in tokens for op in sig_ops):
+            return "SIG_DER in CHECKMULTISIG not enforced"
 
     # --- Witness program errors ---
     if expected.startswith("WITNESS"):

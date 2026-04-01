@@ -94,6 +94,60 @@ module SCRIPT-CRYPTO
     requires lengthBytes(BODY) =/=Int 64
 
   // =========================================================================
+  // Strict DER signature validation (BIP66 / DERSIG flag)
+  // =========================================================================
+  // DER: 30 <total_len> 02 <r_len> <r_bytes...> 02 <s_len> <s_bytes...> <hashtype>
+
+  syntax Bool ::= isValidDER(Bytes) [function, total]
+
+  // Must be at least 9 bytes: 30 01 02 01 xx 02 01 xx HT
+  // Must be at most 73 bytes: 30 46 02 21 <33> 02 21 <33> HT
+  rule isValidDER(SIG) => false requires lengthBytes(SIG) <Int 9
+  rule isValidDER(SIG) => false requires lengthBytes(SIG) >Int 73
+
+  rule isValidDER(SIG) => #checkDERInner(SIG)
+    requires lengthBytes(SIG) >=Int 9
+     andBool lengthBytes(SIG) <=Int 73
+
+  // Helper: extract R length from DER sig
+  syntax Int ::= #derRL(Bytes) [function]
+  rule #derRL(SIG) => Bytes2Int(substrBytes(SIG, 3, 4), BE, Unsigned)
+
+  // Helper: extract S length from DER sig
+  syntax Int ::= #derSL(Bytes) [function]
+  rule #derSL(SIG) => Bytes2Int(substrBytes(SIG, 5 +Int #derRL(SIG), 6 +Int #derRL(SIG)), BE, Unsigned)
+
+  // Helper: offset of S data
+  syntax Int ::= #derSO(Bytes) [function]
+  rule #derSO(SIG) => 6 +Int #derRL(SIG)
+
+  syntax Bool ::= #checkDERInner(Bytes) [function]
+  rule #checkDERInner(SIG) => true
+    requires Bytes2Int(substrBytes(SIG, 0, 1), BE, Unsigned) ==Int 48           // 0x30 compound
+     andBool Bytes2Int(substrBytes(SIG, 1, 2), BE, Unsigned)
+             ==Int lengthBytes(SIG) -Int 3                                      // total len = sig - 3
+     andBool Bytes2Int(substrBytes(SIG, 2, 3), BE, Unsigned) ==Int 2            // 0x02 R tag
+     andBool #derRL(SIG) >=Int 1                                                // R length >= 1
+     andBool #derRL(SIG) <=Int lengthBytes(SIG) -Int 7                          // room for S
+     // R not negative, no excessive padding
+     andBool Bytes2Int(substrBytes(SIG, 4, 5), BE, Unsigned) &Int 128 ==Int 0
+     andBool (#derRL(SIG) <=Int 1
+        orBool Bytes2Int(substrBytes(SIG, 4, 5), BE, Unsigned) =/=Int 0)
+     // S tag
+     andBool Bytes2Int(substrBytes(SIG, 4 +Int #derRL(SIG),
+                                        5 +Int #derRL(SIG)), BE, Unsigned) ==Int 2
+     // S length
+     andBool #derSL(SIG) >=Int 1
+     andBool (#derSO(SIG) +Int #derSL(SIG)) ==Int lengthBytes(SIG) -Int 1       // S ends at hashtype
+     // S not negative
+     andBool Bytes2Int(substrBytes(SIG, #derSO(SIG), #derSO(SIG) +Int 1), BE, Unsigned) &Int 128 ==Int 0
+     // No excessive S padding
+     andBool (#derSL(SIG) <=Int 1
+        orBool Bytes2Int(substrBytes(SIG, #derSO(SIG), #derSO(SIG) +Int 1), BE, Unsigned) =/=Int 0)
+
+  rule #checkDERInner(_) => false [owise]
+
+  // =========================================================================
   // Signature/pubkey format validation (for STRICTENC flag)
   // =========================================================================
 

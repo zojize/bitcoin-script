@@ -1037,12 +1037,21 @@ module SCRIPT-SEMANTICS
   // OP_CHECKSIG (extracts hashtype from sig, looks up sighash in blob)
   // =========================================================================
 
+  // DERSIG/STRICTENC: invalid DER signature → SIG_DER error
+  rule <k> OP_CHECKSIG => #fail("SIG_DER") ...</k>
+       <stack> ListItem(_PK:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
+       <flags> F </flags>
+    requires lengthBytes(SIG) >Int 0
+     andBool (hasFlag(F, FLAG_DERSIG) orBool hasFlag(F, FLAG_STRICTENC))
+     andBool notBool isValidDER(SIG)
+
   // STRICTENC: invalid hashtype → SIG_HASHTYPE error
   rule <k> OP_CHECKSIG => #fail("SIG_HASHTYPE") ...</k>
        <stack> ListItem(_PK:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
        <flags> F </flags>
     requires lengthBytes(SIG) >Int 0
      andBool hasFlag(F, FLAG_STRICTENC)
+     andBool isValidDER(SIG)
      andBool notBool validHashType(sigHashType(SIG))
 
   // STRICTENC: invalid pubkey format → PUBKEYTYPE error
@@ -1051,6 +1060,7 @@ module SCRIPT-SEMANTICS
        <flags> F </flags>
     requires lengthBytes(SIG) >Int 0
      andBool hasFlag(F, FLAG_STRICTENC)
+     andBool isValidDER(SIG)
      andBool validHashType(sigHashType(SIG))
      andBool notBool validPubKeyType(PK)
 
