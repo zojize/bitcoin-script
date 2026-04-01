@@ -199,8 +199,7 @@ def parse_flags(flags_str: str) -> set[str]:
 # Expected-result strings that correspond to validation flags we don't enforce
 _FLAG_ERRORS = {
     "MINIMALDATA", "DERSIG", "SIG_DER",
-    "NULLFAIL",
-    "MINIMALIF", "PUBKEYTYPE",
+    "MINIMALIF",
     "SIG_NULLFAIL",
 }
 
@@ -239,7 +238,7 @@ def classify_vector(entry: list) -> str | None:
         return f"locktime: {expected}"
 
     # --- Signature validation errors we don't enforce ---
-    if expected in ("SIG_HASHTYPE", "SIG_HIGH_S", "SIG_DER"):
+    if expected in ("SIG_HIGH_S", "SIG_DER"):
         return f"sig validation: {expected}"
 
     # --- Witness program errors ---
@@ -252,8 +251,9 @@ def classify_vector(entry: list) -> str | None:
     # (DISCOURAGE_UPGRADABLE_NOPS, CLEANSTACK, NULLDUMMY, SIG_PUSHONLY now enforced)
     if "MINIMALDATA" in flags and expected != "OK":
         return "MINIMALDATA not enforced"
-    if "NULLFAIL" in flags and expected != "OK":
-        return "NULLFAIL not enforced"
+    # NULLFAIL enforced for CHECKSIG; multisig edge cases with NULLFAIL+NOT may still pass
+    if expected == "NULLFAIL":
+        return "flag-dependent error: NULLFAIL"
     if "CONST_SCRIPTCODE" in flags and expected != "OK":
         return "CONST_SCRIPTCODE not enforced"
     # --- Sig encoding flags: only relevant when sig ops are present ---

@@ -94,6 +94,27 @@ module SCRIPT-CRYPTO
     requires lengthBytes(BODY) =/=Int 64
 
   // =========================================================================
+  // Signature/pubkey format validation (for STRICTENC flag)
+  // =========================================================================
+
+  // Valid hashtype: base type 1-3, optionally OR'd with 0x80 (ANYONECANPAY)
+  syntax Bool ::= validHashType(Int) [function, total]
+  rule validHashType(HT) => true
+    requires (HT &Int 31) >=Int 1 andBool (HT &Int 31) <=Int 3
+     andBool (HT &Int 224) ==Int 0  // only bits 0-4 and bit 7 allowed
+  rule validHashType(_) => false [owise]
+
+  // Valid pubkey: 33-byte compressed (02/03 prefix) or 65-byte uncompressed (04 prefix)
+  syntax Bool ::= validPubKeyType(Bytes) [function, total]
+  rule validPubKeyType(PK) => true
+    requires ( lengthBytes(PK) ==Int 33
+               andBool ( Bytes2Int(substrBytes(PK, 0, 1), BE, Unsigned) ==Int 2
+                  orBool Bytes2Int(substrBytes(PK, 0, 1), BE, Unsigned) ==Int 3 ) )
+      orBool ( lengthBytes(PK) ==Int 65
+               andBool Bytes2Int(substrBytes(PK, 0, 1), BE, Unsigned) ==Int 4 )
+  rule validPubKeyType(_) => false [owise]
+
+  // =========================================================================
   // ecdsaVerify: reusable ECDSA verification (used by CHECKSIG & CHECKMULTISIG)
   // =========================================================================
 

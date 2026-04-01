@@ -983,6 +983,23 @@ module SCRIPT-SEMANTICS
   // OP_CHECKSIG (extracts hashtype from sig, looks up sighash in blob)
   // =========================================================================
 
+  // STRICTENC: invalid hashtype → SIG_HASHTYPE error
+  rule <k> OP_CHECKSIG => #fail("SIG_HASHTYPE") ...</k>
+       <stack> ListItem(_PK:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
+       <flags> F </flags>
+    requires lengthBytes(SIG) >Int 0
+     andBool hasFlag(F, FLAG_STRICTENC)
+     andBool notBool validHashType(sigHashType(SIG))
+
+  // STRICTENC: invalid pubkey format → PUBKEYTYPE error
+  rule <k> OP_CHECKSIG => #fail("PUBKEYTYPE") ...</k>
+       <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
+       <flags> F </flags>
+    requires lengthBytes(SIG) >Int 0
+     andBool hasFlag(F, FLAG_STRICTENC)
+     andBool validHashType(sigHashType(SIG))
+     andBool notBool validPubKeyType(PK)
+
   // Empty signature: always pushes false (no sighash lookup needed)
   rule <k> OP_CHECKSIG => .K ...</k>
        <stack> ListItem(_PK:Bytes) ListItem(SIG:Bytes) ST
@@ -997,13 +1014,24 @@ module SCRIPT-SEMANTICS
     requires lengthBytes(SIG) >Int 0
      andBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG)))
 
+  // Non-empty sig fails verification, no NULLFAIL: push 0
   rule <k> OP_CHECKSIG => .K ...</k>
        <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST
             => ListItem(intToScriptNum(0)) ST </stack>
        <sighash> SIGHASHBLOB </sighash>
+       <flags> F </flags>
     requires lengthBytes(SIG) >Int 0
      andBool notBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG)))
-    [owise]
+     andBool notBool hasFlag(F, FLAG_NULLFAIL)
+
+  // Non-empty sig fails verification, NULLFAIL set: script error
+  rule <k> OP_CHECKSIG => #fail("NULLFAIL") ...</k>
+       <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
+       <sighash> SIGHASHBLOB </sighash>
+       <flags> F </flags>
+    requires lengthBytes(SIG) >Int 0
+     andBool notBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG)))
+     andBool hasFlag(F, FLAG_NULLFAIL)
 
   // =========================================================================
   // OP_CHECKMULTISIG (reads sighash from <sighash> cell)
@@ -1068,8 +1096,15 @@ module SCRIPT-SEMANTICS
        <stack> ST => ListItem(intToScriptNum(1)) ST </stack>
 
   // Step 4b: Sigs remain but pubkeys exhausted — push false
-  rule <k> #verifyMultisig(.List, ListItem(_) _) => .K ...</k>
+  // NULLFAIL: remaining non-empty sigs cause script failure
+  rule <k> #verifyMultisig(.List, ListItem(SIG:Bytes) _) => .K ...</k>
        <stack> ST => ListItem(intToScriptNum(0)) ST </stack>
+       <flags> F </flags>
+    requires notBool hasFlag(F, FLAG_NULLFAIL) orBool lengthBytes(SIG) ==Int 0
+
+  rule <k> #verifyMultisig(.List, ListItem(SIG:Bytes) _) => #fail("NULLFAIL") ...</k>
+       <flags> F </flags>
+    requires hasFlag(F, FLAG_NULLFAIL) andBool lengthBytes(SIG) >Int 0
 
   // Step 4c: Empty sig in multisig — always fails to match, advance pubkey only
   rule <k> #verifyMultisig(ListItem(_PK:Bytes) PKs, ListItem(SIG:Bytes) Sigs)
