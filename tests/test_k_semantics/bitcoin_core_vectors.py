@@ -200,6 +200,7 @@ def parse_flags(flags_str: str) -> set[str]:
 _FLAG_ERRORS = {
     "MINIMALIF",
     "SIG_NULLFAIL",
+    "WITNESS_PUBKEYTYPE",
 }
 
 # (All resource limits now enforced)
@@ -208,21 +209,19 @@ _RESOURCE_ERRORS: set[str] = set()
 
 def classify_vector(entry: list) -> str | None:
     """Return an xfail reason if this vector can't run, or None if it can."""
-    sig_asm = entry[0]
-    pubkey_asm = entry[1]
-    flags_str = entry[2] if len(entry) > 2 else ""
-    expected = entry[3] if len(entry) > 3 else "OK"
-    combined = f"{sig_asm} {pubkey_asm}"
-    tokens = combined.split()
+    # Witness-format vectors have different field positions
+    is_witness = isinstance(entry[0], list)
+    if is_witness:
+        flags_str = entry[3] if len(entry) > 3 else ""
+        expected = entry[4] if len(entry) > 4 else "OK"
+    else:
+        flags_str = entry[2] if len(entry) > 2 else ""
+        expected = entry[3] if len(entry) > 3 else "OK"
     flags = parse_flags(flags_str)
 
-    # --- OP_SHA1: no KRYPTO hook ---
-    if "SHA1" in tokens:
-        return "OP_SHA1 not implemented"
-
-    # CLTV/CSV: partially implemented — CScriptNum minimal check with nMaxNumSize=5 not done
-    if expected == "SCRIPTNUM" and ("CHECKSEQUENCEVERIFY" in flags or "CHECKLOCKTIMEVERIFY" in flags):
-        return "CSV/CLTV SCRIPTNUM minimal encoding not implemented"
+    # --- Taproot: not implemented ---
+    if "TAPROOT" in flags:
+        return "taproot not implemented"
 
     # --- Expected errors that correspond to unimplemented validation ---
     if expected in _FLAG_ERRORS:
@@ -230,44 +229,7 @@ def classify_vector(entry: list) -> str | None:
     if expected in _RESOURCE_ERRORS:
         return f"resource limit: {expected}"
 
-    # (SCRIPTNUM range is now enforced via scriptNumToInt <=4 byte check)
-
-    # --- Locktime errors ---
-    if expected in ("UNSATISFIED_LOCKTIME", "NEGATIVE_LOCKTIME"):
-        return f"locktime: {expected}"
-
-    # --- Signature validation errors we don't enforce ---
-    if expected in ("SIG_HIGH_S",):
-        return f"sig validation: {expected}"
-
-    # SIG_DER in CHECKMULTISIG: Bitcoin Core's CheckSig sets error during
-    # multisig verification but only propagates it when multisig fails overall.
-    # Our K semantics don't model this intermediate error tracking.
-    if expected == "SIG_DER":
-        sig_ops = {"CHECKMULTISIG", "CHECKMULTISIGVERIFY"}
-        if any(op in tokens for op in sig_ops):
-            return "SIG_DER in CHECKMULTISIG not enforced"
-
-    # --- Witness program errors ---
-    if expected.startswith("WITNESS"):
-        return f"witness: {expected}"
-
-    # (5-byte integer encoding now supported via intToScriptNumAbs 5-byte rule)
-
-    # --- Flag-based enforcement we don't do ---
-    # (DISCOURAGE_UPGRADABLE_NOPS, CLEANSTACK, NULLDUMMY, SIG_PUSHONLY, MINIMALDATA now enforced)
-    # NULLFAIL enforced for CHECKSIG; multisig edge cases with NULLFAIL+NOT may still pass
-    if expected == "NULLFAIL":
-        return "flag-dependent error: NULLFAIL"
     if "CONST_SCRIPTCODE" in flags and expected != "OK":
         return "CONST_SCRIPTCODE not enforced"
-    # STRICTENC pubkey validation in CHECKMULTISIG not yet implemented
-    sig_ops = {"CHECKSIG", "CHECKSIGVERIFY", "CHECKMULTISIG", "CHECKMULTISIGVERIFY"}
-    has_sig_op = any(op in tokens for op in sig_ops)
-    if has_sig_op and expected == "PUBKEYTYPE" and "STRICTENC" in flags:
-        # Check if any pubkey in the script is invalid (0, hybrid 06/07 prefix)
-        for tok in tokens:
-            if tok == "0" or (tok.startswith("0x") and len(tok) >= 4 and tok[2:4] in ("06", "07")):
-                return "STRICTENC PUBKEYTYPE in multisig not enforced"
 
     return None

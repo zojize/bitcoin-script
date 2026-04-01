@@ -192,4 +192,19 @@ module SCRIPT-CRYPTO
         orBool compressKey(ECDSARecover(SIGHASH, 28, derR(SIG), derS(SIG))) ==K PK )
 
   rule ecdsaVerify(_, _, _) => false [owise]
+
+  // =========================================================================
+  // LOW_S check: S value must be <= half the secp256k1 curve order
+  // =========================================================================
+  // secp256k1 order n = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+  // half order = n / 2
+
+  syntax Int ::= "SECP256K1_HALF_ORDER" [macro]
+  rule SECP256K1_HALF_ORDER => 57896044618658097711785492504343953926418782139537452191302581570759080747168
+
+  syntax Bool ::= isLowDerS(Bytes) [function, total]
+  rule isLowDerS(SIG) => Bytes2Int(derS(SIG), BE, Unsigned) <=Int SECP256K1_HALF_ORDER
+    requires isValidDER(SIG)
+  rule isLowDerS(_) => false [owise]
+
 endmodule

@@ -47,6 +47,10 @@ module SCRIPT-NUM
   syntax Bool ::= validNum(Bytes) [function, total]
   rule validNum(B) => lengthBytes(B) <=Int 4
 
+  // --- 5-byte limit predicate (used by CLTV/CSV: nMaxNumSize=5) ---
+  syntax Bool ::= validNum5(Bytes) [function, total]
+  rule validNum5(B) => lengthBytes(B) <=Int 5
+
   // --- CScriptNum minimal encoding check (for MINIMALDATA flag) ---
   // Returns true if the byte encoding is the shortest possible for the value.
   // Non-minimal: trailing zero byte when second-to-last byte's high bit is clear.

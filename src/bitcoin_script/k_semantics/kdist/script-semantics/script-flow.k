@@ -84,10 +84,205 @@ module SCRIPT-FLOW
 
   rule <k> OP_NOP => .K ...</k>
 
-  // OP_NOP1-NOP10: no-ops, but fail with DISCOURAGE_UPGRADABLE_NOPS flag
+  // =========================================================================
+  // OP_CHECKLOCKTIMEVERIFY (BIP 65) — OP_NOP2 when flag not set
+  // =========================================================================
+  // When CHECKLOCKTIMEVERIFY flag is set: validate stack top against nLockTime.
+  // Does NOT pop the stack value.
+
+  // Flag not set: behave as NOP (with DISCOURAGE_UPGRADABLE_NOPS check)
+  rule <k> OP_NOP2 => .K ...</k>
+       <flags> F </flags>
+    requires notBool hasFlag(F, FLAG_CHECKLOCKTIMEVERIFY)
+     andBool notBool hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_NOPS)
+
+  rule <k> OP_NOP2 => #fail("DISCOURAGE_UPGRADABLE_NOPS") ...</k>
+       <flags> F </flags>
+    requires notBool hasFlag(F, FLAG_CHECKLOCKTIMEVERIFY)
+     andBool hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_NOPS)
+
+  // SCRIPTNUM: CScriptNum validation with nMaxNumSize=5
+  rule <k> OP_NOP2 => #fail("SCRIPTNUM") ...</k>
+       <stack> ListItem(V:Bytes) _ST </stack>
+       <flags> F </flags>
+    requires hasFlag(F, FLAG_CHECKLOCKTIMEVERIFY)
+     andBool (notBool validNum5(V) orBool (hasFlag(F, FLAG_MINIMALDATA) andBool notBool #isMinimalNum(V)))
+
+  // NEGATIVE_LOCKTIME: stack top must be non-negative
+  rule <k> OP_NOP2 => #fail("NEGATIVE_LOCKTIME") ...</k>
+       <stack> ListItem(V:Bytes) _ST </stack>
+       <flags> F </flags>
+    requires hasFlag(F, FLAG_CHECKLOCKTIMEVERIFY)
+     andBool validNum5(V) andBool (notBool hasFlag(F, FLAG_MINIMALDATA) orBool #isMinimalNum(V))
+     andBool scriptNumToInt(V) <Int 0
+
+  // UNSATISFIED_LOCKTIME: type mismatch (one >= 500000000, other < 500000000)
+  rule <k> OP_NOP2 => #fail("UNSATISFIED_LOCKTIME") ...</k>
+       <stack> ListItem(V:Bytes) _ST </stack>
+       <flags> F </flags>
+       <nLockTime> LT </nLockTime>
+    requires hasFlag(F, FLAG_CHECKLOCKTIMEVERIFY)
+     andBool validNum5(V) andBool (notBool hasFlag(F, FLAG_MINIMALDATA) orBool #isMinimalNum(V))
+     andBool scriptNumToInt(V) >=Int 0
+     andBool (  (scriptNumToInt(V) <Int 500000000 andBool LT >=Int 500000000)
+         orBool (scriptNumToInt(V) >=Int 500000000 andBool LT <Int 500000000) )
+
+  // UNSATISFIED_LOCKTIME: stack top > nLockTime
+  rule <k> OP_NOP2 => #fail("UNSATISFIED_LOCKTIME") ...</k>
+       <stack> ListItem(V:Bytes) _ST </stack>
+       <flags> F </flags>
+       <nLockTime> LT </nLockTime>
+    requires hasFlag(F, FLAG_CHECKLOCKTIMEVERIFY)
+     andBool validNum5(V) andBool (notBool hasFlag(F, FLAG_MINIMALDATA) orBool #isMinimalNum(V))
+     andBool scriptNumToInt(V) >=Int 0
+     andBool (  (scriptNumToInt(V) <Int 500000000 andBool LT <Int 500000000)
+         orBool (scriptNumToInt(V) >=Int 500000000 andBool LT >=Int 500000000) )
+     andBool scriptNumToInt(V) >Int LT
+
+  // UNSATISFIED_LOCKTIME: input is finalized (nSequence == 0xFFFFFFFF)
+  rule <k> OP_NOP2 => #fail("UNSATISFIED_LOCKTIME") ...</k>
+       <stack> ListItem(V:Bytes) _ST </stack>
+       <flags> F </flags>
+       <nLockTime> LT </nLockTime>
+       <nSequence> SEQ </nSequence>
+    requires hasFlag(F, FLAG_CHECKLOCKTIMEVERIFY)
+     andBool validNum5(V) andBool (notBool hasFlag(F, FLAG_MINIMALDATA) orBool #isMinimalNum(V))
+     andBool scriptNumToInt(V) >=Int 0
+     andBool scriptNumToInt(V) <=Int LT
+     andBool (  (scriptNumToInt(V) <Int 500000000 andBool LT <Int 500000000)
+         orBool (scriptNumToInt(V) >=Int 500000000 andBool LT >=Int 500000000) )
+     andBool SEQ ==Int 4294967295
+
+  // CLTV passes: all checks pass, continue (does NOT pop stack)
+  rule <k> OP_NOP2 => .K ...</k>
+       <stack> ListItem(V:Bytes) _ST </stack>
+       <flags> F </flags>
+       <nLockTime> LT </nLockTime>
+       <nSequence> SEQ </nSequence>
+    requires hasFlag(F, FLAG_CHECKLOCKTIMEVERIFY)
+     andBool validNum5(V) andBool (notBool hasFlag(F, FLAG_MINIMALDATA) orBool #isMinimalNum(V))
+     andBool scriptNumToInt(V) >=Int 0
+     andBool scriptNumToInt(V) <=Int LT
+     andBool (  (scriptNumToInt(V) <Int 500000000 andBool LT <Int 500000000)
+         orBool (scriptNumToInt(V) >=Int 500000000 andBool LT >=Int 500000000) )
+     andBool SEQ =/=Int 4294967295
+
+  // =========================================================================
+  // OP_CHECKSEQUENCEVERIFY (BIP 112) — OP_NOP3 when flag not set
+  // =========================================================================
+  // When CHECKSEQUENCEVERIFY flag is set: validate stack top against nSequence.
+  // Does NOT pop the stack value.
+  // Constants: SEQUENCE_LOCKTIME_DISABLE_FLAG = 1 << 31 = 2147483648
+  //            SEQUENCE_LOCKTIME_TYPE_FLAG    = 1 << 22 = 4194304
+  //            SEQUENCE_LOCKTIME_MASK         = 0x0000FFFF = 65535
+
+  // Flag not set: behave as NOP (with DISCOURAGE_UPGRADABLE_NOPS check)
+  rule <k> OP_NOP3 => .K ...</k>
+       <flags> F </flags>
+    requires notBool hasFlag(F, FLAG_CHECKSEQUENCEVERIFY)
+     andBool notBool hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_NOPS)
+
+  rule <k> OP_NOP3 => #fail("DISCOURAGE_UPGRADABLE_NOPS") ...</k>
+       <flags> F </flags>
+    requires notBool hasFlag(F, FLAG_CHECKSEQUENCEVERIFY)
+     andBool hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_NOPS)
+
+  // SCRIPTNUM: CScriptNum validation with nMaxNumSize=5
+  rule <k> OP_NOP3 => #fail("SCRIPTNUM") ...</k>
+       <stack> ListItem(V:Bytes) _ST </stack>
+       <flags> F </flags>
+    requires hasFlag(F, FLAG_CHECKSEQUENCEVERIFY)
+     andBool (notBool validNum5(V) orBool (hasFlag(F, FLAG_MINIMALDATA) andBool notBool #isMinimalNum(V)))
+
+  // NEGATIVE_LOCKTIME: stack top (as CScriptNum) is negative
+  rule <k> OP_NOP3 => #fail("NEGATIVE_LOCKTIME") ...</k>
+       <stack> ListItem(V:Bytes) _ST </stack>
+       <flags> F </flags>
+    requires hasFlag(F, FLAG_CHECKSEQUENCEVERIFY)
+     andBool validNum5(V) andBool (notBool hasFlag(F, FLAG_MINIMALDATA) orBool #isMinimalNum(V))
+     andBool scriptNumToInt(V) <Int 0
+
+  // Disable flag set (bit 31 of the integer value): treat as NOP
+  rule <k> OP_NOP3 => .K ...</k>
+       <stack> ListItem(V:Bytes) _ST </stack>
+       <flags> F </flags>
+    requires hasFlag(F, FLAG_CHECKSEQUENCEVERIFY)
+     andBool validNum5(V) andBool (notBool hasFlag(F, FLAG_MINIMALDATA) orBool #isMinimalNum(V))
+     andBool scriptNumToInt(V) >=Int 0
+     andBool scriptNumToInt(V) &Int 2147483648 =/=Int 0
+
+  // UNSATISFIED_LOCKTIME: tx version < 2
+  rule <k> OP_NOP3 => #fail("UNSATISFIED_LOCKTIME") ...</k>
+       <stack> ListItem(V:Bytes) _ST </stack>
+       <flags> F </flags>
+       <txVersion> VER </txVersion>
+    requires hasFlag(F, FLAG_CHECKSEQUENCEVERIFY)
+     andBool validNum5(V) andBool (notBool hasFlag(F, FLAG_MINIMALDATA) orBool #isMinimalNum(V))
+     andBool scriptNumToInt(V) >=Int 0
+     andBool scriptNumToInt(V) &Int 2147483648 ==Int 0
+     andBool VER <Int 2
+
+  // UNSATISFIED_LOCKTIME: nSequence disable flag set (tx input opted out)
+  rule <k> OP_NOP3 => #fail("UNSATISFIED_LOCKTIME") ...</k>
+       <stack> ListItem(V:Bytes) _ST </stack>
+       <flags> F </flags>
+       <txVersion> VER </txVersion>
+       <nSequence> SEQ </nSequence>
+    requires hasFlag(F, FLAG_CHECKSEQUENCEVERIFY)
+     andBool validNum5(V) andBool (notBool hasFlag(F, FLAG_MINIMALDATA) orBool #isMinimalNum(V))
+     andBool scriptNumToInt(V) >=Int 0
+     andBool scriptNumToInt(V) &Int 2147483648 ==Int 0
+     andBool VER >=Int 2
+     andBool SEQ &Int 2147483648 =/=Int 0
+
+  // UNSATISFIED_LOCKTIME: type flag mismatch (one time-based, other block-based)
+  rule <k> OP_NOP3 => #fail("UNSATISFIED_LOCKTIME") ...</k>
+       <stack> ListItem(V:Bytes) _ST </stack>
+       <flags> F </flags>
+       <txVersion> VER </txVersion>
+       <nSequence> SEQ </nSequence>
+    requires hasFlag(F, FLAG_CHECKSEQUENCEVERIFY)
+     andBool validNum5(V) andBool (notBool hasFlag(F, FLAG_MINIMALDATA) orBool #isMinimalNum(V))
+     andBool scriptNumToInt(V) >=Int 0
+     andBool scriptNumToInt(V) &Int 2147483648 ==Int 0
+     andBool VER >=Int 2
+     andBool SEQ &Int 2147483648 ==Int 0
+     andBool (scriptNumToInt(V) &Int 4194304) =/=Int (SEQ &Int 4194304)
+
+  // UNSATISFIED_LOCKTIME: masked value > masked nSequence
+  rule <k> OP_NOP3 => #fail("UNSATISFIED_LOCKTIME") ...</k>
+       <stack> ListItem(V:Bytes) _ST </stack>
+       <flags> F </flags>
+       <txVersion> VER </txVersion>
+       <nSequence> SEQ </nSequence>
+    requires hasFlag(F, FLAG_CHECKSEQUENCEVERIFY)
+     andBool validNum5(V) andBool (notBool hasFlag(F, FLAG_MINIMALDATA) orBool #isMinimalNum(V))
+     andBool scriptNumToInt(V) >=Int 0
+     andBool scriptNumToInt(V) &Int 2147483648 ==Int 0
+     andBool VER >=Int 2
+     andBool SEQ &Int 2147483648 ==Int 0
+     andBool (scriptNumToInt(V) &Int 4194304) ==Int (SEQ &Int 4194304)
+     andBool (scriptNumToInt(V) &Int 4259839) >Int (SEQ &Int 4259839)
+
+  // CSV passes: all checks pass
+  rule <k> OP_NOP3 => .K ...</k>
+       <stack> ListItem(V:Bytes) _ST </stack>
+       <flags> F </flags>
+       <txVersion> VER </txVersion>
+       <nSequence> SEQ </nSequence>
+    requires hasFlag(F, FLAG_CHECKSEQUENCEVERIFY)
+     andBool validNum5(V) andBool (notBool hasFlag(F, FLAG_MINIMALDATA) orBool #isMinimalNum(V))
+     andBool scriptNumToInt(V) >=Int 0
+     andBool scriptNumToInt(V) &Int 2147483648 ==Int 0
+     andBool VER >=Int 2
+     andBool SEQ &Int 2147483648 ==Int 0
+     andBool (scriptNumToInt(V) &Int 4194304) ==Int (SEQ &Int 4194304)
+     andBool (scriptNumToInt(V) &Int 4259839) <=Int (SEQ &Int 4259839)
+
+  // =========================================================================
+  // OP_NOP1, OP_NOP4-OP_NOP10: pure no-ops (DISCOURAGE_UPGRADABLE_NOPS)
+  // =========================================================================
   rule <k> OP_NOP1  => .K ...</k> <flags> F </flags> requires notBool hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_NOPS)
-  rule <k> OP_NOP2  => .K ...</k> <flags> F </flags> requires notBool hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_NOPS)
-  rule <k> OP_NOP3  => .K ...</k> <flags> F </flags> requires notBool hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_NOPS)
   rule <k> OP_NOP4  => .K ...</k> <flags> F </flags> requires notBool hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_NOPS)
   rule <k> OP_NOP5  => .K ...</k> <flags> F </flags> requires notBool hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_NOPS)
   rule <k> OP_NOP6  => .K ...</k> <flags> F </flags> requires notBool hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_NOPS)
@@ -97,8 +292,6 @@ module SCRIPT-FLOW
   rule <k> OP_NOP10 => .K ...</k> <flags> F </flags> requires notBool hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_NOPS)
 
   rule <k> OP_NOP1  => #fail("DISCOURAGE_UPGRADABLE_NOPS") ...</k> <flags> F </flags> requires hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_NOPS)
-  rule <k> OP_NOP2  => #fail("DISCOURAGE_UPGRADABLE_NOPS") ...</k> <flags> F </flags> requires hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_NOPS)
-  rule <k> OP_NOP3  => #fail("DISCOURAGE_UPGRADABLE_NOPS") ...</k> <flags> F </flags> requires hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_NOPS)
   rule <k> OP_NOP4  => #fail("DISCOURAGE_UPGRADABLE_NOPS") ...</k> <flags> F </flags> requires hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_NOPS)
   rule <k> OP_NOP5  => #fail("DISCOURAGE_UPGRADABLE_NOPS") ...</k> <flags> F </flags> requires hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_NOPS)
   rule <k> OP_NOP6  => #fail("DISCOURAGE_UPGRADABLE_NOPS") ...</k> <flags> F </flags> requires hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_NOPS)

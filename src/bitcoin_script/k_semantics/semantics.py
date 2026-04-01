@@ -153,6 +153,9 @@ class KBitcoinScript:
         timestamp: int = 0,
         witness: bytes = b"",
         flags: int = 0,
+        tx_version: int = 1,
+        n_locktime: int = 0,
+        n_sequence: int = 0xFFFFFFFF,
     ) -> Pattern:
         """Build and run a full script verification.
 
@@ -163,6 +166,9 @@ class KBitcoinScript:
             timestamp: Block timestamp (for BIP-16 P2SH activation >= 1333238400).
             witness: Witness data (reserved for future SegWit support).
             flags: Verification flags bitmask (Bitcoin Core SCRIPT_VERIFY_* values).
+            tx_version: Spending transaction version (for BIP-68 CSV: must be >= 2).
+            n_locktime: Spending transaction nLockTime (for BIP-65 CLTV).
+            n_sequence: Spending input nSequence (for BIP-65 CLTV / BIP-68 CSV).
 
         Returns:
             The final KORE pattern after execution.
@@ -174,6 +180,9 @@ class KBitcoinScript:
             timestamp=timestamp,
             witness=witness,
             flags=flags,
+            tx_version=tx_version,
+            n_locktime=n_locktime,
+            n_sequence=n_sequence,
         )
         return self.run(pat)
 
@@ -186,6 +195,9 @@ class KBitcoinScript:
         timestamp: int = 0,
         witness: bytes = b"",
         flags: int = 0,
+        tx_version: int = 1,
+        n_locktime: int = 0,
+        n_sequence: int = 0xFFFFFFFF,
     ) -> Pattern:
         """Build an initial KORE configuration.
 
@@ -196,6 +208,9 @@ class KBitcoinScript:
             timestamp: Block timestamp (for BIP-16 P2SH activation >= 1333238400).
             witness: Witness data (reserved for future SegWit support).
             flags: Verification flags bitmask (Bitcoin Core SCRIPT_VERIFY_* values).
+            tx_version: Spending transaction version (for BIP-68 CSV: must be >= 2).
+            n_locktime: Spending transaction nLockTime (for BIP-65 CLTV).
+            n_sequence: Spending input nSequence (for BIP-65 CLTV / BIP-68 CSV).
 
         Returns:
             The initial KORE pattern.
@@ -224,6 +239,9 @@ class KBitcoinScript:
                 "$TIMESTAMP": _int_var(timestamp),
                 "$WITNESS": _bytes_var(witness),
                 "$FLAGS": _int_var(flags),
+                "$TXVERSION": _int_var(tx_version),
+                "$NLOCKTIME": _int_var(n_locktime),
+                "$NSEQUENCE": _int_var(n_sequence),
             }
         )
 

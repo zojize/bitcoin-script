@@ -18,7 +18,7 @@ module SCRIPT-SEMANTICS
   imports BYTES
 
   // --- Phase sort ---
-  syntax Phase ::= "scriptSig" | "scriptPubKey" | "p2sh-redeem" | "done"
+  syntax Phase ::= "scriptSig" | "scriptPubKey" | "p2sh-redeem" | "witness-v0" | "done"
 
   // --- Configuration ---
   configuration
@@ -37,6 +37,11 @@ module SCRIPT-SEMANTICS
       <savedStack> .List </savedStack>
       <opCount> 0 </opCount>
       <flags> $FLAGS:Int </flags>
+      <txVersion> $TXVERSION:Int </txVersion>
+      <nLockTime> $NLOCKTIME:Int </nLockTime>
+      <nSequence> $NSEQUENCE:Int </nSequence>
+      <witnessUsed> false </witnessUsed>
+      <p2shRedeemBytes> .Bytes </p2shRedeemBytes>
     </T>
 
   // --- Flag checking (Bitcoin Core verification flags as bitmask) ---
@@ -51,6 +56,8 @@ module SCRIPT-SEMANTICS
                | "FLAG_CLEANSTACK"                   [macro]
                | "FLAG_CHECKLOCKTIMEVERIFY"          [macro]
                | "FLAG_CHECKSEQUENCEVERIFY"          [macro]
+               | "FLAG_WITNESS"                       [macro]
+               | "FLAG_DISCOURAGE_UPGRADABLE_WITNESS" [macro]
                | "FLAG_NULLFAIL"                     [macro]
 
   rule FLAG_P2SH                        => 1
@@ -64,6 +71,8 @@ module SCRIPT-SEMANTICS
   rule FLAG_CLEANSTACK                  => 256
   rule FLAG_CHECKLOCKTIMEVERIFY         => 512
   rule FLAG_CHECKSEQUENCEVERIFY         => 1024
+  rule FLAG_WITNESS                     => 2048
+  rule FLAG_DISCOURAGE_UPGRADABLE_WITNESS => 4096
   rule FLAG_NULLFAIL                    => 16384
 
   syntax Bool ::= hasFlag(Int, Int) [function, total]
@@ -144,7 +153,45 @@ module SCRIPT-SEMANTICS
     requires (notBool #isP2SH(PK) orBool TS <Int 1333238400)
      andBool lengthBytes(PK) <=Int 10000
 
-  // After scriptPubKey completes, NOT P2SH: done
+  // After scriptPubKey completes, NOT P2SH, IS witness program with WITNESS flag:
+  // Native witness: scriptSig must be empty (WITNESS_MALLEATED)
+  rule <k> #phaseComplete => #fail("WITNESS_MALLEATED") ...</k>
+       <phase> scriptPubKey </phase>
+       <exec> .List </exec>
+       <flags> F </flags>
+       <scriptPubKeyBytes> PK </scriptPubKeyBytes>
+       <scriptSigBytes> SIG </scriptSigBytes>
+       <timestamp> TS </timestamp>
+    requires (notBool #isP2SH(PK) orBool TS <Int 1333238400)
+     andBool hasFlag(F, FLAG_WITNESS) andBool #isWitnessProgram(PK)
+     andBool lengthBytes(SIG) >Int 0
+
+  // Native witness: enter witness verification
+  rule <k> #phaseComplete => #witnessVerify(#witnessVersion(PK), #witnessProgram(PK)) ...</k>
+       <phase> scriptPubKey </phase>
+       <exec> .List </exec>
+       <flags> F </flags>
+       <scriptPubKeyBytes> PK </scriptPubKeyBytes>
+       <scriptSigBytes> SIG </scriptSigBytes>
+       <timestamp> TS </timestamp>
+    requires (notBool #isP2SH(PK) orBool TS <Int 1333238400)
+     andBool hasFlag(F, FLAG_WITNESS) andBool #isWitnessProgram(PK)
+     andBool lengthBytes(SIG) ==Int 0
+
+  // After scriptPubKey completes, NOT P2SH, NOT witness program: done
+  // WITNESS_UNEXPECTED: witness data present but no witness program
+  rule <k> #phaseComplete => #fail("WITNESS_UNEXPECTED") ...</k>
+       <phase> scriptPubKey </phase>
+       <exec> .List </exec>
+       <flags> F </flags>
+       <scriptPubKeyBytes> PK </scriptPubKeyBytes>
+       <timestamp> TS </timestamp>
+       <witness> W </witness>
+       <witnessUsed> false </witnessUsed>
+    requires (notBool #isP2SH(PK) orBool TS <Int 1333238400)
+     andBool notBool (hasFlag(F, FLAG_WITNESS) andBool #isWitnessProgram(PK))
+     andBool hasFlag(F, FLAG_WITNESS) andBool #witnessCount(W) >Int 0
+
   // Exec stack must be empty (balanced IF/ENDIF)
   // CLEANSTACK: when flag set, stack must have exactly 1 element
   rule <k> #phaseComplete => .K ...</k>
@@ -154,7 +201,11 @@ module SCRIPT-SEMANTICS
        <flags> F </flags>
        <scriptPubKeyBytes> PK </scriptPubKeyBytes>
        <timestamp> TS </timestamp>
+       <witness> W </witness>
+       <witnessUsed> WU </witnessUsed>
     requires (notBool #isP2SH(PK) orBool TS <Int 1333238400)
+     andBool notBool (hasFlag(F, FLAG_WITNESS) andBool #isWitnessProgram(PK))
+     andBool (notBool hasFlag(F, FLAG_WITNESS) orBool WU orBool #witnessCount(W) ==Int 0)
      andBool (notBool hasFlag(F, FLAG_CLEANSTACK) orBool size(ST) ==Int 1)
 
   rule <k> #phaseComplete => #fail("CLEANSTACK") ...</k>
@@ -164,11 +215,16 @@ module SCRIPT-SEMANTICS
        <flags> F </flags>
        <scriptPubKeyBytes> PK </scriptPubKeyBytes>
        <timestamp> TS </timestamp>
+       <witness> W </witness>
+       <witnessUsed> WU </witnessUsed>
     requires (notBool #isP2SH(PK) orBool TS <Int 1333238400)
+     andBool notBool (hasFlag(F, FLAG_WITNESS) andBool #isWitnessProgram(PK))
+     andBool (notBool hasFlag(F, FLAG_WITNESS) orBool WU orBool #witnessCount(W) ==Int 0)
      andBool hasFlag(F, FLAG_CLEANSTACK) andBool size(ST) =/=Int 1
 
   // After scriptPubKey completes, IS P2SH, scriptPubKey succeeded:
   // restore saved stack, pop redeem script, decode and execute it
+  // Save redeem bytes for P2SH-wrapped witness detection
   rule <k> #phaseComplete => #decodeScript(REDEEM) ~> #phaseComplete ...</k>
        <phase> scriptPubKey => p2sh-redeem </phase>
        <exec> .List </exec>
@@ -178,6 +234,7 @@ module SCRIPT-SEMANTICS
        <stack> ListItem(V:Bytes) _ => REST </stack>
        <savedStack> ListItem(REDEEM:Bytes) REST </savedStack>
        <scriptSigBytes> SIG </scriptSigBytes>
+       <p2shRedeemBytes> _ => REDEEM </p2shRedeemBytes>
     requires #isP2SH(PK) andBool TS >=Int 1333238400
      andBool #isPushOnly(SIG)
      andBool #isTruthy(V)
@@ -196,20 +253,223 @@ module SCRIPT-SEMANTICS
      andBool #isPushOnly(SIG)
      andBool notBool #isTruthy(V)
 
-  // After p2sh-redeem completes: done (CLEANSTACK check)
+  // After p2sh-redeem completes: check for P2SH-wrapped witness program
+  rule <k> #phaseComplete => #witnessVerify(#witnessVersion(REDEEM), #witnessProgram(REDEEM)) ...</k>
+       <phase> p2sh-redeem </phase>
+       <exec> .List </exec>
+       <flags> F </flags>
+       <p2shRedeemBytes> REDEEM </p2shRedeemBytes>
+    requires hasFlag(F, FLAG_WITNESS) andBool #isWitnessProgram(REDEEM)
+
+  // After p2sh-redeem completes, NOT witness: done (CLEANSTACK + WITNESS_UNEXPECTED)
+  rule <k> #phaseComplete => #fail("WITNESS_UNEXPECTED") ...</k>
+       <phase> p2sh-redeem </phase>
+       <exec> .List </exec>
+       <flags> F </flags>
+       <p2shRedeemBytes> REDEEM </p2shRedeemBytes>
+       <witness> W </witness>
+       <witnessUsed> false </witnessUsed>
+    requires notBool (hasFlag(F, FLAG_WITNESS) andBool #isWitnessProgram(REDEEM))
+     andBool hasFlag(F, FLAG_WITNESS) andBool #witnessCount(W) >Int 0
+
   rule <k> #phaseComplete => .K ...</k>
        <phase> p2sh-redeem => done </phase>
        <exec> .List </exec>
        <stack> ST </stack>
        <flags> F </flags>
-    requires notBool hasFlag(F, FLAG_CLEANSTACK) orBool size(ST) ==Int 1
+       <p2shRedeemBytes> REDEEM </p2shRedeemBytes>
+       <witness> W </witness>
+       <witnessUsed> WU </witnessUsed>
+    requires notBool (hasFlag(F, FLAG_WITNESS) andBool #isWitnessProgram(REDEEM))
+     andBool (notBool hasFlag(F, FLAG_WITNESS) orBool WU orBool #witnessCount(W) ==Int 0)
+     andBool (notBool hasFlag(F, FLAG_CLEANSTACK) orBool size(ST) ==Int 1)
 
   rule <k> #phaseComplete => #fail("CLEANSTACK") ...</k>
        <phase> p2sh-redeem </phase>
        <exec> .List </exec>
        <stack> ST </stack>
        <flags> F </flags>
-    requires hasFlag(F, FLAG_CLEANSTACK) andBool size(ST) =/=Int 1
+       <p2shRedeemBytes> REDEEM </p2shRedeemBytes>
+       <witness> W </witness>
+       <witnessUsed> WU </witnessUsed>
+    requires notBool (hasFlag(F, FLAG_WITNESS) andBool #isWitnessProgram(REDEEM))
+     andBool (notBool hasFlag(F, FLAG_WITNESS) orBool WU orBool #witnessCount(W) ==Int 0)
+     andBool hasFlag(F, FLAG_CLEANSTACK) andBool size(ST) =/=Int 1
+
+  // =========================================================================
+  // Witness program detection (BIP 141)
+  // =========================================================================
+  // A witness program is: <version_byte> <push_2_to_40_bytes>
+  // Version byte: OP_0 (0x00) or OP_1-OP_16 (0x51-0x60)
+  // Total script length: 4-42 bytes, second byte + 2 == total length
+
+  syntax Bool ::= #isWitnessProgram(Bytes) [function, total]
+  rule #isWitnessProgram(B) => true
+    requires lengthBytes(B) >=Int 4 andBool lengthBytes(B) <=Int 42
+     andBool (#scriptByte(B) ==Int 0
+              orBool (#scriptByte(B) >=Int 81 andBool #scriptByte(B) <=Int 96))
+     andBool Bytes2Int(substrBytes(B, 1, 2), BE, Unsigned) +Int 2 ==Int lengthBytes(B)
+  rule #isWitnessProgram(_) => false [owise]
+
+  // Extract witness version: OP_0 → 0, OP_N → N
+  syntax Int ::= #witnessVersion(Bytes) [function]
+  rule #witnessVersion(B) => 0 requires #scriptByte(B) ==Int 0
+  rule #witnessVersion(B) => #scriptByte(B) -Int 80
+    requires #scriptByte(B) >=Int 81 andBool #scriptByte(B) <=Int 96
+
+  // Extract witness program data (bytes after version + push opcode)
+  syntax Bytes ::= #witnessProgram(Bytes) [function]
+  rule #witnessProgram(B) => substrBytes(B, 2, lengthBytes(B))
+
+  // =========================================================================
+  // Witness blob decoding
+  // =========================================================================
+  // Blob format: <2-byte BE count> (<2-byte BE item_length> <item_bytes>)*
+
+  // Count of witness items in the blob
+  syntax Int ::= #witnessCount(Bytes) [function, total]
+  rule #witnessCount(W) => Bytes2Int(substrBytes(W, 0, 2), BE, Unsigned)
+    requires lengthBytes(W) >=Int 2
+  rule #witnessCount(W) => 0
+    requires lengthBytes(W) <Int 2
+
+  // Decode the Nth witness item (0-indexed) from the blob
+  // Skips past the 2-byte count header, then iterates to find item N
+  syntax Bytes ::= #witnessItemAt(Bytes, Int) [function]
+  rule #witnessItemAt(W, N) => #witnessItemSkip(substrBytes(W, 2, lengthBytes(W)), N)
+    requires lengthBytes(W) >=Int 2
+
+  // Skip N items, then read the next one
+  syntax Bytes ::= #witnessItemSkip(Bytes, Int) [function]
+  rule #witnessItemSkip(B, 0) =>
+    substrBytes(B, 2, 2 +Int Bytes2Int(substrBytes(B, 0, 2), BE, Unsigned))
+    requires lengthBytes(B) >=Int 2
+  rule #witnessItemSkip(B, N) =>
+    #witnessItemSkip(
+      substrBytes(B, 2 +Int Bytes2Int(substrBytes(B, 0, 2), BE, Unsigned), lengthBytes(B)),
+      N -Int 1)
+    requires N >Int 0 andBool lengthBytes(B) >=Int 2
+
+  // Build a K List of witness items from the blob (indices FROM to TO exclusive)
+  syntax List ::= #witnessList(Bytes, Int, Int) [function]
+  rule #witnessList(_, FROM, TO) => .List requires FROM >=Int TO
+  rule #witnessList(W, FROM, TO) =>
+    ListItem(#witnessItemAt(W, FROM)) #witnessList(W, FROM +Int 1, TO)
+    requires FROM <Int TO
+
+  // Push witness items onto the stack (items FROM to TO, pushed first-to-last
+  // so item FROM ends up at the bottom, item TO-1 at the top)
+  syntax KItem ::= "#pushWitnessStack" "(" Bytes "," Int "," Int ")"
+  rule <k> #pushWitnessStack(_, FROM, TO) => .K ...</k>
+    requires FROM >=Int TO
+  rule <k> #pushWitnessStack(W, FROM, TO)
+        => #pushWitnessStack(W, FROM +Int 1, TO) ...</k>
+       <stack> ST => ListItem(#witnessItemAt(W, FROM)) ST </stack>
+    requires FROM <Int TO
+
+  // =========================================================================
+  // Witness verification (BIP 141)
+  // =========================================================================
+  syntax KItem ::= "#witnessVerify" "(" Int "," Bytes ")"
+                 | "#witnessComplete"
+
+  // Empty witness stack → error
+  rule <k> #witnessVerify(_, _) => #fail("WITNESS_PROGRAM_WITNESS_EMPTY") ...</k>
+       <witness> W </witness>
+    requires #witnessCount(W) ==Int 0
+
+  // --- Version 0, 32-byte program (P2WSH) ---
+  // Witness script is the last item. SHA256(script) must equal program.
+  // Remaining items become the initial stack.
+  rule <k> #witnessVerify(0, PROG)
+        => #pushWitnessStack(W, 0, #witnessCount(W) -Int 1)
+        ~> #decodeScript(#witnessItemAt(W, #witnessCount(W) -Int 1))
+        ~> #witnessComplete ...</k>
+       <witness> W </witness>
+       <stack> _ => .List </stack>
+       <altstack> _ => .List </altstack>
+       <exec> _ => .List </exec>
+       <opCount> _ => 0 </opCount>
+       <phase> _ => witness-v0 </phase>
+       <witnessUsed> _ => true </witnessUsed>
+    requires #witnessCount(W) >Int 0
+     andBool lengthBytes(PROG) ==Int 32
+     andBool Sha256raw(#witnessItemAt(W, #witnessCount(W) -Int 1)) ==K PROG
+
+  // P2WSH: hash mismatch
+  rule <k> #witnessVerify(0, PROG) => #fail("WITNESS_PROGRAM_MISMATCH") ...</k>
+       <witness> W </witness>
+    requires #witnessCount(W) >Int 0
+     andBool lengthBytes(PROG) ==Int 32
+     andBool Sha256raw(#witnessItemAt(W, #witnessCount(W) -Int 1)) =/=K PROG
+
+  // --- Version 0, 20-byte program (P2WPKH) ---
+  // Witness must have exactly 2 items (sig, pubkey).
+  // Synthesize P2PKH: OP_DUP OP_HASH160 <20-byte-program> OP_EQUALVERIFY OP_CHECKSIG
+  rule <k> #witnessVerify(0, PROG)
+        => #pushWitnessStack(W, 0, 2)
+        ~> #decodeScript(Int2Bytes(1, 118, BE) +Bytes Int2Bytes(1, 169, BE)
+             +Bytes Int2Bytes(1, 20, BE) +Bytes PROG
+             +Bytes Int2Bytes(1, 136, BE) +Bytes Int2Bytes(1, 172, BE))
+        ~> #witnessComplete ...</k>
+       <witness> W </witness>
+       <stack> _ => .List </stack>
+       <altstack> _ => .List </altstack>
+       <exec> _ => .List </exec>
+       <opCount> _ => 0 </opCount>
+       <phase> _ => witness-v0 </phase>
+       <witnessUsed> _ => true </witnessUsed>
+    requires #witnessCount(W) ==Int 2
+     andBool lengthBytes(PROG) ==Int 20
+
+  // P2WPKH: wrong witness count
+  rule <k> #witnessVerify(0, PROG) => #fail("WITNESS_PROGRAM_MISMATCH") ...</k>
+       <witness> W </witness>
+    requires #witnessCount(W) =/=Int 2
+     andBool #witnessCount(W) >Int 0
+     andBool lengthBytes(PROG) ==Int 20
+
+  // --- Version 0, wrong program length ---
+  rule <k> #witnessVerify(0, PROG) => #fail("WITNESS_PROGRAM_WRONG_LENGTH") ...</k>
+       <witness> W </witness>
+    requires #witnessCount(W) >Int 0
+     andBool lengthBytes(PROG) =/=Int 20 andBool lengthBytes(PROG) =/=Int 32
+
+  // --- Version 1+: DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM ---
+  rule <k> #witnessVerify(V, _) => #fail("DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM") ...</k>
+       <witness> W </witness>
+       <flags> F </flags>
+    requires V >Int 0 andBool #witnessCount(W) >Int 0
+     andBool hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_WITNESS)
+
+  // --- Version 1+: future witness versions (anyone-can-spend, no discourage) ---
+  rule <k> #witnessVerify(V, _) => .K ...</k>
+       <phase> _ => done </phase>
+       <witness> W </witness>
+       <flags> F </flags>
+       <witnessUsed> _ => true </witnessUsed>
+    requires V >Int 0 andBool #witnessCount(W) >Int 0
+     andBool notBool hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_WITNESS)
+
+  // --- Witness execution complete ---
+  // Stack must have exactly 1 truthy item (CLEANSTACK always enforced in witness)
+  rule <k> #witnessComplete => .K ...</k>
+       <phase> witness-v0 => done </phase>
+       <exec> .List </exec>
+       <stack> ListItem(V:Bytes) .List </stack>
+    requires #isTruthy(V)
+
+  rule <k> #witnessComplete => #fail("EVAL_FALSE") ...</k>
+       <phase> witness-v0 </phase>
+       <exec> .List </exec>
+       <stack> ListItem(V:Bytes) .List </stack>
+    requires notBool #isTruthy(V)
+
+  rule <k> #witnessComplete => #fail("CLEANSTACK") ...</k>
+       <phase> witness-v0 </phase>
+       <exec> .List </exec>
+       <stack> ST </stack>
+    requires size(ST) =/=Int 1
 
   // =========================================================================
   // P2SH detection and push-only check

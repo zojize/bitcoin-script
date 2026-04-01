@@ -10,13 +10,22 @@ module SCRIPT-SIG
   // OP_CHECKSIG (extracts hashtype from sig, looks up sighash in blob)
   // =========================================================================
 
-  // DERSIG/STRICTENC: invalid DER signature → SIG_DER error
+  // DERSIG/STRICTENC/LOW_S: invalid DER signature → SIG_DER error
   rule <k> OP_CHECKSIG => #fail("SIG_DER") ...</k>
        <stack> ListItem(_PK:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
        <flags> F </flags>
     requires lengthBytes(SIG) >Int 0
-     andBool (hasFlag(F, FLAG_DERSIG) orBool hasFlag(F, FLAG_STRICTENC))
+     andBool (hasFlag(F, FLAG_DERSIG) orBool hasFlag(F, FLAG_STRICTENC) orBool hasFlag(F, FLAG_LOW_S))
      andBool notBool isValidDER(SIG)
+
+  // LOW_S: high S value → SIG_HIGH_S error
+  rule <k> OP_CHECKSIG => #fail("SIG_HIGH_S") ...</k>
+       <stack> ListItem(_PK:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
+       <flags> F </flags>
+    requires lengthBytes(SIG) >Int 0
+     andBool hasFlag(F, FLAG_LOW_S)
+     andBool isValidDER(SIG)
+     andBool notBool isLowDerS(SIG)
 
   // STRICTENC: invalid hashtype → SIG_HASHTYPE error
   rule <k> OP_CHECKSIG => #fail("SIG_HASHTYPE") ...</k>
@@ -25,6 +34,7 @@ module SCRIPT-SIG
     requires lengthBytes(SIG) >Int 0
      andBool hasFlag(F, FLAG_STRICTENC)
      andBool isValidDER(SIG)
+     andBool (notBool hasFlag(F, FLAG_LOW_S) orBool isLowDerS(SIG))
      andBool notBool validHashType(sigHashType(SIG))
 
   // STRICTENC: invalid pubkey format → PUBKEYTYPE error
@@ -34,6 +44,7 @@ module SCRIPT-SIG
     requires lengthBytes(SIG) >Int 0
      andBool hasFlag(F, FLAG_STRICTENC)
      andBool isValidDER(SIG)
+     andBool (notBool hasFlag(F, FLAG_LOW_S) orBool isLowDerS(SIG))
      andBool validHashType(sigHashType(SIG))
      andBool notBool validPubKeyType(PK)
 
@@ -93,8 +104,9 @@ module SCRIPT-SIG
     requires validNumFlags(N, FL)
      andBool (scriptNumToInt(N) <Int 0 orBool scriptNumToInt(N) >Int 20)
 
-  // Step 2a: Pop one pubkey, prepend to collected list
-  rule <k> #collectPubKeys(N, PKs) => #collectPubKeys(N -Int 1, ListItem(PK) PKs) ...</k>
+  // Step 2a: Pop one pubkey, append to collected list
+  // Append preserves Bitcoin Core's iteration order (top-of-stack = first tried)
+  rule <k> #collectPubKeys(N, PKs) => #collectPubKeys(N -Int 1, PKs ListItem(PK)) ...</k>
        <stack> ListItem(PK) ST => ST </stack>
     requires N >Int 0
 
@@ -113,8 +125,8 @@ module SCRIPT-SIG
     requires validNumFlags(M, FL)
      andBool (scriptNumToInt(M) <Int 0 orBool scriptNumToInt(M) >Int size(PKs))
 
-  // Step 3a: Pop one sig, prepend to collected list
-  rule <k> #collectSigs(M, PKs, Sigs) => #collectSigs(M -Int 1, PKs, ListItem(SIG) Sigs) ...</k>
+  // Step 3a: Pop one sig, append to collected list (same order as pubkeys)
+  rule <k> #collectSigs(M, PKs, Sigs) => #collectSigs(M -Int 1, PKs, Sigs ListItem(SIG)) ...</k>
        <stack> ListItem(SIG) ST => ST </stack>
     requires M >Int 0
 
@@ -130,38 +142,127 @@ module SCRIPT-SIG
        <flags> F </flags>
     requires hasFlag(F, FLAG_NULLDUMMY) andBool lengthBytes(DUMMY) >Int 0
 
+  // =========================================================================
+  // Multisig encoding validation helpers
+  // =========================================================================
+  // #msEncOK: true if sig+pk encoding passes all flag-dependent checks.
+  // Mirrors Bitcoin Core's CheckSignatureEncoding + CheckPubKeyEncoding.
+  syntax Bool ::= #msEncOK(Bytes, Bytes, Int) [function, total]
+  rule #msEncOK(SIG, PK, F) => true
+    requires // DER check (triggered by DERSIG, STRICTENC, or LOW_S)
+             (notBool (hasFlag(F, FLAG_DERSIG) orBool hasFlag(F, FLAG_STRICTENC) orBool hasFlag(F, FLAG_LOW_S))
+              orBool isValidDER(SIG))
+     // LOW_S check
+     andBool (notBool hasFlag(F, FLAG_LOW_S) orBool isLowDerS(SIG))
+     // Hashtype check (STRICTENC only)
+     andBool (notBool hasFlag(F, FLAG_STRICTENC) orBool validHashType(sigHashType(SIG)))
+     // Pubkey type check (STRICTENC only)
+     andBool (notBool hasFlag(F, FLAG_STRICTENC) orBool validPubKeyType(PK))
+  rule #msEncOK(_, _, _) => false [owise]
+
+  // #msEncErr: returns the specific error string for the first failing check.
+  // Check order matches Bitcoin Core: DER → LOW_S → hashtype → pubkeytype.
+  syntax String ::= #msEncErr(Bytes, Bytes, Int) [function]
+  rule #msEncErr(SIG, _PK, F) => "SIG_DER"
+    requires (hasFlag(F, FLAG_DERSIG) orBool hasFlag(F, FLAG_STRICTENC) orBool hasFlag(F, FLAG_LOW_S))
+     andBool notBool isValidDER(SIG)
+  rule #msEncErr(SIG, _PK, F) => "SIG_HIGH_S"
+    requires hasFlag(F, FLAG_LOW_S)
+     andBool isValidDER(SIG)
+     andBool notBool isLowDerS(SIG)
+  rule #msEncErr(SIG, _PK, F) => "SIG_HASHTYPE"
+    requires hasFlag(F, FLAG_STRICTENC)
+     andBool (notBool (hasFlag(F, FLAG_DERSIG) orBool hasFlag(F, FLAG_LOW_S)) orBool isValidDER(SIG))
+     andBool (notBool hasFlag(F, FLAG_LOW_S) orBool isLowDerS(SIG))
+     andBool notBool validHashType(sigHashType(SIG))
+  rule #msEncErr(_SIG, PK, F) => "PUBKEYTYPE"
+    requires hasFlag(F, FLAG_STRICTENC)
+     andBool notBool validPubKeyType(PK)
+
+  // =========================================================================
+  // Multisig NULLFAIL helper
+  // =========================================================================
+  // #hasNonEmptySig: true if any sig in the list is non-empty.
+  // Used for NULLFAIL: all remaining sigs must be empty when multisig fails.
+  syntax Bool ::= #hasNonEmptySig(List) [function, total]
+  rule #hasNonEmptySig(.List) => false
+  rule #hasNonEmptySig(ListItem(SIG:Bytes) _Rest) => true
+    requires lengthBytes(SIG) >Int 0
+  rule #hasNonEmptySig(ListItem(SIG:Bytes) Rest) => #hasNonEmptySig(Rest)
+    requires lengthBytes(SIG) ==Int 0
+  rule #hasNonEmptySig(_) => false [owise]
+
+  // =========================================================================
+  // Multisig verification (Step 4)
+  // =========================================================================
+
   // Step 4a: All sigs verified (sigs list exhausted) — push true
   rule <k> #verifyMultisig(_, .List) => .K ...</k>
        <stack> ST => ListItem(intToScriptNum(1)) ST </stack>
 
-  // Step 4b: Sigs remain but pubkeys exhausted — push false
-  // NULLFAIL: remaining non-empty sigs cause script failure
-  rule <k> #verifyMultisig(.List, ListItem(SIG:Bytes) _) => .K ...</k>
+  // Step 4b: Not enough pubkeys for remaining sigs — fail immediately
+  // Mirrors Bitcoin Core's "nSigsCount > nKeysCount" early exit.
+  // NULLFAIL: ANY remaining non-empty sig causes script failure.
+  rule <k> #verifyMultisig(PKs, Sigs) => .K ...</k>
        <stack> ST => ListItem(intToScriptNum(0)) ST </stack>
        <flags> F </flags>
-    requires notBool hasFlag(F, FLAG_NULLFAIL) orBool lengthBytes(SIG) ==Int 0
+    requires size(Sigs) >Int 0
+     andBool size(Sigs) >Int size(PKs)
+     andBool (notBool hasFlag(F, FLAG_NULLFAIL) orBool notBool #hasNonEmptySig(Sigs))
 
-  rule <k> #verifyMultisig(.List, ListItem(SIG:Bytes) _) => #fail("NULLFAIL") ...</k>
+  rule <k> #verifyMultisig(PKs, Sigs) => #fail("NULLFAIL") ...</k>
        <flags> F </flags>
-    requires hasFlag(F, FLAG_NULLFAIL) andBool lengthBytes(SIG) >Int 0
+    requires size(Sigs) >Int 0
+     andBool size(Sigs) >Int size(PKs)
+     andBool hasFlag(F, FLAG_NULLFAIL) andBool #hasNonEmptySig(Sigs)
 
-  // Step 4c: Empty sig in multisig — always fails to match, advance pubkey only
-  rule <k> #verifyMultisig(ListItem(_PK:Bytes) PKs, ListItem(SIG:Bytes) Sigs)
+  // Steps 4c-4f: Only fire when enough pubkeys remain for all sigs
+  // (size(Sigs) <=Int size(PKs) where both are the REST after ListItem).
+  // When more sigs than pks remain, step 4b (early exit) fires instead.
+  // This matches Bitcoin Core's "nSigsCount > nKeysCount" check which fires
+  // AFTER each iteration, preventing encoding checks on unreachable pubkeys.
+
+  // Step 4c: Encoding check fails for current sig-pk pair → error
+  rule <k> #verifyMultisig(ListItem(PK:Bytes) PKs, ListItem(SIG:Bytes) Sigs)
+        => #fail(#msEncErr(SIG, PK, F)) ...</k>
+       <flags> F </flags>
+    requires size(Sigs) <=Int size(PKs)
+     andBool lengthBytes(SIG) >Int 0
+     andBool notBool #msEncOK(SIG, PK, F)
+
+  // Step 4d: Empty sig — check pubkey encoding (STRICTENC), advance pubkey
+  rule <k> #verifyMultisig(ListItem(PK:Bytes) PKs, ListItem(SIG:Bytes) Sigs)
         => #verifyMultisig(PKs, ListItem(SIG) Sigs) ...</k>
-    requires lengthBytes(SIG) ==Int 0
+       <flags> F </flags>
+    requires size(Sigs) <=Int size(PKs)
+     andBool lengthBytes(SIG) ==Int 0
+     andBool (notBool hasFlag(F, FLAG_STRICTENC) orBool validPubKeyType(PK))
 
-  // Step 4d: Current sig matches current pubkey — advance both
+  rule <k> #verifyMultisig(ListItem(PK:Bytes) PKs, ListItem(SIG:Bytes) Sigs)
+        => #fail("PUBKEYTYPE") ...</k>
+       <flags> F </flags>
+    requires size(Sigs) <=Int size(PKs)
+     andBool lengthBytes(SIG) ==Int 0
+     andBool hasFlag(F, FLAG_STRICTENC) andBool notBool validPubKeyType(PK)
+
+  // Step 4e: Encoding OK, sig matches current pubkey — advance both
   rule <k> #verifyMultisig(ListItem(PK:Bytes) PKs, ListItem(SIG:Bytes) Sigs)
         => #verifyMultisig(PKs, Sigs) ...</k>
        <sighash> SIGHASHBLOB </sighash>
-    requires lengthBytes(SIG) >Int 0
+       <flags> F </flags>
+    requires size(Sigs) <=Int size(PKs)
+     andBool lengthBytes(SIG) >Int 0
+     andBool #msEncOK(SIG, PK, F)
      andBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG)))
 
-  // Step 4e: Current sig does not match current pubkey — advance pubkey only
+  // Step 4f: Encoding OK, sig does not match — advance pubkey only
   rule <k> #verifyMultisig(ListItem(PK:Bytes) PKs, ListItem(SIG:Bytes) Sigs)
         => #verifyMultisig(PKs, ListItem(SIG) Sigs) ...</k>
        <sighash> SIGHASHBLOB </sighash>
-    requires lengthBytes(SIG) >Int 0
+       <flags> F </flags>
+    requires size(Sigs) <=Int size(PKs)
+     andBool lengthBytes(SIG) >Int 0
+     andBool #msEncOK(SIG, PK, F)
      andBool notBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG)))
 
   // =========================================================================
@@ -172,7 +273,9 @@ module SCRIPT-SIG
   rule <k> OP_RIPEMD160 => .K ...</k>
        <stack> ListItem(V:Bytes) ST => ListItem(RipEmd160raw(V)) ST </stack>
 
-  // OP_SHA1: not implemented (no SHA1 hook in KRYPTO) — gets stuck
+  // OP_SHA1: SHA1(data) — single hash
+  rule <k> OP_SHA1 => .K ...</k>
+       <stack> ListItem(V:Bytes) ST => ListItem(Sha1raw(V)) ST </stack>
 
   // OP_SHA256: SHA256(data) — single hash
   rule <k> OP_SHA256 => .K ...</k>
