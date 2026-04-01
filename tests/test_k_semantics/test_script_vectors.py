@@ -63,7 +63,6 @@ def test_script_vector(k, entry):
     pubkey_bytes = parse_bitcoin_core_asm(pubkey_asm)
     flags = parse_flags(flags_str)
 
-    timestamp = 1333238400 if "P2SH" in flags else 0
     sighash = compute_sighash_blob(pubkey_bytes, sig_bytes)
     flags_mask = flags_to_bitmask(flags)
 
@@ -71,7 +70,6 @@ def test_script_vector(k, entry):
         script_sig=sig_bytes,
         script_pubkey=pubkey_bytes,
         sighash=sighash,
-        timestamp=timestamp,
         flags=flags_mask,
     )
 
@@ -110,7 +108,6 @@ def test_witness_vector(k, entry):
     flags = parse_flags(flags_str)
     flags_mask = flags_to_bitmask(flags)
 
-    timestamp = 1333238400 if "P2SH" in flags else 0
     amount_satoshis = int(amount_btc * 1e8 + 0.5)
 
     sighash = compute_witness_sighash_blob(
@@ -121,7 +118,6 @@ def test_witness_vector(k, entry):
         script_sig=sig_bytes,
         script_pubkey=pubkey_bytes,
         sighash=sighash,
-        timestamp=timestamp,
         witness=witness_blob,
         flags=flags_mask,
     )

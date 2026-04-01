@@ -150,7 +150,6 @@ class KBitcoinScript:
         *,
         script_sig: bytes = b"",
         sighash: bytes = b"",
-        timestamp: int = 0,
         witness: bytes = b"",
         flags: int = 0,
         tx_version: int = 1,
@@ -163,8 +162,7 @@ class KBitcoinScript:
             script_pubkey: The scriptPubKey bytes.
             script_sig: The scriptSig bytes (empty for scriptPubKey-only execution).
             sighash: 32-byte transaction digest for signature verification.
-            timestamp: Block timestamp (for BIP-16 P2SH activation >= 1333238400).
-            witness: Witness data (reserved for future SegWit support).
+            witness: Witness data (encoded witness stack blob).
             flags: Verification flags bitmask (Bitcoin Core SCRIPT_VERIFY_* values).
             tx_version: Spending transaction version (for BIP-68 CSV: must be >= 2).
             n_locktime: Spending transaction nLockTime (for BIP-65 CLTV).
@@ -177,7 +175,6 @@ class KBitcoinScript:
             script_sig=script_sig,
             script_pubkey=script_pubkey,
             sighash=sighash,
-            timestamp=timestamp,
             witness=witness,
             flags=flags,
             tx_version=tx_version,
@@ -192,7 +189,6 @@ class KBitcoinScript:
         script_sig: bytes = b"",
         script_pubkey: bytes = b"",
         sighash: bytes = b"",
-        timestamp: int = 0,
         witness: bytes = b"",
         flags: int = 0,
         tx_version: int = 1,
@@ -205,8 +201,7 @@ class KBitcoinScript:
             script_sig: The scriptSig bytes (empty for scriptPubKey-only execution).
             script_pubkey: The scriptPubKey bytes.
             sighash: 32-byte transaction digest for signature verification.
-            timestamp: Block timestamp (for BIP-16 P2SH activation >= 1333238400).
-            witness: Witness data (reserved for future SegWit support).
+            witness: Witness data (encoded witness stack blob).
             flags: Verification flags bitmask (Bitcoin Core SCRIPT_VERIFY_* values).
             tx_version: Spending transaction version (for BIP-68 CSV: must be >= 2).
             n_locktime: Spending transaction nLockTime (for BIP-65 CLTV).
@@ -236,7 +231,6 @@ class KBitcoinScript:
                 "$SCRIPTSIG": _bytes_var(script_sig),
                 "$SCRIPTPUBKEY": _bytes_var(script_pubkey),
                 "$SIGHASH": _bytes_var(sighash),
-                "$TIMESTAMP": _int_var(timestamp),
                 "$WITNESS": _bytes_var(witness),
                 "$FLAGS": _int_var(flags),
                 "$TXVERSION": _int_var(tx_version),

@@ -30,7 +30,6 @@ module SCRIPT-SEMANTICS
       <phase> scriptSig </phase>
       <error> "" </error>
       <sighash> $SIGHASH:Bytes </sighash>
-      <timestamp> $TIMESTAMP:Int </timestamp>
       <scriptSigBytes> $SCRIPTSIG:Bytes </scriptSigBytes>
       <scriptPubKeyBytes> $SCRIPTPUBKEY:Bytes </scriptPubKeyBytes>
       <witness> $WITNESS:Bytes </witness>
@@ -143,8 +142,8 @@ module SCRIPT-SEMANTICS
        <altstack> _ => .List </altstack>
        <exec> .List </exec>
        <opCount> _ => 0 </opCount>
-       <timestamp> TS </timestamp>
-    requires #isP2SH(PK) andBool TS >=Int 1333238400
+       <flags> F </flags>
+    requires hasFlag(F, FLAG_P2SH) andBool #isP2SH(PK)
      andBool lengthBytes(PK) <=Int 10000
 
   rule <k> #phaseComplete => #decodeScript(PK) ~> #phaseComplete ...</k>
@@ -153,8 +152,8 @@ module SCRIPT-SEMANTICS
        <altstack> _ => .List </altstack>
        <exec> .List </exec>
        <opCount> _ => 0 </opCount>
-       <timestamp> TS </timestamp>
-    requires (notBool #isP2SH(PK) orBool TS <Int 1333238400)
+       <flags> F </flags>
+    requires notBool (hasFlag(F, FLAG_P2SH) andBool #isP2SH(PK))
      andBool lengthBytes(PK) <=Int 10000
 
   // After scriptPubKey completes, NOT P2SH, IS witness program with WITNESS flag:
@@ -165,8 +164,7 @@ module SCRIPT-SEMANTICS
        <flags> F </flags>
        <scriptPubKeyBytes> PK </scriptPubKeyBytes>
        <scriptSigBytes> SIG </scriptSigBytes>
-       <timestamp> TS </timestamp>
-    requires (notBool #isP2SH(PK) orBool TS <Int 1333238400)
+    requires notBool (hasFlag(F, FLAG_P2SH) andBool #isP2SH(PK))
      andBool hasFlag(F, FLAG_WITNESS) andBool #isWitnessProgram(PK)
      andBool lengthBytes(SIG) >Int 0
 
@@ -177,8 +175,7 @@ module SCRIPT-SEMANTICS
        <flags> F </flags>
        <scriptPubKeyBytes> PK </scriptPubKeyBytes>
        <scriptSigBytes> SIG </scriptSigBytes>
-       <timestamp> TS </timestamp>
-    requires (notBool #isP2SH(PK) orBool TS <Int 1333238400)
+    requires notBool (hasFlag(F, FLAG_P2SH) andBool #isP2SH(PK))
      andBool hasFlag(F, FLAG_WITNESS) andBool #isWitnessProgram(PK)
      andBool lengthBytes(SIG) ==Int 0
 
@@ -189,10 +186,9 @@ module SCRIPT-SEMANTICS
        <exec> .List </exec>
        <flags> F </flags>
        <scriptPubKeyBytes> PK </scriptPubKeyBytes>
-       <timestamp> TS </timestamp>
        <witness> W </witness>
        <witnessUsed> false </witnessUsed>
-    requires (notBool #isP2SH(PK) orBool TS <Int 1333238400)
+    requires notBool (hasFlag(F, FLAG_P2SH) andBool #isP2SH(PK))
      andBool notBool (hasFlag(F, FLAG_WITNESS) andBool #isWitnessProgram(PK))
      andBool hasFlag(F, FLAG_WITNESS) andBool #witnessCount(W) >Int 0
 
@@ -204,10 +200,9 @@ module SCRIPT-SEMANTICS
        <stack> ST </stack>
        <flags> F </flags>
        <scriptPubKeyBytes> PK </scriptPubKeyBytes>
-       <timestamp> TS </timestamp>
        <witness> W </witness>
        <witnessUsed> WU </witnessUsed>
-    requires (notBool #isP2SH(PK) orBool TS <Int 1333238400)
+    requires notBool (hasFlag(F, FLAG_P2SH) andBool #isP2SH(PK))
      andBool notBool (hasFlag(F, FLAG_WITNESS) andBool #isWitnessProgram(PK))
      andBool (notBool hasFlag(F, FLAG_WITNESS) orBool WU orBool #witnessCount(W) ==Int 0)
      andBool (notBool hasFlag(F, FLAG_CLEANSTACK) orBool size(ST) ==Int 1)
@@ -218,10 +213,9 @@ module SCRIPT-SEMANTICS
        <stack> ST </stack>
        <flags> F </flags>
        <scriptPubKeyBytes> PK </scriptPubKeyBytes>
-       <timestamp> TS </timestamp>
        <witness> W </witness>
        <witnessUsed> WU </witnessUsed>
-    requires (notBool #isP2SH(PK) orBool TS <Int 1333238400)
+    requires notBool (hasFlag(F, FLAG_P2SH) andBool #isP2SH(PK))
      andBool notBool (hasFlag(F, FLAG_WITNESS) andBool #isWitnessProgram(PK))
      andBool (notBool hasFlag(F, FLAG_WITNESS) orBool WU orBool #witnessCount(W) ==Int 0)
      andBool hasFlag(F, FLAG_CLEANSTACK) andBool size(ST) =/=Int 1
@@ -233,13 +227,13 @@ module SCRIPT-SEMANTICS
        <phase> scriptPubKey => p2sh-redeem </phase>
        <exec> .List </exec>
        <opCount> _ => 0 </opCount>
+       <flags> F </flags>
        <scriptPubKeyBytes> PK </scriptPubKeyBytes>
-       <timestamp> TS </timestamp>
        <stack> ListItem(V:Bytes) _ => REST </stack>
        <savedStack> ListItem(REDEEM:Bytes) REST </savedStack>
        <scriptSigBytes> SIG </scriptSigBytes>
        <p2shRedeemBytes> _ => REDEEM </p2shRedeemBytes>
-    requires #isP2SH(PK) andBool TS >=Int 1333238400
+    requires hasFlag(F, FLAG_P2SH) andBool #isP2SH(PK)
      andBool #isPushOnly(SIG)
      andBool #isTruthy(V)
      andBool lengthBytes(REDEEM) <=Int 10000
@@ -249,11 +243,11 @@ module SCRIPT-SEMANTICS
   rule <k> #phaseComplete => .K ...</k>
        <phase> scriptPubKey => done </phase>
        <exec> .List </exec>
+       <flags> F </flags>
        <stack> ListItem(V:Bytes) _ </stack>
        <scriptPubKeyBytes> PK </scriptPubKeyBytes>
-       <timestamp> TS </timestamp>
        <scriptSigBytes> SIG </scriptSigBytes>
-    requires #isP2SH(PK) andBool TS >=Int 1333238400
+    requires hasFlag(F, FLAG_P2SH) andBool #isP2SH(PK)
      andBool #isPushOnly(SIG)
      andBool notBool #isTruthy(V)
 

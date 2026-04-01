@@ -20,8 +20,8 @@ from .script_helpers import script, push
 
 pytestmark = pytest.mark.k
 
-# BIP-16 activation timestamp (April 1, 2012 00:00:00 UTC)
-BIP16_TIMESTAMP = 1333238400
+# FLAG_P2SH bitmask value
+FLAG_P2SH = 1
 
 
 def hash160(data: bytes) -> bytes:
@@ -48,7 +48,7 @@ class TestP2SHBasic:
         result = k.verify_script(
             script_sig=push_script(redeem),
             script_pubkey=p2sh_script_pubkey(redeem),
-            timestamp=BIP16_TIMESTAMP,
+            flags=FLAG_P2SH,
         )
         assert not k.is_stuck(result)
         assert k.success(result)
@@ -59,7 +59,7 @@ class TestP2SHBasic:
         result = k.verify_script(
             script_sig=push_script(redeem),
             script_pubkey=p2sh_script_pubkey(redeem),
-            timestamp=BIP16_TIMESTAMP,
+            flags=FLAG_P2SH,
         )
         assert not k.is_stuck(result)
         assert not k.success(result)
@@ -76,7 +76,7 @@ class TestP2SHBasic:
         result = k.verify_script(
             script_sig=sig,
             script_pubkey=p2sh_script_pubkey(redeem),
-            timestamp=BIP16_TIMESTAMP,
+            flags=FLAG_P2SH,
         )
         assert not k.is_stuck(result)
         assert k.success(result)
@@ -88,16 +88,16 @@ class TestP2SHBasic:
         result = k.verify_script(
             script_sig=push_script(fake_redeem),
             script_pubkey=p2sh_script_pubkey(real_redeem),
-            timestamp=BIP16_TIMESTAMP,
+            flags=FLAG_P2SH,
         )
         # The HASH160 won't match, so OP_EQUAL pushes 0
         assert not k.is_stuck(result)
         assert not k.success(result)
 
 
-class TestP2SHTimestampGating:
-    def test_pre_bip16_no_p2sh(self, k: KBitcoinScript) -> None:
-        """Before BIP-16 activation, P2SH pattern is treated as plain script.
+class TestP2SHFlagGating:
+    def test_no_p2sh_flag(self, k: KBitcoinScript) -> None:
+        """Without FLAG_P2SH, P2SH pattern is treated as plain script.
 
         With correct redeem script on stack, HASH160 matches -> OP_EQUAL -> 1.
         No redeem script execution phase occurs, so OP_0 redeem succeeds.
@@ -106,33 +106,22 @@ class TestP2SHTimestampGating:
         result = k.verify_script(
             script_sig=push_script(redeem),
             script_pubkey=p2sh_script_pubkey(redeem),
-            timestamp=BIP16_TIMESTAMP - 1,  # Just before activation
+            flags=0,  # No P2SH flag
         )
-        # Pre-BIP16: only checks hash match, doesn't execute redeem script
+        # Without P2SH: only checks hash match, doesn't execute redeem script
         assert not k.is_stuck(result)
         assert k.success(result)
 
-    def test_post_bip16_executes_redeem(self, k: KBitcoinScript) -> None:
-        """After BIP-16, redeem script IS executed. OP_0 redeem -> failure."""
+    def test_p2sh_flag_executes_redeem(self, k: KBitcoinScript) -> None:
+        """With FLAG_P2SH, redeem script IS executed. OP_0 redeem -> failure."""
         redeem = script("OP_0")
         result = k.verify_script(
             script_sig=push_script(redeem),
             script_pubkey=p2sh_script_pubkey(redeem),
-            timestamp=BIP16_TIMESTAMP,
+            flags=FLAG_P2SH,
         )
         assert not k.is_stuck(result)
         assert not k.success(result)
-
-    def test_timestamp_zero_no_p2sh(self, k: KBitcoinScript) -> None:
-        """Default timestamp (0) means no P2SH execution."""
-        redeem = script("OP_0")  # Would fail if executed
-        result = k.verify_script(
-            script_sig=push_script(redeem),
-            script_pubkey=p2sh_script_pubkey(redeem),
-            timestamp=0,
-        )
-        assert not k.is_stuck(result)
-        assert k.success(result)
 
 
 class TestP2SHRedeemScripts:
@@ -143,7 +132,7 @@ class TestP2SHRedeemScripts:
         result = k.verify_script(
             script_sig=sig,
             script_pubkey=p2sh_script_pubkey(redeem),
-            timestamp=BIP16_TIMESTAMP,
+            flags=FLAG_P2SH,
         )
         assert not k.is_stuck(result)
         assert k.success(result)
@@ -159,7 +148,7 @@ class TestP2SHRedeemScripts:
         result = k.verify_script(
             script_sig=sig,
             script_pubkey=p2sh_script_pubkey(redeem),
-            timestamp=BIP16_TIMESTAMP,
+            flags=FLAG_P2SH,
         )
         assert not k.is_stuck(result)
         assert k.stack(result) == [b"\x02"]
@@ -177,7 +166,7 @@ class TestP2SHRedeemScripts:
         result = k.verify_script(
             script_sig=sig,
             script_pubkey=p2sh_script_pubkey(redeem),
-            timestamp=BIP16_TIMESTAMP,
+            flags=FLAG_P2SH,
         )
         assert not k.is_stuck(result)
         assert k.success(result)
@@ -195,7 +184,7 @@ class TestP2SHStackHandling:
         result = k.verify_script(
             script_sig=sig,
             script_pubkey=p2sh_script_pubkey(redeem),
-            timestamp=BIP16_TIMESTAMP,
+            flags=FLAG_P2SH,
         )
         assert not k.is_stuck(result)
         assert k.stack(result) == [b"\x01"]
@@ -209,7 +198,7 @@ class TestP2SHStackHandling:
         result = k.verify_script(
             script_sig=push_script(redeem),
             script_pubkey=p2sh_script_pubkey(redeem),
-            timestamp=BIP16_TIMESTAMP,
+            flags=FLAG_P2SH,
         )
         assert not k.is_stuck(result)
         assert k.success(result)
