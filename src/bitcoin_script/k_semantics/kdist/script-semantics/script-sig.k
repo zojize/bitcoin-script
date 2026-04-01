@@ -48,6 +48,15 @@ module SCRIPT-SIG
      andBool validHashType(sigHashType(SIG))
      andBool notBool validPubKeyType(PK)
 
+  // WITNESS_PUBKEYTYPE: in witness v0, pubkey must be compressed
+  rule <k> OP_CHECKSIG => #fail("WITNESS_PUBKEYTYPE") ...</k>
+       <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
+       <flags> F </flags>
+       <phase> witness-v0 </phase>
+    requires lengthBytes(SIG) >Int 0
+     andBool hasFlag(F, FLAG_WITNESS_PUBKEYTYPE)
+     andBool notBool #isCompressedPubKey(PK)
+
   // Empty signature: always pushes false (no sighash lookup needed)
   rule <k> OP_CHECKSIG => .K ...</k>
        <stack> ListItem(_PK:Bytes) ListItem(SIG:Bytes) ST
@@ -59,7 +68,10 @@ module SCRIPT-SIG
        <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST
             => ListItem(intToScriptNum(1)) ST </stack>
        <sighash> SIGHASHBLOB </sighash>
+       <flags> F </flags>
+       <phase> PH </phase>
     requires lengthBytes(SIG) >Int 0
+     andBool notBool (PH ==K witness-v0 andBool hasFlag(F, FLAG_WITNESS_PUBKEYTYPE) andBool notBool #isCompressedPubKey(PK))
      andBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG)))
 
   // Non-empty sig fails verification, no NULLFAIL: push 0
@@ -68,7 +80,9 @@ module SCRIPT-SIG
             => ListItem(intToScriptNum(0)) ST </stack>
        <sighash> SIGHASHBLOB </sighash>
        <flags> F </flags>
+       <phase> PH </phase>
     requires lengthBytes(SIG) >Int 0
+     andBool notBool (PH ==K witness-v0 andBool hasFlag(F, FLAG_WITNESS_PUBKEYTYPE) andBool notBool #isCompressedPubKey(PK))
      andBool notBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG)))
      andBool notBool hasFlag(F, FLAG_NULLFAIL)
 
@@ -77,7 +91,9 @@ module SCRIPT-SIG
        <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
        <sighash> SIGHASHBLOB </sighash>
        <flags> F </flags>
+       <phase> PH </phase>
     requires lengthBytes(SIG) >Int 0
+     andBool notBool (PH ==K witness-v0 andBool hasFlag(F, FLAG_WITNESS_PUBKEYTYPE) andBool notBool #isCompressedPubKey(PK))
      andBool notBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG)))
      andBool hasFlag(F, FLAG_NULLFAIL)
 
@@ -230,6 +246,16 @@ module SCRIPT-SIG
      andBool lengthBytes(SIG) >Int 0
      andBool notBool #msEncOK(SIG, PK, F)
 
+  // Step 4c': WITNESS_PUBKEYTYPE: in witness v0, pubkey must be compressed
+  rule <k> #verifyMultisig(ListItem(PK:Bytes) _PKs, ListItem(SIG:Bytes) _Sigs)
+        => #fail("WITNESS_PUBKEYTYPE") ...</k>
+       <flags> F </flags>
+       <phase> witness-v0 </phase>
+    requires lengthBytes(SIG) >Int 0
+     andBool #msEncOK(SIG, PK, F)
+     andBool hasFlag(F, FLAG_WITNESS_PUBKEYTYPE)
+     andBool notBool #isCompressedPubKey(PK)
+
   // Step 4d: Empty sig — check pubkey encoding (STRICTENC), advance pubkey
   rule <k> #verifyMultisig(ListItem(PK:Bytes) PKs, ListItem(SIG:Bytes) Sigs)
         => #verifyMultisig(PKs, ListItem(SIG) Sigs) ...</k>
@@ -250,9 +276,11 @@ module SCRIPT-SIG
         => #verifyMultisig(PKs, Sigs) ...</k>
        <sighash> SIGHASHBLOB </sighash>
        <flags> F </flags>
+       <phase> PH </phase>
     requires size(Sigs) <=Int size(PKs)
      andBool lengthBytes(SIG) >Int 0
      andBool #msEncOK(SIG, PK, F)
+     andBool notBool (PH ==K witness-v0 andBool hasFlag(F, FLAG_WITNESS_PUBKEYTYPE) andBool notBool #isCompressedPubKey(PK))
      andBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG)))
 
   // Step 4f: Encoding OK, sig does not match — advance pubkey only
@@ -260,9 +288,11 @@ module SCRIPT-SIG
         => #verifyMultisig(PKs, ListItem(SIG) Sigs) ...</k>
        <sighash> SIGHASHBLOB </sighash>
        <flags> F </flags>
+       <phase> PH </phase>
     requires size(Sigs) <=Int size(PKs)
      andBool lengthBytes(SIG) >Int 0
      andBool #msEncOK(SIG, PK, F)
+     andBool notBool (PH ==K witness-v0 andBool hasFlag(F, FLAG_WITNESS_PUBKEYTYPE) andBool notBool #isCompressedPubKey(PK))
      andBool notBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG)))
 
   // =========================================================================

@@ -198,9 +198,7 @@ def parse_flags(flags_str: str) -> set[str]:
 
 # Expected-result strings that correspond to validation flags we don't enforce
 _FLAG_ERRORS = {
-    "MINIMALIF",
     "SIG_NULLFAIL",
-    "WITNESS_PUBKEYTYPE",
 }
 
 # (All resource limits now enforced)

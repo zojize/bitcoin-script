@@ -168,6 +168,15 @@ module SCRIPT-CRYPTO
                andBool Bytes2Int(substrBytes(PK, 0, 1), BE, Unsigned) ==Int 4 )
   rule validPubKeyType(_) => false [owise]
 
+  // Compressed pubkey: 33 bytes with 02 or 03 prefix (for WITNESS_PUBKEYTYPE)
+  syntax Bool ::= #isCompressedPubKey(Bytes) [function, total]
+  rule #isCompressedPubKey(PK) => true
+    requires lengthBytes(PK) ==Int 33
+     andBool ( Bytes2Int(substrBytes(PK, 0, 1), BE, Unsigned) ==Int 2
+        orBool Bytes2Int(substrBytes(PK, 0, 1), BE, Unsigned) ==Int 3 )
+  rule #isCompressedPubKey(_) => false [owise]
+
+
   // =========================================================================
   // ecdsaVerify: reusable ECDSA verification (used by CHECKSIG & CHECKMULTISIG)
   // =========================================================================
