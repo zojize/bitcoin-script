@@ -11,7 +11,7 @@ module SCRIPT-SYNTAX
                   | "OP_HASH160"
                   | "OP_CHECKSIG"
                   | "OP_CHECKMULTISIG"
-                  | "OP_PUSHDATA" "(" Bytes ")"
+                  | "OP_PUSHDATA" "(" Int "," Bytes ")"
                   | "OP_0"  | "OP_1"  | "OP_2"  | "OP_3"
                   | "OP_4"  | "OP_5"  | "OP_6"  | "OP_7"
                   | "OP_8"  | "OP_9"  | "OP_10" | "OP_11"

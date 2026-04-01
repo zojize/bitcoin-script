@@ -300,11 +300,52 @@ module SCRIPT-SEMANTICS
        <opCount> N </opCount>
     requires N +Int M >Int 201
 
+  // --- MINIMALDATA: check push encoding uses smallest opcode ---
+  // #isMinimalPush(opcode_byte, push_data) -> Bool
+  syntax Bool ::= #isMinimalPush(Int, Bytes) [function, total]
+
+  // Empty data → should use OP_0 (byte 0), not a push
+  rule #isMinimalPush(_, DATA) => false
+    requires lengthBytes(DATA) ==Int 0
+
+  // Single-byte 1-16 → should use OP_1 through OP_16
+  rule #isMinimalPush(_, DATA) => false
+    requires lengthBytes(DATA) ==Int 1
+     andBool Bytes2Int(DATA, BE, Unsigned) >=Int 1
+     andBool Bytes2Int(DATA, BE, Unsigned) <=Int 16
+
+  // Single-byte 0x81 → should use OP_1NEGATE
+  rule #isMinimalPush(_, DATA) => false
+    requires lengthBytes(DATA) ==Int 1
+     andBool Bytes2Int(DATA, BE, Unsigned) ==Int 129
+
+  // 1-75 bytes (non-special) → PUSHBYTES_N (opcode = length) is minimal
+  rule #isMinimalPush(OPC, DATA) => OPC ==Int lengthBytes(DATA)
+    requires lengthBytes(DATA) >=Int 1
+     andBool lengthBytes(DATA) <=Int 75
+     andBool notBool ( lengthBytes(DATA) ==Int 1
+        andBool ( ( Bytes2Int(DATA, BE, Unsigned) >=Int 1
+               andBool Bytes2Int(DATA, BE, Unsigned) <=Int 16 )
+          orBool Bytes2Int(DATA, BE, Unsigned) ==Int 129 ) )
+
+  // 76-255 bytes → PUSHDATA1 (76) is minimal
+  rule #isMinimalPush(OPC, DATA) => OPC ==Int 76
+    requires lengthBytes(DATA) >=Int 76
+     andBool lengthBytes(DATA) <=Int 255
+
+  // 256+ bytes → PUSHDATA2 (77) is minimal
+  rule #isMinimalPush(OPC, DATA) => OPC ==Int 77
+    requires lengthBytes(DATA) >=Int 256
+
+  // Anything else → not minimal
+  rule #isMinimalPush(_, _) => false [owise]
+
   // --- Decode entry point ---
   // #decodeScript dispatches to #decode1, counting opcodes > OP_16 (byte > 96).
   syntax KItem ::= "#decodeScript" "(" Bytes ")"
                  | "#decode1" "(" Bytes ")"
-                 | "#decodePush" "(" Int "," Bytes ")"
+                 | "#decodePush" "(" Int "," Int "," Bytes ")"
+                 // #decodePush(opcode_byte, data_length, remaining_script)
 
   // Empty script — done
   rule <k> #decodeScript(B) => .K ...</k>
@@ -326,23 +367,26 @@ module SCRIPT-SEMANTICS
      andBool #scriptByte(B) ==Int 0
 
   // OP_PUSHBYTES_1 through OP_PUSHBYTES_75 (0x01 - 0x4b)
-  // Extracts N bytes and pushes them directly onto the stack
-  rule <k> #decode1(B) => #decodePush(#scriptByte(B), #scriptTail(B)) ...</k>
+  rule <k> #decode1(B) => #decodePush(#scriptByte(B), #scriptByte(B), #scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0
      andBool #scriptByte(B) >=Int 1
      andBool #scriptByte(B) <=Int 75
 
-  rule <k> #decodePush(N, B) => #guardExec(OP_PUSHDATA(substrBytes(B, 0, N)))
+  // #decodePush(opcode_byte, data_length, remaining_script)
+  // Resolves push: extract data, check PUSH_SIZE, emit OP_PUSHDATA with opcode byte
+  // MINIMALDATA is checked at execution time (not decode) so dead IF branches are OK
+  rule <k> #decodePush(OPC, N, B) => #guardExec(OP_PUSHDATA(OPC, substrBytes(B, 0, N)))
         ~> #decodeScript(substrBytes(B, N, lengthBytes(B))) ...</k>
     requires lengthBytes(B) >=Int N
      andBool N <=Int 520
 
-  rule <k> #decodePush(N, _) => #fail("PUSH_SIZE") ...</k>
+  rule <k> #decodePush(_, N, _) => #fail("PUSH_SIZE") ...</k>
     requires N >Int 520
 
   // OP_PUSHDATA1 (0x4c = 76): next byte is length, then that many bytes of data
   rule <k> #decode1(B) =>
       #decodePush(
+        76,
         Bytes2Int(substrBytes(B, 1, 2), BE, Unsigned),
         substrBytes(B, 2, lengthBytes(B))
       ) ...</k>
@@ -352,6 +396,7 @@ module SCRIPT-SEMANTICS
   // OP_PUSHDATA2 (0x4d = 77): next 2 bytes (LE) are length, then data
   rule <k> #decode1(B) =>
       #decodePush(
+        77,
         Bytes2Int(substrBytes(B, 1, 3), LE, Unsigned),
         substrBytes(B, 3, lengthBytes(B))
       ) ...</k>
@@ -361,6 +406,7 @@ module SCRIPT-SEMANTICS
   // OP_PUSHDATA4 (0x4e = 78): next 4 bytes (LE) are length, then data
   rule <k> #decode1(B) =>
       #decodePush(
+        78,
         Bytes2Int(substrBytes(B, 1, 5), LE, Unsigned),
         substrBytes(B, 5, lengthBytes(B))
       ) ...</k>
@@ -734,8 +780,15 @@ module SCRIPT-SEMANTICS
   // OP_PUSHDATA: push raw bytes onto the stack (emitted by decoder for data pushes)
   // =========================================================================
 
-  rule <k> OP_PUSHDATA(D) => .K ...</k>
+  // MINIMALDATA: check push encoding at execution time (not decode) so dead branches pass
+  rule <k> OP_PUSHDATA(OPC, D) => .K ...</k>
        <stack> ST => ListItem(D) ST </stack>
+       <flags> F </flags>
+    requires notBool hasFlag(F, FLAG_MINIMALDATA) orBool #isMinimalPush(OPC, D)
+
+  rule <k> OP_PUSHDATA(OPC, D) => #fail("MINIMALDATA") ...</k>
+       <flags> F </flags>
+    requires hasFlag(F, FLAG_MINIMALDATA) andBool notBool #isMinimalPush(OPC, D)
 
   // =========================================================================
   // OP_0 through OP_16: push small integer constants as CScriptNum bytes
@@ -942,9 +995,10 @@ module SCRIPT-SEMANTICS
   // =========================================================================
 
   rule <k> OP_ADD => .K ...</k>
+       <flags> F </flags>
        <stack> ListItem(A:Bytes) ListItem(B:Bytes) ST
             => ListItem(intToScriptNum(scriptNumToInt(A) +Int scriptNumToInt(B))) ST </stack>
-    requires validNum(A) andBool validNum(B)
+    requires validNumFlags(A, F) andBool validNumFlags(B, F)
 
   // =========================================================================
   // OP_HASH160: RIPEMD160(SHA256(data))
@@ -1047,13 +1101,15 @@ module SCRIPT-SEMANTICS
   // PUBKEY_COUNT: N must be in [0, 20]. Also count N ops for OP_COUNT limit.
   rule <k> OP_CHECKMULTISIG => #countOps(scriptNumToInt(N)) ~> #collectPubKeys(scriptNumToInt(N), .List) ...</k>
        <stack> ListItem(N:Bytes) ST => ST </stack>
-    requires validNum(N)
+       <flags> FL </flags>
+    requires validNumFlags(N, FL)
      andBool scriptNumToInt(N) >=Int 0
      andBool scriptNumToInt(N) <=Int 20
 
   rule <k> OP_CHECKMULTISIG => #fail("PUBKEY_COUNT") ...</k>
        <stack> ListItem(N:Bytes) ST => ST </stack>
-    requires validNum(N)
+       <flags> FL </flags>
+    requires validNumFlags(N, FL)
      andBool (scriptNumToInt(N) <Int 0 orBool scriptNumToInt(N) >Int 20)
 
   // Step 2a: Pop one pubkey, prepend to collected list
@@ -1065,13 +1121,15 @@ module SCRIPT-SEMANTICS
   // SIG_COUNT: M must be in [0, size(PKs)]
   rule <k> #collectPubKeys(0, PKs) => #collectSigs(scriptNumToInt(M), PKs, .List) ...</k>
        <stack> ListItem(M:Bytes) ST => ST </stack>
-    requires validNum(M)
+       <flags> FL </flags>
+    requires validNumFlags(M, FL)
      andBool scriptNumToInt(M) >=Int 0
      andBool scriptNumToInt(M) <=Int size(PKs)
 
   rule <k> #collectPubKeys(0, PKs) => #fail("SIG_COUNT") ...</k>
        <stack> ListItem(M:Bytes) ST => ST </stack>
-    requires validNum(M)
+       <flags> FL </flags>
+    requires validNumFlags(M, FL)
      andBool (scriptNumToInt(M) <Int 0 orBool scriptNumToInt(M) >Int size(PKs))
 
   // Step 3a: Pop one sig, prepend to collected list

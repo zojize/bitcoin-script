@@ -198,7 +198,7 @@ def parse_flags(flags_str: str) -> set[str]:
 
 # Expected-result strings that correspond to validation flags we don't enforce
 _FLAG_ERRORS = {
-    "MINIMALDATA", "DERSIG", "SIG_DER",
+    "DERSIG", "SIG_DER",
     "MINIMALIF",
     "SIG_NULLFAIL",
 }
@@ -223,7 +223,9 @@ def classify_vector(entry: list) -> str | None:
     if "SHA1" in tokens:
         return "OP_SHA1 not implemented"
 
-    # (CLTV/CSV: partially implemented — some vectors may still fail)
+    # CLTV/CSV: partially implemented — CScriptNum minimal check with nMaxNumSize=5 not done
+    if expected == "SCRIPTNUM" and ("CHECKSEQUENCEVERIFY" in flags or "CHECKLOCKTIMEVERIFY" in flags):
+        return "CSV/CLTV SCRIPTNUM minimal encoding not implemented"
 
     # --- Expected errors that correspond to unimplemented validation ---
     if expected in _FLAG_ERRORS:
@@ -248,9 +250,7 @@ def classify_vector(entry: list) -> str | None:
     # (5-byte integer encoding now supported via intToScriptNumAbs 5-byte rule)
 
     # --- Flag-based enforcement we don't do ---
-    # (DISCOURAGE_UPGRADABLE_NOPS, CLEANSTACK, NULLDUMMY, SIG_PUSHONLY now enforced)
-    if "MINIMALDATA" in flags and expected != "OK":
-        return "MINIMALDATA not enforced"
+    # (DISCOURAGE_UPGRADABLE_NOPS, CLEANSTACK, NULLDUMMY, SIG_PUSHONLY, MINIMALDATA now enforced)
     # NULLFAIL enforced for CHECKSIG; multisig edge cases with NULLFAIL+NOT may still pass
     if expected == "NULLFAIL":
         return "flag-dependent error: NULLFAIL"

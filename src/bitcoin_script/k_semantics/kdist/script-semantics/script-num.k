@@ -47,6 +47,43 @@ module SCRIPT-NUM
   syntax Bool ::= validNum(Bytes) [function, total]
   rule validNum(B) => lengthBytes(B) <=Int 4
 
+  // --- CScriptNum minimal encoding check (for MINIMALDATA flag) ---
+  // Returns true if the byte encoding is the shortest possible for the value.
+  // Non-minimal: trailing zero byte when second-to-last byte's high bit is clear.
+  syntax Bool ::= #isMinimalNum(Bytes) [function, total]
+
+  // Empty = minimal (represents 0)
+  rule #isMinimalNum(B) => true
+    requires lengthBytes(B) ==Int 0
+
+  // Non-empty: check if last byte's value part (bits 0-6) is zero
+  // If so, either size is 1 (unnecessary zero/sign byte) or
+  // second-to-last byte's high bit is clear (unnecessary padding)
+  rule #isMinimalNum(B) => true
+    requires lengthBytes(B) >Int 0
+     andBool (Bytes2Int(substrBytes(B, lengthBytes(B) -Int 1, lengthBytes(B)), BE, Unsigned) &Int 127) =/=Int 0
+
+  rule #isMinimalNum(B) => false
+    requires lengthBytes(B) ==Int 1
+     andBool (Bytes2Int(substrBytes(B, 0, 1), BE, Unsigned) &Int 127) ==Int 0
+
+  rule #isMinimalNum(B) => true
+    requires lengthBytes(B) >Int 1
+     andBool (Bytes2Int(substrBytes(B, lengthBytes(B) -Int 1, lengthBytes(B)), BE, Unsigned) &Int 127) ==Int 0
+     andBool (Bytes2Int(substrBytes(B, lengthBytes(B) -Int 2, lengthBytes(B) -Int 1), BE, Unsigned) &Int 128) =/=Int 0
+
+  rule #isMinimalNum(B) => false
+    requires lengthBytes(B) >Int 1
+     andBool (Bytes2Int(substrBytes(B, lengthBytes(B) -Int 1, lengthBytes(B)), BE, Unsigned) &Int 127) ==Int 0
+     andBool (Bytes2Int(substrBytes(B, lengthBytes(B) -Int 2, lengthBytes(B) -Int 1), BE, Unsigned) &Int 128) ==Int 0
+
+  // --- Combined check: validNum + optional minimal encoding ---
+  syntax Bool ::= validNumFlags(Bytes, Int) [function, total]
+  rule validNumFlags(B, F) => validNum(B)
+    requires (F &Int 64) ==Int 0  // FLAG_MINIMALDATA = 64
+  rule validNumFlags(B, F) => validNum(B) andBool #isMinimalNum(B)
+    requires (F &Int 64) =/=Int 0
+
   // --- Encode: Int -> Bytes ---
   syntax Bytes ::= intToScriptNum(Int) [function]
   syntax Bytes ::= intToScriptNumAbs(Int) [function]
