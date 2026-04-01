@@ -83,19 +83,34 @@ module SCRIPT-DECODE
   // #decodeScript dispatches to #decode1, counting opcodes > OP_16 (byte > 96).
   // (syntax declared in SCRIPT-SEMANTICS)
 
-  // Empty script — done
+  // Empty script — done (also check STACK_SIZE at end)
   rule <k> #decodeScript(B) => .K ...</k>
+       <stack> ST </stack>
+       <altstack> AST </altstack>
     requires lengthBytes(B) ==Int 0
+     andBool size(ST) +Int size(AST) <=Int 1000
+
+  // STACK_SIZE: check stack + altstack <= 1000
+  rule <k> #decodeScript(_) => #fail("STACK_SIZE") ...</k>
+       <stack> ST </stack>
+       <altstack> AST </altstack>
+    requires size(ST) +Int size(AST) >Int 1000
 
   // Opcode > OP_16 (byte > 96): count before decoding
   rule <k> #decodeScript(B) => #countOp ~> #decode1(B) ...</k>
+       <stack> ST </stack>
+       <altstack> AST </altstack>
     requires lengthBytes(B) >Int 0
      andBool #scriptByte(B) >Int 96
+     andBool size(ST) +Int size(AST) <=Int 1000
 
   // Opcode <= OP_16 (byte <= 96): decode without counting
   rule <k> #decodeScript(B) => #decode1(B) ...</k>
+       <stack> ST </stack>
+       <altstack> AST </altstack>
     requires lengthBytes(B) >Int 0
      andBool #scriptByte(B) <=Int 96
+     andBool size(ST) +Int size(AST) <=Int 1000
 
   // OP_0 (0x00)
   rule <k> #decode1(B) => #guardExec(OP_0) ~> #decodeScript(#scriptTail(B)) ...</k>

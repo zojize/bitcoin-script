@@ -41,7 +41,3 @@ test-all *args:
 
 # Fix lint and format issues
 fix: lint format
-
-# Run ad-hoc analysis script
-analyze *args:
-    uv run python scripts/analyze.py {{ args }}

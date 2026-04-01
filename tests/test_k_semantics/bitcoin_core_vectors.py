@@ -202,10 +202,8 @@ _FLAG_ERRORS = {
     "SIG_NULLFAIL",
 }
 
-# Resource limit errors we don't enforce (STACK_SIZE still pending)
-_RESOURCE_ERRORS = {
-    "STACK_SIZE",
-}
+# (All resource limits now enforced)
+_RESOURCE_ERRORS: set[str] = set()
 
 
 def classify_vector(entry: list) -> str | None:
