@@ -325,25 +325,33 @@ class ChainVerifier:
         """Load blocks from .blk files and order them by chain height.
 
         .blk files store blocks in received order which may differ from
-        chain order. We build a hash→block index and walk the chain
-        from genesis via prevhash linkage.
+        chain order. We load blocks incrementally until we have a
+        contiguous chain covering [start, end].
         """
-        # Load all available blocks into a hash map
+        target_end = end if end is not None else start + 10000
+
         blocks_by_hash: dict[bytes, CBlock] = {}
         prev_to_hash: dict[bytes, bytes] = {}
-        block_hashes: list[bytes] = []
+        loaded = 0
 
         for block in self._parser:
             bhash = block.GetHash()
             blocks_by_hash[bhash] = block
-            prev_to_hash[bytes(block.hashPrevBlock)] = bhash
-            block_hashes.append(bhash)
-            # Stop loading once we have enough blocks
-            if end is not None and len(blocks_by_hash) > (end + 100):
-                break
+            prev_hash = bytes(block.hashPrevBlock)
+            if prev_hash not in prev_to_hash:
+                prev_to_hash[prev_hash] = bhash
+            loaded += 1
 
-        # Walk chain from genesis (or from a known block)
-        # Genesis block has prevhash = 0x00...00
+            # Periodically check if we have enough chain
+            if loaded % 10000 == 0:
+                chain_len = self._walk_chain_length(prev_to_hash, blocks_by_hash)
+                log.info("Loaded %d blocks, chain length %d", loaded, chain_len)
+                if chain_len > target_end:
+                    break
+
+        log.info("Loaded %d blocks total, building chain...", loaded)
+
+        # Walk chain from genesis
         genesis_prev = b"\x00" * 32
         if genesis_prev not in prev_to_hash:
             return []
@@ -360,7 +368,24 @@ class ChainVerifier:
             height += 1
             current_hash = prev_to_hash.get(current_hash, b"")
 
+        log.info("Chain: %d blocks (height %d-%d)", len(chain), start, height)
         return chain
+
+    @staticmethod
+    def _walk_chain_length(
+        prev_to_hash: dict[bytes, bytes],
+        blocks_by_hash: dict[bytes, CBlock],
+    ) -> int:
+        """Count chain length from genesis without building the full list."""
+        genesis_prev = b"\x00" * 32
+        if genesis_prev not in prev_to_hash:
+            return 0
+        current = prev_to_hash[genesis_prev]
+        length = 0
+        while current in blocks_by_hash:
+            length += 1
+            current = prev_to_hash.get(current, b"")
+        return length
 
     def verify_block(self, height: int) -> BlockResult:
         """Verify a single block at the given height.
