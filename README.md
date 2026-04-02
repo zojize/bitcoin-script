@@ -1,6 +1,6 @@
 # Bitcoin Script
 
-Bitcoin Script interpreter and formal verification toolkit. The K Framework semantics pass **all 1,217 of Bitcoin Core's `script_tests.json` vectors** (including full SegWit), plus **133 of 214 transaction vectors**, and have been used to **formally verify 100,000+ mainnet blocks** with zero errors.
+Bitcoin Script interpreter and formal verification toolkit. The K Framework semantics pass **all 1,217 of Bitcoin Core's `script_tests.json` vectors** (including full SegWit), plus **174 of 214 transaction vectors** (including OP_CODESEPARATOR), and have been used to **formally verify 129,000+ mainnet blocks** with zero errors.
 
 ## What this does
 
@@ -24,9 +24,9 @@ Requires a synced Bitcoin Core node (for local `.blk` files). See [Setup](#setup
 |-----------|---------|-------|-------|
 | script_tests.json (standard) | 1,109 | 1,109 | All opcodes, flags, edge cases |
 | script_tests.json (witness) | 108 | 113 | SegWit P2WSH/P2WPKH/P2SH-wrapped (5 taproot xfailed) |
-| tx_valid.json | 101 | 121 | Real transaction verification |
-| tx_invalid.json | 32 | 93 | Invalid transaction rejection |
-| Mainnet blocks 0-99,999 | 192,360 inputs | 192,360 inputs | Zero errors |
+| tx_valid.json | 115 | 121 | Real transaction verification |
+| tx_invalid.json | 59 | 93 | Invalid transaction rejection (9 BADTX, 25 CONST_SCRIPTCODE xfailed) |
+| Mainnet blocks 0-129,379 | 581,000+ inputs | 581,000+ inputs | Zero errors |
 
 ## Project structure
 

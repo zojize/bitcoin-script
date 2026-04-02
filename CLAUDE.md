@@ -95,7 +95,5 @@ P2SH, DERSIG, STRICTENC, LOW_S, NULLDUMMY, SIGPUSHONLY, MINIMALDATA, DISCOURAGE_
 
 ## Known gaps
 
-- **OP_CODESEPARATOR / FindAndDelete**: not implemented. Affects ~69 tx vectors and rare mainnet transactions.
-- **CONST_SCRIPTCODE**: not enforced (prevents CODESEPARATOR in witness v0).
-- **SIG_NULLFAIL**: edge cases still xfailed in script_tests.json.
+- **CONST_SCRIPTCODE**: not enforced (prevents CODESEPARATOR in witness v0). Affects 28 tx vectors.
 - **Taproot (BIP 341/342)**: not implemented (5 test vectors xfailed).
