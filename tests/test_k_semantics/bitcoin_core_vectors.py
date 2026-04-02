@@ -197,9 +197,7 @@ def parse_flags(flags_str: str) -> set[str]:
 
 
 # Expected-result strings that correspond to validation flags we don't enforce
-_FLAG_ERRORS = {
-    "SIG_NULLFAIL",
-}
+_FLAG_ERRORS: set[str] = set()
 
 def classify_tx_vector(entry: list) -> str | None:
     """Return an xfail reason for tx vectors, or None if runnable."""
