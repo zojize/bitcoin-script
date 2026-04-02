@@ -199,6 +199,7 @@ def _compute_sighash_blob(
     )
 
     standard_hashtypes = [
+        0,  # hashtype 0x00: valid in early Bitcoin, distinct from SIGHASH_ALL
         SIGHASH_ALL,
         SIGHASH_NONE,
         SIGHASH_SINGLE,
@@ -221,7 +222,8 @@ def _compute_sighash_blob(
             if len(item) >= 9 and item[0] == 0x30:
                 hashtypes.add(item[-1])
 
-    hashtypes.discard(0)
+    # Note: hashtype 0x00 is valid in early Bitcoin (treated differently from
+    # SIGHASH_ALL by SignatureHash). Do NOT discard it.
 
     # Determine witness program
     wp = _is_witness_program(script_pubkey)
