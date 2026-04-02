@@ -29,6 +29,21 @@ class Backend(str, Enum):
     # python = "python"  # not yet implemented
 
 
+def _format_stack_item(item: bytes) -> str:
+    """Format a stack item for display."""
+    if len(item) == 0:
+        return '(empty)'
+    # Try to show as integer if it's a valid CScriptNum
+    if len(item) <= 4:
+        # Little-endian sign-magnitude
+        val = int.from_bytes(item[:-1] if len(item) > 1 else b'\x00', 'little')
+        val |= (item[-1] & 0x7F) << (8 * (len(item) - 1))
+        if item[-1] & 0x80:
+            val = -val
+        return f"0x{item.hex()} ({val})"
+    return f"0x{item.hex()}"
+
+
 def _default_bitcoin_dir() -> Path:
     """Auto-detect the Bitcoin Core data directory."""
     if sys.platform == "darwin":
@@ -146,3 +161,171 @@ def verify(
             for e in result.errors[:10]:
                 typer.echo(f"  ERROR: {e}", err=True)
             raise typer.Exit(1)
+
+
+@app.command()
+def repl() -> None:
+    """Interactive Bitcoin Script REPL.
+
+    Type opcodes and data to build a script, then execute it through the
+    K Framework formal semantics. Supports both OP_-prefixed and bare
+    opcode names, hex data, quoted strings, and bare integers.
+
+    Commands:
+
+        .run          Execute the current script
+        .stack        Show the stack from the last execution
+        .reset        Clear the script buffer
+        .script       Show the current script (hex)
+        .asm          Show the current script (ASM tokens)
+        .flags N      Set verification flags bitmask
+        .help         Show this help
+        .quit         Exit the REPL
+
+    Examples:
+
+        btc> OP_1 OP_2 OP_ADD
+        btc> .run
+        Stack (1 item):
+          0: 0x03 (3)
+    """
+    from rich.console import Console
+
+    from bitcoin_script.k_semantics import KBitcoinScript
+
+    console = Console()
+
+    console.print("[bold]Bitcoin Script REPL[/bold]")
+    console.print("Type opcodes to build a script. Use .run to execute, .help for commands.\n")
+
+    from bitcoin_script.asm import parse_asm
+
+    console.print("Loading K Framework semantics...", style="dim")
+    try:
+        k = KBitcoinScript()
+    except Exception as e:
+        console.print(f"[red]Failed to load K semantics: {e}[/red]")
+        console.print("Run: uv run kdist build bitcoin-script-semantics.llvm", style="dim")
+        raise typer.Exit(1) from e
+    console.print("[green]Ready.[/green]\n")
+
+    asm_tokens: list[str] = []
+    flags: int = 0
+    last_result = None
+
+    def _show_stack() -> None:
+        nonlocal last_result
+        if last_result is None:
+            console.print("[dim]No execution yet. Use .run first.[/dim]")
+            return
+        err = k.error(last_result)
+        if err:
+            console.print(f"[red]Error: {err}[/red]")
+        elif k.is_stuck(last_result):
+            console.print("[red]Execution stuck (pattern match failure)[/red]")
+        stack = k.stack(last_result)
+        if not stack:
+            console.print("[dim]Stack is empty.[/dim]")
+        else:
+            console.print(f"[bold]Stack ({len(stack)} item{'s' if len(stack) != 1 else ''}):[/bold]")
+            for i, item in enumerate(stack):
+                console.print(f"  {i}: {_format_stack_item(item)}")
+        ok = k.success(last_result)
+        console.print(f"Result: [{'green' if ok else 'red'}]{'PASS' if ok else 'FAIL'}[/]")
+
+    def _show_help() -> None:
+        console.print("[bold]Commands:[/bold]")
+        console.print("  .run          Execute script through K semantics")
+        console.print("  .stack        Show stack from last execution")
+        console.print("  .reset        Clear the script buffer")
+        console.print("  .script       Show current script (hex)")
+        console.print("  .asm          Show current script (ASM tokens)")
+        console.print("  .flags [N]    Show or set verification flags")
+        console.print("  .help         Show this help")
+        console.print("  .quit         Exit")
+        console.print()
+        console.print("[bold]Input:[/bold]")
+        console.print("  OP_DUP, DUP       Opcodes (OP_ prefix optional)")
+        console.print("  0x1234             Hex data push")
+        console.print("  'hello'            String data push")
+        console.print("  42, -1             Integer push")
+        console.print("  OP_1 OP_2 OP_ADD   Multiple tokens per line")
+
+    while True:
+        try:
+            line = console.input("[bold cyan]btc>[/bold cyan] ").strip()
+        except (EOFError, KeyboardInterrupt):
+            console.print()
+            break
+
+        if not line:
+            continue
+
+        # Dot commands
+        if line.startswith("."):
+            cmd = line.split()[0].lower()
+            args = line.split()[1:]
+
+            if cmd in (".quit", ".exit", ".q"):
+                break
+            elif cmd == ".help":
+                _show_help()
+            elif cmd == ".reset":
+                asm_tokens.clear()
+                last_result = None
+                console.print("[dim]Script cleared.[/dim]")
+            elif cmd == ".script":
+                if not asm_tokens:
+                    console.print("[dim]Script is empty.[/dim]")
+                else:
+                    raw = parse_asm(" ".join(asm_tokens))
+                    console.print(f"[bold]Hex:[/bold] {raw.hex()}")
+                    console.print(f"[bold]Len:[/bold] {len(raw)} bytes")
+            elif cmd == ".asm":
+                if not asm_tokens:
+                    console.print("[dim]Script is empty.[/dim]")
+                else:
+                    console.print(" ".join(asm_tokens))
+            elif cmd == ".flags":
+                if args:
+                    try:
+                        flags = int(args[0], 0)
+                        console.print(f"Flags set to {flags} (0x{flags:x})")
+                    except ValueError:
+                        console.print("[red]Invalid flags value[/red]")
+                else:
+                    console.print(f"Flags: {flags} (0x{flags:x})")
+            elif cmd == ".stack":
+                _show_stack()
+            elif cmd == ".run":
+                if not asm_tokens:
+                    console.print("[dim]Script is empty. Type some opcodes first.[/dim]")
+                    continue
+                asm_str = " ".join(asm_tokens)
+                try:
+                    raw = parse_asm(asm_str)
+                except Exception as e:
+                    console.print(f"[red]Parse error: {e}[/red]")
+                    continue
+                console.print(f"[dim]Executing {len(raw)} bytes...[/dim]")
+                try:
+                    last_result = k.verify_script(
+                        script_pubkey=raw,
+                        flags=flags,
+                    )
+                except Exception as e:
+                    console.print(f"[red]K execution error: {e}[/red]")
+                    continue
+                _show_stack()
+            else:
+                console.print(f"[red]Unknown command: {cmd}[/red] (try .help)")
+            continue
+
+        # Script input: accumulate tokens
+        asm_tokens.extend(line.split())
+        # Show a preview of the accumulated script
+        try:
+            raw = parse_asm(" ".join(asm_tokens))
+            console.print(f"[dim]  script: {raw.hex()} ({len(raw)} bytes)[/dim]")
+        except Exception as e:
+            console.print(f"[yellow]  warning: {e}[/yellow]")
