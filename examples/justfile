@@ -1,0 +1,35 @@
+# Run examples from the project root
+set working-directory := ".."
+
+# List available recipes
+default:
+    @just --list
+
+# Run all Python examples
+all: fuzz trace
+
+# Fuzz random scripts against K oracle (default: 100 scripts)
+fuzz n="100" seed="42":
+    uv run python examples/fuzz_scripts.py {{ n }} {{ seed }}
+
+# Step-by-step execution tracing
+trace:
+    uv run python examples/trace_execution.py
+
+# Verify a mainnet block (requires synced Bitcoin Core)
+verify-block height:
+    uv run python examples/verify_block.py {{ height }}
+
+# Verify a range of mainnet blocks
+verify-range start end:
+    uv run python examples/verify_block.py {{ start }} {{ end }}
+
+# --- K Framework specs (require Haskell backend) ---
+
+# Prove a single K spec
+prove spec:
+    uv run kprove --definition $(uv run kdist which bitcoin-script-semantics.haskell) \
+        examples/specs/{{ spec }}.k
+
+# Prove all K specs that pass
+prove-all: (prove "p2pkh-spec") (prove "timelock-spec")

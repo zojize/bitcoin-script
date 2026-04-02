@@ -199,6 +199,35 @@ class KompileTarget(Target):
         )
 
 
+@final
+class HaskellKompileTarget(Target):
+    """Haskell backend target for K proofs (kprove)."""
+
+    def build(
+        self,
+        output_dir: Path,
+        deps: dict[str, Path],
+        args: dict[str, Any],
+        verbose: bool,
+    ) -> None:
+        src_dir = deps["bitcoin-script-semantics.source"]
+        kompile(
+            output_dir=output_dir,
+            verbose=verbose,
+            backend=PykBackend.HASKELL,
+            main_file=src_dir / "script-semantics/script.k",
+            include_dirs=(src_dir,),
+            hook_namespaces=("KRYPTO",),
+            warnings_to_errors=True,
+        )
+
+    def context(self) -> dict[str, str]:
+        return {"k-version": k_version().text}
+
+    def deps(self) -> tuple[str, ...]:
+        return ("bitcoin-script-semantics.source",)
+
+
 __TARGETS__: Final = {
     "source": SourceTarget(),
     "plugin": PluginTarget(),
@@ -226,4 +255,5 @@ __TARGETS__: Final = {
             "opt_level": 3,
         },
     ),
+    "haskell": HaskellKompileTarget(),
 }
