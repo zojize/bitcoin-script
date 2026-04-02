@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -386,6 +386,7 @@ class ChainVerifier:
         2. Walk the chain from genesis, deserializing blocks lazily
         """
         # Pass 1: scan headers (only 80 bytes per block, no full deserialization)
+        target_end = end if end is not None else start + 10000
         prev_to_hash: dict[bytes, bytes] = {}
         location: dict[bytes, tuple[Path, int, int]] = {}  # hash -> (path, offset, size)
         scanned = 0
@@ -396,7 +397,10 @@ class ChainVerifier:
             location[block_hash] = (path, offset, size)
             scanned += 1
             if scanned % 50000 == 0:
-                log.info("Scanned %d block headers...", scanned)
+                chain_len = self._walk_chain_length(prev_to_hash, location)
+                log.info("Scanned %d headers, chain length %d", scanned, chain_len)
+                if chain_len > target_end:
+                    break
 
         log.info("Scanned %d block headers, walking chain...", scanned)
 
@@ -417,6 +421,22 @@ class ChainVerifier:
                 break
             height += 1
             current_hash = prev_to_hash.get(current_hash, b"")
+
+    @staticmethod
+    def _walk_chain_length(
+        prev_to_hash: dict[bytes, bytes],
+        known_hashes: Mapping[bytes, object],
+    ) -> int:
+        """Count chain length from genesis without building the full list."""
+        genesis_prev = b"\x00" * 32
+        if genesis_prev not in prev_to_hash:
+            return 0
+        current = prev_to_hash[genesis_prev]
+        length = 0
+        while current in known_hashes:
+            length += 1
+            current = prev_to_hash.get(current, b"")
+        return length
 
     def verify_block(self, height: int) -> BlockResult:
         """Verify a single block at the given height.
