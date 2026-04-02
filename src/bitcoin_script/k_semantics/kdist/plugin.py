@@ -201,7 +201,12 @@ class KompileTarget(Target):
 
 @final
 class HaskellKompileTarget(Target):
-    """Haskell backend target for K proofs (kprove)."""
+    """Haskell backend target for K proofs (kprove).
+
+    Builds both a Haskell definition and an LLVM library so that the
+    kore-rpc-booster can delegate concrete hook evaluations (SHA256,
+    RIPEMD160, ECDSA) to the LLVM backend during proofs.
+    """
 
     def build(
         self,
@@ -211,6 +216,9 @@ class HaskellKompileTarget(Target):
         verbose: bool,
     ) -> None:
         src_dir = deps["bitcoin-script-semantics.source"]
+        plugin_dir = deps["bitcoin-script-semantics.plugin"]
+
+        # Build Haskell definition
         kompile(
             output_dir=output_dir,
             verbose=verbose,
@@ -223,11 +231,30 @@ class HaskellKompileTarget(Target):
             warnings_to_errors=True,
         )
 
+        # Build LLVM library for concrete hook evaluation during proofs
+        kompile(
+            output_dir=output_dir / "llvm-library",
+            verbose=verbose,
+            backend=PykBackend.LLVM,
+            main_file=src_dir / "script-semantics/script-verification.k",
+            main_module="SCRIPT-VERIFICATION",
+            syntax_module="SCRIPT-VERIFICATION",
+            include_dirs=(src_dir,),
+            hook_namespaces=("KRYPTO",),
+            ccopts=_lib_ccopts(plugin_dir),
+            llvm_kompile_type=LLVMKompileType.C,
+            warnings_to_errors=True,
+            opt_level=3,
+        )
+
     def context(self) -> dict[str, str]:
         return {"k-version": k_version().text}
 
     def deps(self) -> tuple[str, ...]:
-        return ("bitcoin-script-semantics.source",)
+        return (
+            "bitcoin-script-semantics.source",
+            "bitcoin-script-semantics.plugin",
+        )
 
 
 __TARGETS__: Final = {

@@ -2,70 +2,55 @@
 
 K claims mechanically verified by `kprove` (Haskell backend).
 
-## Proven claims (14 total)
+## Proven claims (27 total)
 
-**arithmetic-spec.k** (3 claims) — symbolic, for ALL valid CScriptNum inputs:
-- `1add-correct`: OP_1ADD(N) == N+1
-- `negate-correct`: OP_NEGATE(N) == -N
-- `add-correct`: OP_ADD(A, B) == A+B
+**arithmetic-spec.k** (3) — symbolic, all valid CScriptNum inputs:
+- OP_1ADD(N) == N+1, OP_NEGATE(N) == -N, OP_ADD(A,B) == A+B
 
-**symbolic-spec.k** (5 claims) — symbolic opcode properties:
-- `equals-5-pass`: OP_EQUAL succeeds when N == 5
-- `not-nonzero-is-false`: OP_NOT maps any nonzero to 0
-- `within-true/false`: OP_WITHIN correct for any A, MIN, MAX
-- `sub-not-equal`: SUB + NOT implements equality (A == B -> 1)
+**symbolic-spec.k** (5) — symbolic opcode properties:
+- OP_EQUAL succeeds iff N==5, OP_NOT maps nonzero to 0
+- OP_WITHIN correct for any A/MIN/MAX, SUB+NOT implements equality
 
-**timelock-spec.k** (4 claims) — concrete CLTV execution:
-- `cltv-pass-block-height`: passes when nLockTime >= threshold
-- `cltv-nop-without-flag`: NOP when flag not set
-- `cltv-fail-too-early`: fails when nLockTime < threshold
-- `cltv-fail-final-sequence`: fails when nSequence is final
+**timelock-spec.k** (4) — concrete CLTV execution:
+- pass/NOP/fail-early/fail-final-sequence
 
-**htlc-spec.k** (2 claims) — concrete HTLC timeout path:
-- `timeout-path-after-expiry`: succeeds when nLockTime >= timeout
-- `timeout-path-before-expiry`: fails when nLockTime < timeout
+**htlc-spec.k** (2) — concrete HTLC timeout path:
+- succeed after expiry, fail before expiry
+
+**branch-spec.k** (2) — IF/ELSE/ENDIF branch selection:
+- truthy takes IF branch, falsy takes ELSE branch
+
+**phase-spec.k** (3) — scriptSig -> scriptPubKey state passing:
+- single value match, mismatch, multiple values across phases
+
+**limits-spec.k** (4) — consensus rule enforcement:
+- CLEANSTACK, SIGPUSHONLY, small script succeeds
+
+**scriptnum-spec.k** (4) — CScriptNum encoding at boundaries:
+- zero, 1+(-1)=0, 127+1=128 boundary, negate encoding
 
 ## Blocked
 
-HTLC hash path claims need SHA256/HASH160 which are C++ hooks
-(blockchain-k-plugin) unavailable in the Haskell backend.
+HTLC hash path and P2PKH end-to-end need SHA256/HASH160/ECDSA
+which are C++ hooks unavailable in the Haskell backend.
 
 ## TODO: planned specs
 
-Following patterns from [KEVM specs](https://github.com/runtimeverification/evm-semantics/tree/master/tests/specs):
+**P2SH phase transition**: saved stack restore, redeem script execution
 
-**CScriptNum encoding correctness** (like KEVM's merkle-spec):
-- `intToScriptNumAbs` produces minimal encoding for all ranges
-- Encoding is injective (different integers -> different bytes)
-- Roundtrip: decode(encode(N)) == N for edge cases (0, -1, 128, -128, max)
+**Script size limits**: scripts > 10000 bytes rejected
 
-**Phase transition correctness** (like KEVM's storage-spec):
-- scriptSig stack is correctly passed to scriptPubKey phase
-- P2SH: saved stack is restored, redeem script is popped and executed
-- Witness: witness stack items are pushed correctly
+**Opcode count limits**: 201+ non-push opcodes rejected
 
-**Script template completeness** (like KEVM's ERC20 approve success/revert):
-- "Check equals N" script: accepts N, rejects everything else (two-sided)
-- P2PKH: fails before CHECKSIG when pubkey hash mismatches (needs HASH160 hook)
-
-**Opcode composition** (like KEVM's functional specs):
-- DUP + EQUALVERIFY == check top two equal
-- IF/ELSE/ENDIF: exactly one branch executes for any truthy/falsy input
-
-**Resource limits** (like KEVM's gas specs):
-- opCount increments correctly per non-push opcode
-- Scripts exceeding 201 ops fail
-- Scripts exceeding 10000 bytes fail
-
-**Prerequisite for more specs**: Haskell-native crypto hooks (SHA256,
-HASH160, RIPEMD160) would unblock P2PKH, P2SH, and HTLC hash path proofs.
+**Haskell-native crypto hooks**: would unblock P2PKH, P2SH, HTLC
+hash path proofs — the most valuable remaining specs.
 
 ## Running proofs
 
 ```sh
 uv run kdist build bitcoin-script-semantics.haskell  # one-time
 cd examples
-just prove-all          # all specs
+just prove-all          # all 8 spec files
 just prove htlc-spec    # single spec
 ```
 

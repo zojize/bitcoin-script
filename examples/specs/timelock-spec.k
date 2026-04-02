@@ -16,7 +16,7 @@ module TIMELOCK-SPEC
       <error> "" => "" </error>
       <sighash> .Bytes </sighash>
       <scriptSigBytes> .Bytes </scriptSigBytes>
-      <scriptPubKeyBytes> b"\x01\x64\xb1\x75\x51" </scriptPubKeyBytes>
+      <scriptPubKeyBytes> b"\x01\x64\xb1\x75\x51" </scriptPubKeyBytes> // <100> CHECKLOCKTIMEVERIFY DROP TRUE
       <witness> .Bytes </witness>
       <savedStack> .List </savedStack>
       <opCount> 0 => ?_ </opCount>
@@ -38,7 +38,7 @@ module TIMELOCK-SPEC
       <error> "" => "" </error>
       <sighash> .Bytes </sighash>
       <scriptSigBytes> .Bytes </scriptSigBytes>
-      <scriptPubKeyBytes> b"\x01\x64\xb1\x75\x51" </scriptPubKeyBytes>
+      <scriptPubKeyBytes> b"\x01\x64\xb1\x75\x51" </scriptPubKeyBytes> // <100> CHECKLOCKTIMEVERIFY DROP TRUE
       <witness> .Bytes </witness>
       <savedStack> .List </savedStack>
       <opCount> 0 => ?_ </opCount>
@@ -60,7 +60,7 @@ module TIMELOCK-SPEC
       <error> "" => "UNSATISFIED_LOCKTIME" </error>
       <sighash> .Bytes </sighash>
       <scriptSigBytes> .Bytes </scriptSigBytes>
-      <scriptPubKeyBytes> b"\x01\x64\xb1\x75\x51" </scriptPubKeyBytes>
+      <scriptPubKeyBytes> b"\x01\x64\xb1\x75\x51" </scriptPubKeyBytes> // <100> CHECKLOCKTIMEVERIFY DROP TRUE
       <witness> .Bytes </witness>
       <savedStack> .List </savedStack>
       <opCount> 0 => ?_ </opCount>
@@ -82,7 +82,7 @@ module TIMELOCK-SPEC
       <error> "" => "UNSATISFIED_LOCKTIME" </error>
       <sighash> .Bytes </sighash>
       <scriptSigBytes> .Bytes </scriptSigBytes>
-      <scriptPubKeyBytes> b"\x01\x64\xb1\x75\x51" </scriptPubKeyBytes>
+      <scriptPubKeyBytes> b"\x01\x64\xb1\x75\x51" </scriptPubKeyBytes> // <100> CHECKLOCKTIMEVERIFY DROP TRUE
       <witness> .Bytes </witness>
       <savedStack> .List </savedStack>
       <opCount> 0 => ?_ </opCount>

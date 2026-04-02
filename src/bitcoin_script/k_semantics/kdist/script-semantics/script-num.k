@@ -107,28 +107,29 @@ module SCRIPT-NUM
   rule intToScriptNumAbs(I) => Int2Bytes(1, I, LE)
     requires I >Int 0 andBool I <Int 128
 
-  rule intToScriptNumAbs(I) => Int2Bytes(2, I, LE) +Bytes Int2Bytes(1, 0, BE)
-    requires I ==Int 128
+  // 1 byte with sign padding (high bit set: 128-255)
+  rule intToScriptNumAbs(I) => Int2Bytes(1, I, LE) +Bytes Int2Bytes(1, 0, BE)
+    requires I >=Int 128 andBool I <Int 256
 
+  // 2 bytes, no padding needed (high bit of byte 1 is 0)
   rule intToScriptNumAbs(I) => Int2Bytes(2, I, LE)
-    requires I >Int 128 andBool I <Int 32768
-     andBool I &Int 32768 ==Int 0
+    requires I >=Int 256 andBool I <Int 32768
 
+  // 2 bytes with sign padding (high bit of byte 1 is set: 32768-65535)
   rule intToScriptNumAbs(I) => Int2Bytes(2, I, LE) +Bytes Int2Bytes(1, 0, BE)
     requires I >=Int 32768 andBool I <Int 65536
-     andBool I &Int 32768 =/=Int 0
 
+  // 3 bytes, no padding needed (high bit of byte 2 is 0)
   rule intToScriptNumAbs(I) => Int2Bytes(3, I, LE)
-    requires I >=Int 32768 andBool I <Int 8388608
-     andBool I &Int 8388608 ==Int 0
+    requires I >=Int 65536 andBool I <Int 8388608
 
+  // 3 bytes with sign padding (high bit of byte 2 is set: 8388608-16777215)
   rule intToScriptNumAbs(I) => Int2Bytes(3, I, LE) +Bytes Int2Bytes(1, 0, BE)
     requires I >=Int 8388608 andBool I <Int 16777216
-     andBool I &Int 8388608 =/=Int 0
 
+  // 4 bytes, no padding needed (high bit of byte 3 is 0)
   rule intToScriptNumAbs(I) => Int2Bytes(4, I, LE)
-    requires I >=Int 8388608 andBool I <Int 2147483648
-     andBool I &Int 2147483648 ==Int 0
+    requires I >=Int 16777216 andBool I <Int 2147483648
 
   // 5 bytes: value needs 4 unsigned bytes but high bit (bit 31) is set
   rule intToScriptNumAbs(I) => Int2Bytes(4, I, LE) +Bytes Int2Bytes(1, 0, BE)
