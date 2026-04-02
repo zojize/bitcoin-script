@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -15,6 +16,46 @@ from bitcoin_script.blockchain.utxo import UTXOSet
 from bitcoin_script.k_semantics import KBitcoinScript, ScriptDist
 
 log = logging.getLogger(__name__)
+
+# Global K instance for worker processes (initialized once per process)
+_worker_k: KBitcoinScript | None = None
+
+
+def _init_worker() -> None:
+    """Initialize K instance in worker process."""
+    global _worker_k
+    dist = ScriptDist.load()
+    _worker_k = KBitcoinScript(dist)
+
+
+def _verify_input_worker(
+    script_sig: bytes,
+    script_pubkey: bytes,
+    sighash: bytes,
+    witness: bytes,
+    flags: int,
+    tx_version: int,
+    n_locktime: int,
+    n_sequence: int,
+    tx_idx: int,
+    input_index: int,
+) -> tuple[int, int, str | None]:
+    """Worker function: verify a single input. Returns (tx_idx, input_index, error_or_None)."""
+    global _worker_k
+    assert _worker_k is not None
+    result = _worker_k.verify_script(
+        script_sig=script_sig,
+        script_pubkey=script_pubkey,
+        sighash=sighash,
+        witness=witness,
+        flags=flags,
+        tx_version=tx_version,
+        n_locktime=n_locktime,
+        n_sequence=n_sequence,
+    )
+    if not _worker_k.success(result):
+        return (tx_idx, input_index, _worker_k.error(result))
+    return (tx_idx, input_index, None)
 
 
 @dataclass
@@ -259,6 +300,11 @@ class ChainVerifier:
             k = KBitcoinScript(dist)
         self._k = k
         self._max_workers = max_workers
+        self._pool: ProcessPoolExecutor | None = None
+        if max_workers > 1:
+            self._pool = ProcessPoolExecutor(
+                max_workers=max_workers, initializer=_init_worker
+            )
 
     @property
     def utxo(self) -> UTXOSet:
@@ -414,6 +460,8 @@ class ChainVerifier:
             txid = tx.GetTxid()
 
             if not is_coinbase:
+                # Collect all inputs to verify
+                tasks: list[tuple[int, int, dict]] = []
                 for input_index, vin in enumerate(tx.vin):
                     prev_txid = bytes(vin.prevout.hash)
                     prev_vout = vin.prevout.n
@@ -446,24 +494,42 @@ class ChainVerifier:
                         tx, input_index, script_pubkey, amount
                     )
 
-                    result = self._k.verify_script(
-                        script_sig=script_sig,
-                        script_pubkey=script_pubkey,
-                        sighash=sighash,
-                        witness=witness_blob,
-                        flags=flags,
-                        tx_version=tx.nVersion,
-                        n_locktime=tx.nLockTime,
-                        n_sequence=vin.nSequence,
-                    )
+                    tasks.append((tx_idx, input_index, {
+                        "script_sig": script_sig,
+                        "script_pubkey": script_pubkey,
+                        "sighash": sighash,
+                        "witness": witness_blob,
+                        "flags": flags,
+                        "tx_version": tx.nVersion,
+                        "n_locktime": tx.nLockTime,
+                        "n_sequence": vin.nSequence,
+                    }))
 
-                    if not self._k.success(result):
-                        error = self._k.error(result)
-                        errors.append(
-                            f"tx {tx_idx} input {input_index}: {error}"
+                # Verify inputs (parallel or sequential)
+                if self._pool is not None and len(tasks) > 1:
+                    futures = [
+                        self._pool.submit(
+                            _verify_input_worker,
+                            **t[2], tx_idx=t[0], input_index=t[1],
                         )
-
-                    input_count += 1
+                        for t in tasks
+                    ]
+                    for future in futures:
+                        tidx, iidx, err = future.result()
+                        if err is not None:
+                            errors.append(
+                                f"tx {tidx} input {iidx}: {err}"
+                            )
+                        input_count += 1
+                else:
+                    for tidx, iidx, kwargs in tasks:
+                        result = self._k.verify_script(**kwargs)
+                        if not self._k.success(result):
+                            error = self._k.error(result)
+                            errors.append(
+                                f"tx {tidx} input {iidx}: {error}"
+                            )
+                        input_count += 1
 
                 # Spend inputs
                 for vin in tx.vin:

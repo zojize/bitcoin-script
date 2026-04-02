@@ -43,6 +43,7 @@ def verify(
     block: Annotated[Optional[int], typer.Option("--block", "-b", help="Verify a single block at this height.")] = None,
     blocks_dir: Annotated[Optional[str], typer.Option("--blocks-dir", help="Bitcoin Core data directory.")] = None,
     db: Annotated[str, typer.Option("--db", help="UTXO database path.")] = "utxo.db",
+    workers: Annotated[int, typer.Option("--workers", "-w", help="Parallel K workers.")] = 1,
     backend: Annotated[Backend, typer.Option("--backend", help="Execution backend.")] = Backend.k,
 ) -> None:
     """Verify Bitcoin mainnet scripts via K Framework formal semantics.
@@ -80,7 +81,7 @@ def verify(
 
     from bitcoin_script.blockchain.verifier import ChainVerifier
 
-    verifier = ChainVerifier(data_dir, utxo_db_path=db)
+    verifier = ChainVerifier(data_dir, utxo_db_path=db, max_workers=workers)
 
     if block is not None:
         # Single-block mode
