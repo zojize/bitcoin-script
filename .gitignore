@@ -43,3 +43,4 @@ blockchain_data/
 # Bitcoin Core test vectors (downloaded at test time)
 tests/test_k_semantics/data/
 mainnet_verify.db
+docs/superpowers/
