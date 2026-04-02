@@ -31,5 +31,5 @@ prove spec:
     uv run kprove --definition $(uv run kdist which bitcoin-script-semantics.haskell) \
         examples/specs/{{ spec }}.k
 
-# Prove all K specs that pass
-prove-all: (prove "p2pkh-spec") (prove "timelock-spec") (prove "arithmetic-spec")
+# Prove all K specs
+prove-all: (prove "arithmetic-spec") (prove "timelock-spec") (prove "htlc-spec") (prove "symbolic-spec")

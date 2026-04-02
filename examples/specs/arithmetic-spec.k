@@ -5,13 +5,7 @@
 // the simplification lemmas in lemmas.k.
 
 module ARITHMETIC-SPEC
-  imports SCRIPT-SEMANTICS
-  imports SCRIPT-SIG
-  imports SCRIPT-FLOW
-  imports SCRIPT-ARITH
-  imports SCRIPT-STACK
-  imports SCRIPT-DECODE
-  imports LEMMAS
+  imports SCRIPT-VERIFICATION
 
   // Proved: OP_1ADD produces N+1 for all valid N
   claim [1add-correct]:

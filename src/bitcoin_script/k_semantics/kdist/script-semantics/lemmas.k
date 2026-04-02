@@ -1,11 +1,10 @@
 // Simplification lemmas for the K Haskell backend prover.
 //
-// These rules allow kprove to simplify symbolic expressions involving
-// byte operations (Int2Bytes, Bytes2Int, substrBytes, lengthBytes)
-// and CScriptNum encoding (intToScriptNum, scriptNumToInt).
+// These enable symbolic reasoning about CScriptNum encoding — needed for
+// proofs over all valid inputs (e.g. "OP_ADD(A,B) == A+B for any A,B").
 //
-// Without these, the prover gets stuck on byte-level reasoning.
-// Modeled after KEVM's lemmas/bytes-simplification.k.
+// Concrete byte-level proofs (timelock, htlc) don't need these — the
+// Haskell backend evaluates byte literals natively.
 
 module LEMMAS
   imports SCRIPT-NUM
@@ -14,109 +13,23 @@ module LEMMAS
   imports BOOL
 
   // =========================================================================
-  // lengthBytes simplifications
+  // CScriptNum roundtrip: the key lemma for arithmetic proofs
   // =========================================================================
 
-  rule lengthBytes(.Bytes) => 0 [simplification]
-
-  rule lengthBytes(Int2Bytes(N, _V:Int, _E:Endianness)) => N
-    requires N >=Int 0 [simplification]
-
-  rule lengthBytes(A +Bytes B) => lengthBytes(A) +Int lengthBytes(B) [simplification]
-
-  rule 0 <=Int lengthBytes(_) => true [simplification, smt-lemma]
-
-  // =========================================================================
-  // Int2Bytes / Bytes2Int roundtrip
-  // =========================================================================
-
-  rule Bytes2Int(Int2Bytes(N, V, BE), BE, Unsigned) => V modInt (1 <<Int (8 *Int N))
-    requires N >Int 0 andBool V >=Int 0 [simplification]
-
-  rule Bytes2Int(Int2Bytes(N, V, LE), LE, Unsigned) => V modInt (1 <<Int (8 *Int N))
-    requires N >Int 0 andBool V >=Int 0 [simplification]
-
-  // When value fits in N bytes, modInt is identity
-  rule V modInt (1 <<Int (8 *Int N)) => V
-    requires V >=Int 0 andBool V <Int (1 <<Int (8 *Int N)) [simplification]
-
-  // =========================================================================
-  // substrBytes over concatenation
-  // =========================================================================
-
-  // Take prefix: substrBytes(A +Bytes B, 0, len(A)) => A
-  rule substrBytes(A +Bytes _B, 0, N) => A
-    requires lengthBytes(A) ==Int N [simplification]
-
-  // Take suffix: substrBytes(A +Bytes B, len(A), len(A) + len(B)) => B
-  rule substrBytes(A +Bytes B, S, S +Int lengthBytes(B)) => B
-    requires lengthBytes(A) ==Int S [simplification]
-
-  // =========================================================================
-  // Bitwise operations on small values
-  // =========================================================================
-
-  rule V &Int 128 ==Int 0 => true
-    requires V >=Int 0 andBool V <Int 128 [simplification]
-
-  rule V &Int 128 =/=Int 0 => true
-    requires V >=Int 128 andBool V <Int 256 [simplification]
-
-  rule V &Int 127 => V
-    requires V >=Int 0 andBool V <Int 128 [simplification]
-
-  rule V &Int 127 => V -Int 128
-    requires V >=Int 128 andBool V <Int 256 [simplification]
-
-  // =========================================================================
-  // CScriptNum roundtrip: scriptNumToInt(intToScriptNum(N)) == N
-  //
-  // This is the key lemma that enables arithmetic proofs.
-  // =========================================================================
-
+  // scriptNumToInt(intToScriptNum(N)) == N for all valid N
   rule scriptNumToInt(intToScriptNum(N)) => N
     requires N >=Int -2147483647 andBool N <=Int 2147483647 [simplification]
 
-  // =========================================================================
-  // validNum / validNumFlags on intToScriptNum output
-  //
-  // intToScriptNum always produces valid (<= 4 byte) output for inputs
-  // in the CScriptNum range.
-  // =========================================================================
-
-  rule validNum(intToScriptNum(N)) => true
-    requires N >=Int -2147483647 andBool N <=Int 2147483647 [simplification]
-
+  // intToScriptNum always produces valid-length output
   rule validNumFlags(intToScriptNum(N), _F) => true
     requires N >=Int -2147483647 andBool N <=Int 2147483647 [simplification]
 
-  // #isMinimalNum is always true for intToScriptNum output (it produces minimal encoding)
-  rule #isMinimalNum(intToScriptNum(N)) => true
+  // Also valid for negated values
+  rule validNumFlags(intToScriptNum(0 -Int N), _F) => true
     requires N >=Int -2147483647 andBool N <=Int 2147483647 [simplification]
 
   // =========================================================================
-  // lengthBytes on intToScriptNum output
-  // =========================================================================
-
-  rule lengthBytes(intToScriptNum(N)) <=Int 4 => true
-    requires N >=Int -2147483647 andBool N <=Int 2147483647 [simplification]
-
-  // =========================================================================
-  // Arithmetic identities
-  // =========================================================================
-
-  rule 0 -Int (0 -Int N) => N [simplification]
-
-  rule absInt(absInt(N)) => absInt(N) [simplification]
-
-  // =========================================================================
-  // intToScriptNum is injective (needed for term equality reasoning)
-  // =========================================================================
-
-  rule { intToScriptNum(A) #Equals intToScriptNum(B) } => { A #Equals B } [simplification]
-
-  // =========================================================================
-  // Range preservation: negation stays in CScriptNum range
+  // Range preservation under negation
   // =========================================================================
 
   rule (0 -Int N) >=Int -2147483647 => true
@@ -125,12 +38,10 @@ module LEMMAS
   rule (0 -Int N) <=Int 2147483647 => true
     requires N >=Int -2147483647 [simplification, smt-lemma]
 
-  // validNumFlags on intToScriptNum of negation
-  rule validNumFlags(intToScriptNum(0 -Int N), _F) => true
-    requires N >=Int -2147483647 andBool N <=Int 2147483647 [simplification]
+  // =========================================================================
+  // intToScriptNum is injective
+  // =========================================================================
 
-  // validNum on intToScriptNum of negation
-  rule validNum(intToScriptNum(0 -Int N)) => true
-    requires N >=Int -2147483647 andBool N <=Int 2147483647 [simplification]
+  rule { intToScriptNum(A) #Equals intToScriptNum(B) } => { A #Equals B } [simplification]
 
 endmodule

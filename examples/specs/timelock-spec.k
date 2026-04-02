@@ -1,27 +1,22 @@
 // Formal proofs about OP_CHECKLOCKTIMEVERIFY (CLTV) behavior.
 
 module TIMELOCK-SPEC
-  imports SCRIPT-SEMANTICS
-  imports SCRIPT-SIG
-  imports SCRIPT-FLOW
-  imports SCRIPT-ARITH
-  imports SCRIPT-STACK
-  imports SCRIPT-DECODE
+  imports SCRIPT-VERIFICATION
 
   // All claims use: <100> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_TRUE
-  // = 0x01 0x64 0xb1 0x75 0x51 = Int2Bytes(5, 5984318801, BE)
+  // = 0x01 0x64 0xb1 0x75 0x51 = b"\x01\x64\xb1\x75\x51"
 
   // Claim 1: CLTV passes when nLockTime >= threshold
   claim [cltv-pass-block-height]:
       <k> #init => .K </k>
-      <stack> .List => ListItem(Int2Bytes(1, 1, BE)) </stack>
+      <stack> .List => ListItem(b"\x01") </stack>
       <altstack> .List </altstack>
       <exec> .List </exec>
       <phase> scriptSig => done </phase>
       <error> "" => "" </error>
       <sighash> .Bytes </sighash>
       <scriptSigBytes> .Bytes </scriptSigBytes>
-      <scriptPubKeyBytes> Int2Bytes(5, 5984318801, BE) </scriptPubKeyBytes>
+      <scriptPubKeyBytes> b"\x01\x64\xb1\x75\x51" </scriptPubKeyBytes>
       <witness> .Bytes </witness>
       <savedStack> .List </savedStack>
       <opCount> 0 => ?_ </opCount>
@@ -36,14 +31,14 @@ module TIMELOCK-SPEC
   // Claim 2: CLTV is a NOP when flag is not set
   claim [cltv-nop-without-flag]:
       <k> #init => .K </k>
-      <stack> .List => ListItem(Int2Bytes(1, 1, BE)) </stack>
+      <stack> .List => ListItem(b"\x01") </stack>
       <altstack> .List </altstack>
       <exec> .List </exec>
       <phase> scriptSig => done </phase>
       <error> "" => "" </error>
       <sighash> .Bytes </sighash>
       <scriptSigBytes> .Bytes </scriptSigBytes>
-      <scriptPubKeyBytes> Int2Bytes(5, 5984318801, BE) </scriptPubKeyBytes>
+      <scriptPubKeyBytes> b"\x01\x64\xb1\x75\x51" </scriptPubKeyBytes>
       <witness> .Bytes </witness>
       <savedStack> .List </savedStack>
       <opCount> 0 => ?_ </opCount>
@@ -55,9 +50,48 @@ module TIMELOCK-SPEC
       <p2shRedeemBytes> .Bytes </p2shRedeemBytes>
       <codesepIdx> 0 </codesepIdx>
 
-  // TODO: Error path claims (cltv-fail-too-early, cltv-fail-final-sequence)
-  // require additional lemmas about Int2Bytes/substrBytes to prove.
-  // They execute correctly via LLVM backend but the Haskell prover
-  // gets stuck on byte-level reasoning without these lemmas.
+  // Claim 3: CLTV fails when nLockTime < threshold
+  claim [cltv-fail-too-early]:
+      <k> #init => .K </k>
+      <stack> .List => ?_ </stack>
+      <altstack> .List </altstack>
+      <exec> .List => ?_ </exec>
+      <phase> scriptSig => ?_ </phase>
+      <error> "" => "UNSATISFIED_LOCKTIME" </error>
+      <sighash> .Bytes </sighash>
+      <scriptSigBytes> .Bytes </scriptSigBytes>
+      <scriptPubKeyBytes> b"\x01\x64\xb1\x75\x51" </scriptPubKeyBytes>
+      <witness> .Bytes </witness>
+      <savedStack> .List </savedStack>
+      <opCount> 0 => ?_ </opCount>
+      <flags> 512 </flags>
+      <txVersion> 1 </txVersion>
+      <nLockTime> 50 </nLockTime>
+      <nSequence> 4294967294 </nSequence>
+      <witnessUsed> false </witnessUsed>
+      <p2shRedeemBytes> .Bytes </p2shRedeemBytes>
+      <codesepIdx> 0 </codesepIdx>
+
+  // Claim 4: CLTV fails when nSequence is final
+  claim [cltv-fail-final-sequence]:
+      <k> #init => .K </k>
+      <stack> .List => ?_ </stack>
+      <altstack> .List </altstack>
+      <exec> .List => ?_ </exec>
+      <phase> scriptSig => ?_ </phase>
+      <error> "" => "UNSATISFIED_LOCKTIME" </error>
+      <sighash> .Bytes </sighash>
+      <scriptSigBytes> .Bytes </scriptSigBytes>
+      <scriptPubKeyBytes> b"\x01\x64\xb1\x75\x51" </scriptPubKeyBytes>
+      <witness> .Bytes </witness>
+      <savedStack> .List </savedStack>
+      <opCount> 0 => ?_ </opCount>
+      <flags> 512 </flags>
+      <txVersion> 1 </txVersion>
+      <nLockTime> 200 </nLockTime>
+      <nSequence> 4294967295 </nSequence>
+      <witnessUsed> false </witnessUsed>
+      <p2shRedeemBytes> .Bytes </p2shRedeemBytes>
+      <codesepIdx> 0 </codesepIdx>
 
 endmodule
