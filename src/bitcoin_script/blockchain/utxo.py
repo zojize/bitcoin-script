@@ -88,9 +88,7 @@ class UTXOSet:
 
     @checkpoint_height.setter
     def checkpoint_height(self, height: int) -> None:
-        self._conn.execute(
-            "UPDATE meta SET value = ? WHERE key = 'height'", (height,)
-        )
+        self._conn.execute("UPDATE meta SET value = ? WHERE key = 'height'", (height,))
 
     def close(self) -> None:
         self._conn.close()

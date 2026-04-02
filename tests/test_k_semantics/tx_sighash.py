@@ -22,11 +22,11 @@ from bitcoin.core.script import (
 
 # All standard hashtype values
 _STANDARD_HASHTYPES = [
-    SIGHASH_ALL,                            # 0x01
-    SIGHASH_NONE,                           # 0x02
-    SIGHASH_SINGLE,                         # 0x03
-    SIGHASH_ALL | SIGHASH_ANYONECANPAY,     # 0x81
-    SIGHASH_NONE | SIGHASH_ANYONECANPAY,    # 0x82
+    SIGHASH_ALL,  # 0x01
+    SIGHASH_NONE,  # 0x02
+    SIGHASH_SINGLE,  # 0x03
+    SIGHASH_ALL | SIGHASH_ANYONECANPAY,  # 0x81
+    SIGHASH_NONE | SIGHASH_ANYONECANPAY,  # 0x82
     SIGHASH_SINGLE | SIGHASH_ANYONECANPAY,  # 0x83
 ]
 
@@ -161,7 +161,9 @@ def compute_tx_sighash_blob(
         # BIP-143 witness v0 sighash
         if len(program) == 20:
             # P2WPKH: subscript is synthetic P2PKH
-            subscript = CScript(bytes([0x76, 0xA9, 0x14]) + program + bytes([0x88, 0xAC]))
+            subscript = CScript(
+                bytes([0x76, 0xA9, 0x14]) + program + bytes([0x88, 0xAC])
+            )
         elif len(program) == 32 and witness_items:
             # P2WSH: subscript is the witness script (last witness item)
             subscript = CScript(witness_items[-1])
@@ -172,11 +174,15 @@ def compute_tx_sighash_blob(
             for ht in sorted(hashtypes):
                 try:
                     sh = SignatureHash(
-                        subscript, tx, input_index, ht,
-                        amount=amount, sigversion=SIGVERSION_WITNESS_V0,
+                        subscript,
+                        tx,
+                        input_index,
+                        ht,
+                        amount=amount,
+                        sigversion=SIGVERSION_WITNESS_V0,
                     )
                     parts.append(bytes([ht]) + bytes(sh))
-                except (AssertionError, ValueError, CScriptTruncatedPushDataError):
+                except AssertionError, ValueError, CScriptTruncatedPushDataError:
                     continue
 
     # Legacy sighash (always compute — some P2SH-wrapped cases need both)
@@ -191,7 +197,7 @@ def compute_tx_sighash_blob(
         try:
             sh = SignatureHash(CScript(legacy_subscript), tx, input_index, ht)
             parts.append(bytes([ht]) + bytes(sh))
-        except (ValueError, CScriptTruncatedPushDataError):
+        except ValueError, CScriptTruncatedPushDataError:
             # SIGHASH_SINGLE bug: when input_index >= len(outputs),
             # Bitcoin Core returns uint256(1) as the sighash (little-endian)
             if (ht & 0x1F) == SIGHASH_SINGLE and input_index >= len(tx.vout):

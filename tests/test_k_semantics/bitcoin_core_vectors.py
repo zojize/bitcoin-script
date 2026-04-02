@@ -23,12 +23,14 @@ for name, hex_val in OPCODES.items():
             BARE_TO_HEX[bare] = hex_val
 
 # Additional bare-name aliases used in Bitcoin Core tests
-BARE_TO_HEX.update({
-    "CHECKLOCKTIMEVERIFY": OPCODES["OP_CHECKLOCKTIMEVERIFY"],
-    "CHECKSEQUENCEVERIFY": OPCODES["OP_CHECKSEQUENCEVERIFY"],
-    "TRUE": OPCODES["OP_TRUE"],
-    "FALSE": OPCODES["OP_FALSE"],
-})
+BARE_TO_HEX.update(
+    {
+        "CHECKLOCKTIMEVERIFY": OPCODES["OP_CHECKLOCKTIMEVERIFY"],
+        "CHECKSEQUENCEVERIFY": OPCODES["OP_CHECKSEQUENCEVERIFY"],
+        "TRUE": OPCODES["OP_TRUE"],
+        "FALSE": OPCODES["OP_FALSE"],
+    }
+)
 
 
 def _push_data_hex(data: bytes) -> str:
@@ -199,6 +201,7 @@ def parse_flags(flags_str: str) -> set[str]:
 # Expected-result strings that correspond to validation flags we don't enforce
 _FLAG_ERRORS: set[str] = set()
 
+
 def classify_tx_vector(entry: list) -> str | None:
     """Return an xfail reason for tx vectors, or None if runnable."""
     flags_str = entry[2] if len(entry) > 2 else ""
@@ -211,6 +214,7 @@ def classify_tx_vector(entry: list) -> str | None:
     if "TAPROOT" in flags:
         return "taproot not implemented"
     return None
+
 
 # (All resource limits now enforced)
 _RESOURCE_ERRORS: set[str] = set()

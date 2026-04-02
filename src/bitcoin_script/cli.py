@@ -32,11 +32,11 @@ class Backend(str, Enum):
 def _format_stack_item(item: bytes) -> str:
     """Format a stack item for display."""
     if len(item) == 0:
-        return '(empty)'
+        return "(empty)"
     # Try to show as integer if it's a valid CScriptNum
     if len(item) <= 4:
         # Little-endian sign-magnitude
-        val = int.from_bytes(item[:-1] if len(item) > 1 else b'\x00', 'little')
+        val = int.from_bytes(item[:-1] if len(item) > 1 else b"\x00", "little")
         val |= (item[-1] & 0x7F) << (8 * (len(item) - 1))
         if item[-1] & 0x80:
             val = -val
@@ -53,13 +53,26 @@ def _default_bitcoin_dir() -> Path:
 
 @app.command()
 def verify(
-    start: Annotated[int, typer.Option("--start", "-s", help="Start block height.")] = 0,
-    end: Annotated[Optional[int], typer.Option("--end", "-e", help="End block height (inclusive).")] = None,
-    block: Annotated[Optional[int], typer.Option("--block", "-b", help="Verify a single block at this height.")] = None,
-    blocks_dir: Annotated[Optional[str], typer.Option("--blocks-dir", help="Bitcoin Core data directory.")] = None,
+    start: Annotated[
+        int, typer.Option("--start", "-s", help="Start block height.")
+    ] = 0,
+    end: Annotated[
+        Optional[int], typer.Option("--end", "-e", help="End block height (inclusive).")
+    ] = None,
+    block: Annotated[
+        Optional[int],
+        typer.Option("--block", "-b", help="Verify a single block at this height."),
+    ] = None,
+    blocks_dir: Annotated[
+        Optional[str], typer.Option("--blocks-dir", help="Bitcoin Core data directory.")
+    ] = None,
     db: Annotated[str, typer.Option("--db", help="UTXO database path.")] = "utxo.db",
-    workers: Annotated[int, typer.Option("--workers", "-w", help="Parallel K workers.")] = 1,
-    backend: Annotated[Backend, typer.Option("--backend", help="Execution backend.")] = Backend.k,
+    workers: Annotated[
+        int, typer.Option("--workers", "-w", help="Parallel K workers.")
+    ] = 1,
+    backend: Annotated[
+        Backend, typer.Option("--backend", help="Execution backend.")
+    ] = Backend.k,
 ) -> None:
     """Verify Bitcoin mainnet scripts via K Framework formal semantics.
 
@@ -146,9 +159,7 @@ def verify(
                 )
                 pbar.update(1)
 
-            result = verifier.verify_chain(
-                start=start, end=end, on_block=_on_block
-            )
+            result = verifier.verify_chain(start=start, end=end, on_block=_on_block)
 
         typer.echo(
             f"\n{'OK' if result.ok else 'FAILED'}: "
@@ -196,7 +207,9 @@ def repl() -> None:
     console = Console()
 
     console.print("[bold]Bitcoin Script REPL[/bold]")
-    console.print("Type opcodes to build a script. Use .run to execute, .help for commands.\n")
+    console.print(
+        "Type opcodes to build a script. Use .run to execute, .help for commands.\n"
+    )
 
     from bitcoin_script.asm import parse_asm
 
@@ -205,7 +218,9 @@ def repl() -> None:
         k = KBitcoinScript()
     except Exception as e:
         console.print(f"[red]Failed to load K semantics: {e}[/red]")
-        console.print("Run: uv run kdist build bitcoin-script-semantics.llvm", style="dim")
+        console.print(
+            "Run: uv run kdist build bitcoin-script-semantics.llvm", style="dim"
+        )
         raise typer.Exit(1) from e
     console.print("[green]Ready.[/green]\n")
 
@@ -227,11 +242,15 @@ def repl() -> None:
         if not stack:
             console.print("[dim]Stack is empty.[/dim]")
         else:
-            console.print(f"[bold]Stack ({len(stack)} item{'s' if len(stack) != 1 else ''}):[/bold]")
+            console.print(
+                f"[bold]Stack ({len(stack)} item{'s' if len(stack) != 1 else ''}):[/bold]"
+            )
             for i, item in enumerate(stack):
                 console.print(f"  {i}: {_format_stack_item(item)}")
         ok = k.success(last_result)
-        console.print(f"Result: [{'green' if ok else 'red'}]{'PASS' if ok else 'FAIL'}[/]")
+        console.print(
+            f"Result: [{'green' if ok else 'red'}]{'PASS' if ok else 'FAIL'}[/]"
+        )
 
     def _show_help() -> None:
         console.print("[bold]Commands:[/bold]")
@@ -254,7 +273,7 @@ def repl() -> None:
     while True:
         try:
             line = console.input("[bold cyan]btc>[/bold cyan] ").strip()
-        except (EOFError, KeyboardInterrupt):
+        except EOFError, KeyboardInterrupt:
             console.print()
             break
 
@@ -299,7 +318,9 @@ def repl() -> None:
                 _show_stack()
             elif cmd == ".run":
                 if not asm_tokens:
-                    console.print("[dim]Script is empty. Type some opcodes first.[/dim]")
+                    console.print(
+                        "[dim]Script is empty. Type some opcodes first.[/dim]"
+                    )
                     continue
                 asm_str = " ".join(asm_tokens)
                 try:

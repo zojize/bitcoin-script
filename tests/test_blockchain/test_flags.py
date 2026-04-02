@@ -52,8 +52,15 @@ class TestFlagSchedule:
         """SegWit activates at height 481824 with many flags."""
         f = flags_for_block(481824, 1500000000)
         for flag in [
-            WITNESS, NULLDUMMY, STRICTENC, LOW_S, NULLFAIL,
-            SIGPUSHONLY, MINIMALDATA, CLEANSTACK, MINIMALIF,
+            WITNESS,
+            NULLDUMMY,
+            STRICTENC,
+            LOW_S,
+            NULLFAIL,
+            SIGPUSHONLY,
+            MINIMALDATA,
+            CLEANSTACK,
+            MINIMALIF,
             WITNESS_PUBKEYTYPE,
         ]:
             assert f & flag == flag, f"flag {flag} not set at SegWit activation"

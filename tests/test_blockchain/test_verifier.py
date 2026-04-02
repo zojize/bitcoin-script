@@ -53,6 +53,8 @@ class TestEarlyBlocks:
         spent_txid = bytes.fromhex(
             "c997a5e56e104102fa209c6a852dd90660a20b2d9c352423edce25857fcd3704"
         )
-        assert verifier.utxo.get(spent_txid, 0) is None, "Block 9 coinbase should be spent"
+        assert verifier.utxo.get(spent_txid, 0) is None, (
+            "Block 9 coinbase should be spent"
+        )
         # The receiving output from block 170's tx should exist
         assert verifier.utxo.size() > 0

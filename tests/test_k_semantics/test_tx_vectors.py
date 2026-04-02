@@ -25,11 +25,23 @@ pytestmark = pytest.mark.k
 # tx_valid/tx_invalid use "excluded verifyFlags" — we enable ALL flags
 # then remove the excluded ones.
 _ALL_FLAG_NAMES = {
-    "P2SH", "DERSIG", "STRICTENC", "LOW_S", "NULLDUMMY", "SIGPUSHONLY",
-    "MINIMALDATA", "DISCOURAGE_UPGRADABLE_NOPS", "CLEANSTACK",
-    "CHECKLOCKTIMEVERIFY", "CHECKSEQUENCEVERIFY", "WITNESS",
-    "DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM", "MINIMALIF", "NULLFAIL",
-    "WITNESS_PUBKEYTYPE", "CONST_SCRIPTCODE",
+    "P2SH",
+    "DERSIG",
+    "STRICTENC",
+    "LOW_S",
+    "NULLDUMMY",
+    "SIGPUSHONLY",
+    "MINIMALDATA",
+    "DISCOURAGE_UPGRADABLE_NOPS",
+    "CLEANSTACK",
+    "CHECKLOCKTIMEVERIFY",
+    "CHECKSEQUENCEVERIFY",
+    "WITNESS",
+    "DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM",
+    "MINIMALIF",
+    "NULLFAIL",
+    "WITNESS_PUBKEYTYPE",
+    "CONST_SCRIPTCODE",
 }
 _ALL_FLAGS_MASK = flags_to_bitmask(_ALL_FLAG_NAMES)
 
@@ -89,7 +101,6 @@ def _classify_tx_vector(entry: list) -> str | None:
 
     if flags_str == "BADTX":
         return "BADTX: transaction-level validation (not script)"
-
 
     # OP_CODESEPARATOR / FindAndDelete not implemented
     if _has_codeseparator(entry):
@@ -153,7 +164,9 @@ def _verify_tx(k, entry: list, expect_valid: bool) -> None:
 
     # Verify each input
     all_ok = True
-    for input_index, (prev_txid, prev_vout, script_pubkey, amount_sat) in enumerate(prevouts):
+    for input_index, (prev_txid, prev_vout, script_pubkey, amount_sat) in enumerate(
+        prevouts
+    ):
         vin = tx.vin[input_index]
         script_sig = bytes(vin.scriptSig)
 

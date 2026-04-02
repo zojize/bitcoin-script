@@ -215,8 +215,7 @@ def _compute_sighash_blob(
     witness_items: list[bytes] = []
     if tx.wit and input_index < len(tx.wit.vtxinwit):
         witness_items = [
-            bytes(item)
-            for item in tx.wit.vtxinwit[input_index].scriptWitness.stack
+            bytes(item) for item in tx.wit.vtxinwit[input_index].scriptWitness.stack
         ]
         for item in witness_items:
             if len(item) >= 9 and item[0] == 0x30:
@@ -258,7 +257,7 @@ def _compute_sighash_blob(
                         sigversion=SIGVERSION_WITNESS_V0,
                     )
                     parts.append(bytes([ht]) + bytes(sh))
-                except (AssertionError, ValueError):
+                except AssertionError, ValueError:
                     continue
 
     # Legacy sighash
@@ -270,9 +269,7 @@ def _compute_sighash_blob(
 
     for ht in sorted(hashtypes):
         try:
-            sh = SignatureHash(
-                CScript(legacy_subscript), tx, input_index, ht
-            )
+            sh = SignatureHash(CScript(legacy_subscript), tx, input_index, ht)
             parts.append(bytes([ht]) + bytes(sh))
         except (ValueError,):
             # SIGHASH_SINGLE bug
@@ -363,9 +360,7 @@ class ChainVerifier:
                 )
 
             if result.errors:
-                log.error(
-                    "Block %d failed: %s", height, result.errors
-                )
+                log.error("Block %d failed: %s", height, result.errors)
                 break
 
         return ChainResult(
@@ -377,9 +372,7 @@ class ChainVerifier:
             errors=errors,
         )
 
-    def _load_chain(
-        self, start: int, end: int | None
-    ) -> Iterator[tuple[int, CBlock]]:
+    def _load_chain(self, start: int, end: int | None) -> Iterator[tuple[int, CBlock]]:
         """Yield (height, block) pairs in chain order.
 
         Uses a two-pass approach to avoid holding all blocks in memory:
@@ -390,7 +383,9 @@ class ChainVerifier:
         # Pass 1: scan headers (only 80 bytes per block, no full deserialization)
         target_end = end if end is not None else start + 10000
         prev_to_hash: dict[bytes, bytes] = {}
-        location: dict[bytes, tuple[Path, int, int]] = {}  # hash -> (path, offset, size)
+        location: dict[
+            bytes, tuple[Path, int, int]
+        ] = {}  # hash -> (path, offset, size)
         scanned = 0
 
         for block_hash, prev_hash, path, offset, size in self._parser.scan_headers():
@@ -448,15 +443,11 @@ class ChainVerifier:
         block = self._parser.get_block_at_height(height)
         return self._verify_block_inner(block, height)
 
-    def verify_block_raw(
-        self, block: CBlock, height: int
-    ) -> BlockResult:
+    def verify_block_raw(self, block: CBlock, height: int) -> BlockResult:
         """Verify a block object directly."""
         return self._verify_block_inner(block, height)
 
-    def _verify_block_inner(
-        self, block: CBlock, height: int
-    ) -> BlockResult:
+    def _verify_block_inner(self, block: CBlock, height: int) -> BlockResult:
         t0 = time.monotonic()
         flags = flags_for_block(height, block.nTime)
         input_count = 0
@@ -486,56 +477,56 @@ class ChainVerifier:
 
                     witness_items: list[bytes] = []
                     if tx.wit and input_index < len(tx.wit.vtxinwit):
-                        stack = tx.wit.vtxinwit[
-                            input_index
-                        ].scriptWitness.stack
+                        stack = tx.wit.vtxinwit[input_index].scriptWitness.stack
                         witness_items = [bytes(w) for w in stack]
 
                     witness_blob = (
-                        _encode_witness_blob(witness_items)
-                        if witness_items
-                        else b""
+                        _encode_witness_blob(witness_items) if witness_items else b""
                     )
 
                     sighash = _compute_sighash_blob(
                         tx, input_index, script_pubkey, amount
                     )
 
-                    tasks.append((tx_idx, input_index, {
-                        "script_sig": script_sig,
-                        "script_pubkey": script_pubkey,
-                        "sighash": sighash,
-                        "witness": witness_blob,
-                        "flags": flags,
-                        "tx_version": tx.nVersion,
-                        "n_locktime": tx.nLockTime,
-                        "n_sequence": vin.nSequence,
-                    }))
+                    tasks.append(
+                        (
+                            tx_idx,
+                            input_index,
+                            {
+                                "script_sig": script_sig,
+                                "script_pubkey": script_pubkey,
+                                "sighash": sighash,
+                                "witness": witness_blob,
+                                "flags": flags,
+                                "tx_version": tx.nVersion,
+                                "n_locktime": tx.nLockTime,
+                                "n_sequence": vin.nSequence,
+                            },
+                        )
+                    )
 
                 # Verify inputs (parallel or sequential)
                 if self._pool is not None and len(tasks) > 1:
                     futures = [
                         self._pool.submit(
                             _verify_input_worker,
-                            **t[2], tx_idx=t[0], input_index=t[1],
+                            **t[2],
+                            tx_idx=t[0],
+                            input_index=t[1],
                         )
                         for t in tasks
                     ]
                     for future in futures:
                         tidx, iidx, err = future.result()
                         if err is not None:
-                            errors.append(
-                                f"tx {tidx} input {iidx}: {err}"
-                            )
+                            errors.append(f"tx {tidx} input {iidx}: {err}")
                         input_count += 1
                 else:
                     for tidx, iidx, kwargs in tasks:
                         result = self._k.verify_script(**kwargs)
                         if not self._k.success(result):
                             error = self._k.error(result)
-                            errors.append(
-                                f"tx {tidx} input {iidx}: {error}"
-                            )
+                            errors.append(f"tx {tidx} input {iidx}: {error}")
                         input_count += 1
 
                 # Spend inputs
@@ -549,9 +540,7 @@ class ChainVerifier:
 
             # Add outputs
             for vout_idx, txout in enumerate(tx.vout):
-                self._utxo.add(
-                    txid, vout_idx, bytes(txout.scriptPubKey), txout.nValue
-                )
+                self._utxo.add(txid, vout_idx, bytes(txout.scriptPubKey), txout.nValue)
 
         self._utxo.checkpoint_height = height
         self._utxo.commit()

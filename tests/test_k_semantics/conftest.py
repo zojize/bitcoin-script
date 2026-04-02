@@ -59,11 +59,11 @@ def flags_to_bitmask(flags: set[str]) -> int:
 
 # All standard hashtype values
 _STANDARD_HASHTYPES = [
-    SIGHASH_ALL,                            # 0x01
-    SIGHASH_NONE,                           # 0x02
-    SIGHASH_SINGLE,                         # 0x03
-    SIGHASH_ALL | SIGHASH_ANYONECANPAY,     # 0x81
-    SIGHASH_NONE | SIGHASH_ANYONECANPAY,    # 0x82
+    SIGHASH_ALL,  # 0x01
+    SIGHASH_NONE,  # 0x02
+    SIGHASH_SINGLE,  # 0x03
+    SIGHASH_ALL | SIGHASH_ANYONECANPAY,  # 0x81
+    SIGHASH_NONE | SIGHASH_ANYONECANPAY,  # 0x82
     SIGHASH_SINGLE | SIGHASH_ANYONECANPAY,  # 0x83
 ]
 
@@ -87,7 +87,9 @@ def build_crediting_transaction(script_pubkey: bytes, n_value: int = 0) -> CTran
     return CTransaction([txin], [txout])
 
 
-def build_spending_transaction(script_sig: bytes, credit_tx: CTransaction) -> CTransaction:
+def build_spending_transaction(
+    script_sig: bytes, credit_tx: CTransaction
+) -> CTransaction:
     """Build the deterministic spending tx (matches Bitcoin Core's BuildSpendingTransaction)."""
     txin = CTxIn(COutPoint(credit_tx.GetTxid(), 0), CScript(script_sig), 0xFFFFFFFF)
     txout = CTxOut(credit_tx.vout[0].nValue, CScript())
@@ -96,7 +98,12 @@ def build_spending_transaction(script_sig: bytes, credit_tx: CTransaction) -> CT
 
 def _is_p2sh(script_pubkey: bytes) -> bool:
     """Check if scriptPubKey is P2SH: OP_HASH160 <20 bytes> OP_EQUAL."""
-    return len(script_pubkey) == 23 and script_pubkey[0] == 0xA9 and script_pubkey[1] == 0x14 and script_pubkey[22] == 0x87
+    return (
+        len(script_pubkey) == 23
+        and script_pubkey[0] == 0xA9
+        and script_pubkey[1] == 0x14
+        and script_pubkey[22] == 0x87
+    )
 
 
 def _extract_redeem_script(script_sig: bytes) -> bytes | None:
@@ -195,7 +202,7 @@ def compute_sighash_blob(
     for ht in sorted(hashtypes):
         try:
             sh = SignatureHash(CScript(subscript), spend_tx, 0, ht)
-        except (AssertionError, ValueError):
+        except AssertionError, ValueError:
             # Witness scriptPubKeys use BIP-143 sighash (not legacy SignatureHash)
             continue
         parts.append(bytes([ht]) + bytes(sh))
@@ -276,10 +283,14 @@ def compute_witness_sighash_blob(
     for ht in sorted(hashtypes):
         try:
             sh = SignatureHash(
-                subscript, spend_tx, 0, ht,
-                amount=amount_satoshis, sigversion=SIGVERSION_WITNESS_V0,
+                subscript,
+                spend_tx,
+                0,
+                ht,
+                amount=amount_satoshis,
+                sigversion=SIGVERSION_WITNESS_V0,
             )
-        except (AssertionError, ValueError):
+        except AssertionError, ValueError:
             continue
         parts.append(bytes([ht]) + bytes(sh))
 

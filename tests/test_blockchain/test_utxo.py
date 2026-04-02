@@ -29,6 +29,7 @@ class TestUTXOSet:
     def test_spend_missing_raises(self) -> None:
         utxo = UTXOSet()
         import pytest
+
         with pytest.raises(KeyError):
             utxo.spend(b"\x00" * 32, 0)
 

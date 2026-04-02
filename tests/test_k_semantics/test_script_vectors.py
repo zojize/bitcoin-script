@@ -111,7 +111,10 @@ def test_witness_vector(k, entry):
     amount_satoshis = int(amount_btc * 1e8 + 0.5)
 
     sighash = compute_witness_sighash_blob(
-        pubkey_bytes, sig_bytes, witness_items, amount_satoshis,
+        pubkey_bytes,
+        sig_bytes,
+        witness_items,
+        amount_satoshis,
     )
 
     result = k.verify_script(
