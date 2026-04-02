@@ -102,12 +102,10 @@ def _classify_tx_vector(entry: list) -> str | None:
     if flags_str == "BADTX":
         return "BADTX: transaction-level validation (not script)"
 
-    # OP_CODESEPARATOR / FindAndDelete not implemented
-    if _has_codeseparator(entry):
-        return "OP_CODESEPARATOR not implemented"
-    # CONST_SCRIPTCODE as excluded flag means the test involves CODESEPARATOR
+    # CONST_SCRIPTCODE: prevents CODESEPARATOR in witness v0 scripts
+    # We don't enforce this flag yet
     if "CONST_SCRIPTCODE" in excluded:
-        return "CONST_SCRIPTCODE (OP_CODESEPARATOR) not implemented"
+        return "CONST_SCRIPTCODE not enforced"
 
     # If we can't compute the active flags, skip
     for f in excluded:

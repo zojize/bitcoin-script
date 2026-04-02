@@ -51,31 +51,33 @@ module SCRIPT-CRYPTO
   rule sigHashType(SIG) => 1
     requires lengthBytes(SIG) ==Int 0
 
-  // Look up sighash in a blob by hashtype.
-  // Blob format: concatenated (1-byte hashtype + 32-byte hash) entries.
+  // Look up sighash in a blob by hashtype and codeseparator index.
+  // Blob format: concatenated (1-byte hashtype + 2-byte BE codesepIdx + 32-byte hash) entries.
   // Backward compat: if blob is exactly 32 bytes, return it directly.
-  syntax Bytes ::= lookupSighash(Bytes, Int) [function]
+  syntax Bytes ::= lookupSighash(Bytes, Int, Int) [function]
 
-  // Legacy: 32-byte blob = raw sighash (ignore hashtype)
-  rule lookupSighash(BLOB, _) => BLOB
+  // Legacy: 32-byte blob = raw sighash (ignore hashtype and codesepIdx)
+  rule lookupSighash(BLOB, _, _) => BLOB
     requires lengthBytes(BLOB) ==Int 32
 
   // Found matching entry: return the 32-byte hash
-  rule lookupSighash(BLOB, HT) => substrBytes(BLOB, 1, 33)
-    requires lengthBytes(BLOB) >=Int 33
+  rule lookupSighash(BLOB, HT, CSI) => substrBytes(BLOB, 3, 35)
+    requires lengthBytes(BLOB) >=Int 35
      andBool Bytes2Int(substrBytes(BLOB, 0, 1), BE, Unsigned) ==Int HT
+     andBool Bytes2Int(substrBytes(BLOB, 1, 3), BE, Unsigned) ==Int CSI
 
-  // Entry doesn't match: skip to next 33-byte chunk
-  rule lookupSighash(BLOB, HT) => lookupSighash(substrBytes(BLOB, 33, lengthBytes(BLOB)), HT)
-    requires lengthBytes(BLOB) >=Int 33
-     andBool Bytes2Int(substrBytes(BLOB, 0, 1), BE, Unsigned) =/=Int HT
+  // Entry doesn't match: skip to next 35-byte chunk
+  rule lookupSighash(BLOB, HT, CSI) => lookupSighash(substrBytes(BLOB, 35, lengthBytes(BLOB)), HT, CSI)
+    requires lengthBytes(BLOB) >=Int 35
+     andBool (Bytes2Int(substrBytes(BLOB, 0, 1), BE, Unsigned) =/=Int HT
+       orBool Bytes2Int(substrBytes(BLOB, 1, 3), BE, Unsigned) =/=Int CSI)
 
   // No match found or blob too short: return empty bytes (ecdsaVerify will fail)
-  rule lookupSighash(BLOB, _) => .Bytes
+  rule lookupSighash(BLOB, _, _) => .Bytes
     requires lengthBytes(BLOB) <Int 32
-  rule lookupSighash(BLOB, _) => .Bytes
+  rule lookupSighash(BLOB, _, _) => .Bytes
     requires lengthBytes(BLOB) >Int 32
-     andBool lengthBytes(BLOB) <Int 33
+     andBool lengthBytes(BLOB) <Int 35
 
   // =========================================================================
   // Compressed public key support

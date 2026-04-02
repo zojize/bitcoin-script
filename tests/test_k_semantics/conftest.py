@@ -170,6 +170,65 @@ def _extract_hashtypes_from_script(script: bytes) -> set[int]:
     return hashtypes
 
 
+def _find_codesep_positions(script: bytes) -> list[int]:
+    """Find byte positions right after each OP_CODESEPARATOR (0xAB) in script.
+
+    Returns a list of byte offsets. These are used to compute subscripts:
+    subscript = script[position:] for each CODESEPARATOR encountered.
+    """
+    positions: list[int] = []
+    pos = 0
+    while pos < len(script):
+        op = script[pos]
+        pos += 1
+        if op == 0xAB:
+            positions.append(pos)
+        elif 1 <= op <= 75:
+            pos += op
+        elif op == 0x4C and pos < len(script):
+            pos += 1 + script[pos]
+        elif op == 0x4D and pos + 1 < len(script):
+            pos += 2 + int.from_bytes(script[pos : pos + 2], "little")
+        elif op == 0x4E and pos + 3 < len(script):
+            pos += 4 + int.from_bytes(script[pos : pos + 4], "little")
+    return positions
+
+
+def _remove_codeseparators(script: bytes) -> bytes:
+    """Remove all OP_CODESEPARATOR (0xAB) bytes from script for sighash computation."""
+    result = bytearray()
+    pos = 0
+    while pos < len(script):
+        op = script[pos]
+        if op == 0xAB:
+            pos += 1
+            continue
+        result.append(op)
+        pos += 1
+        if 1 <= op <= 75:
+            result.extend(script[pos : pos + op])
+            pos += op
+        elif op == 0x4C and pos < len(script):
+            n = script[pos]
+            result.append(n)
+            pos += 1
+            result.extend(script[pos : pos + n])
+            pos += n
+        elif op == 0x4D and pos + 1 < len(script):
+            result.extend(script[pos : pos + 2])
+            n = int.from_bytes(script[pos : pos + 2], "little")
+            pos += 2
+            result.extend(script[pos : pos + n])
+            pos += n
+        elif op == 0x4E and pos + 3 < len(script):
+            result.extend(script[pos : pos + 4])
+            n = int.from_bytes(script[pos : pos + 4], "little")
+            pos += 4
+            result.extend(script[pos : pos + n])
+            pos += n
+    return bytes(result)
+
+
 def compute_sighash_blob(
     script_pubkey: bytes,
     script_sig: bytes,
@@ -177,9 +236,10 @@ def compute_sighash_blob(
 ) -> bytes:
     """Compute sighash for each hashtype and return as a concatenated blob.
 
-    Format: N entries of (1-byte hashtype + 32-byte sighash).
+    Format: N entries of (1-byte hashtype + 2-byte BE codesepIdx + 32-byte sighash).
     For P2SH, computes against the redeem script (last push in scriptSig).
     Automatically includes hashtypes found in signatures within the scripts.
+    Computes sighashes for each CODESEPARATOR position in the subscript.
     """
     if hashtypes is None:
         hashtypes = set(_STANDARD_HASHTYPES)
@@ -198,14 +258,24 @@ def compute_sighash_blob(
     credit_tx = build_crediting_transaction(script_pubkey)
     spend_tx = build_spending_transaction(script_sig, credit_tx)
 
+    # Find CODESEPARATOR positions in the subscript
+    codesep_positions = _find_codesep_positions(subscript)
+
+    # Build list of (codesep_index, subscript_from_position) pairs
+    # Index 0 = full subscript (no CODESEPARATOR seen yet), with CODESEPs removed
+    subscripts: list[tuple[int, bytes]] = [(0, _remove_codeseparators(subscript))]
+    for idx, byte_pos in enumerate(codesep_positions):
+        subscripts.append((idx + 1, _remove_codeseparators(subscript[byte_pos:])))
+
     parts = []
-    for ht in sorted(hashtypes):
-        try:
-            sh = SignatureHash(CScript(subscript), spend_tx, 0, ht)
-        except AssertionError, ValueError:
-            # Witness scriptPubKeys use BIP-143 sighash (not legacy SignatureHash)
-            continue
-        parts.append(bytes([ht]) + bytes(sh))
+    for csi, sub in subscripts:
+        for ht in sorted(hashtypes):
+            try:
+                sh = SignatureHash(CScript(sub), spend_tx, 0, ht)
+            except AssertionError, ValueError:
+                # Witness scriptPubKeys use BIP-143 sighash (not legacy SignatureHash)
+                continue
+            parts.append(bytes([ht]) + csi.to_bytes(2, "big") + bytes(sh))
     return b"".join(parts)
 
 
@@ -279,20 +349,36 @@ def compute_witness_sighash_blob(
     credit_tx = build_crediting_transaction(script_pubkey, amount_satoshis)
     spend_tx = build_spending_transaction(script_sig, credit_tx)
 
+    # For witness v0, CODESEPARATOR positions in the witness script
+    # BIP-143: scriptCode does NOT strip OP_CODESEPARATOR bytes (unlike legacy)
+    # It just starts from after the last executed CODESEP
+    if version == 0 and len(program) == 32 and witness_items:
+        witness_script = witness_items[-1]
+        codesep_positions = _find_codesep_positions(witness_script)
+    else:
+        codesep_positions = []
+
+    # Build subscripts for each CODESEPARATOR index
+    subscripts_list: list[tuple[int, CScript]] = [(0, subscript)]
+    if version == 0 and len(program) == 32 and witness_items:
+        for idx, byte_pos in enumerate(codesep_positions):
+            subscripts_list.append((idx + 1, CScript(witness_items[-1][byte_pos:])))
+
     parts = []
-    for ht in sorted(hashtypes):
-        try:
-            sh = SignatureHash(
-                subscript,
-                spend_tx,
-                0,
-                ht,
-                amount=amount_satoshis,
-                sigversion=SIGVERSION_WITNESS_V0,
-            )
-        except AssertionError, ValueError:
-            continue
-        parts.append(bytes([ht]) + bytes(sh))
+    for csi, sub in subscripts_list:
+        for ht in sorted(hashtypes):
+            try:
+                sh = SignatureHash(
+                    sub,
+                    spend_tx,
+                    0,
+                    ht,
+                    amount=amount_satoshis,
+                    sigversion=SIGVERSION_WITNESS_V0,
+                )
+            except AssertionError, ValueError:
+                continue
+            parts.append(bytes([ht]) + csi.to_bytes(2, "big") + bytes(sh))
 
     # Also include legacy sighashes (some P2SH-wrapped tests may need both)
     legacy_parts = compute_sighash_blob(script_pubkey, script_sig, hashtypes)

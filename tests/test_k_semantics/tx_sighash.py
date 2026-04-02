@@ -20,6 +20,8 @@ from bitcoin.core.script import (
     SignatureHash,
 )
 
+from .conftest import _find_codesep_positions, _remove_codeseparators
+
 # All standard hashtype values
 _STANDARD_HASHTYPES = [
     SIGHASH_ALL,  # 0x01
@@ -132,8 +134,9 @@ def compute_tx_sighash_blob(
 ) -> bytes:
     """Compute sighash blob for a real transaction input.
 
-    Returns concatenated (1-byte hashtype + 32-byte sighash) entries for
-    all standard hashtypes plus any found in signatures.
+    Returns concatenated (1-byte hashtype + 2-byte BE codesepIdx + 32-byte sighash)
+    entries for all standard hashtypes plus any found in signatures.
+    Computes sighashes for each CODESEPARATOR position in the subscript.
 
     Detects witness vs legacy based on script type and computes accordingly.
     """
@@ -145,7 +148,6 @@ def compute_tx_sighash_blob(
     sig_data = _extract_push_data(script_sig) + witness_items
     hashtypes |= _extract_hashtypes_from_data(sig_data)
     # Don't discard hashtype 0 — some early Bitcoin transactions use it
-    # (Bitcoin Core treats hashtype 0 like SIGHASH_ALL for sighash computation)
 
     # Determine if this is a witness spend
     wp = _is_witness_program(script_pubkey)
@@ -160,51 +162,68 @@ def compute_tx_sighash_blob(
         _version, program = wp
         # BIP-143 witness v0 sighash
         if len(program) == 20:
-            # P2WPKH: subscript is synthetic P2PKH
+            # P2WPKH: no CODESEPARATOR possible in synthetic P2PKH
             subscript = CScript(
                 bytes([0x76, 0xA9, 0x14]) + program + bytes([0x88, 0xAC])
             )
+            witness_subscripts: list[tuple[int, CScript]] = [(0, subscript)]
         elif len(program) == 32 and witness_items:
-            # P2WSH: subscript is the witness script (last witness item)
-            subscript = CScript(witness_items[-1])
+            # P2WSH: witness script may contain CODESEPARATOR
+            # BIP-143: scriptCode does NOT strip CODESEP bytes (unlike legacy)
+            ws = witness_items[-1]
+            codesep_pos = _find_codesep_positions(ws)
+            witness_subscripts = [(0, CScript(ws))]
+            for idx, bp in enumerate(codesep_pos):
+                witness_subscripts.append((idx + 1, CScript(ws[bp:])))
         else:
-            subscript = None
+            witness_subscripts = []
 
-        if subscript is not None:
+        for csi, sub in witness_subscripts:
             for ht in sorted(hashtypes):
                 try:
                     sh = SignatureHash(
-                        subscript,
+                        sub,
                         tx,
                         input_index,
                         ht,
                         amount=amount,
                         sigversion=SIGVERSION_WITNESS_V0,
                     )
-                    parts.append(bytes([ht]) + bytes(sh))
+                    parts.append(bytes([ht]) + csi.to_bytes(2, "big") + bytes(sh))
                 except AssertionError, ValueError, CScriptTruncatedPushDataError:
                     continue
 
     # Legacy sighash (always compute — some P2SH-wrapped cases need both)
-    # Determine legacy subscript
     legacy_subscript = script_pubkey
     if _is_p2sh(script_pubkey):
         redeem = _extract_last_push(script_sig)
         if redeem is not None:
             legacy_subscript = redeem
 
-    for ht in sorted(hashtypes):
-        try:
-            sh = SignatureHash(CScript(legacy_subscript), tx, input_index, ht)
-            parts.append(bytes([ht]) + bytes(sh))
-        except ValueError, CScriptTruncatedPushDataError:
-            # SIGHASH_SINGLE bug: when input_index >= len(outputs),
-            # Bitcoin Core returns uint256(1) as the sighash (little-endian)
-            if (ht & 0x1F) == SIGHASH_SINGLE and input_index >= len(tx.vout):
-                sighash_single_bug = b"\x01" + b"\x00" * 31
-                parts.append(bytes([ht]) + sighash_single_bug)
-            continue
-        except AssertionError:
-            continue
+    # Find CODESEPARATOR positions in legacy subscript
+    codesep_positions = _find_codesep_positions(legacy_subscript)
+    legacy_subscripts: list[tuple[int, bytes]] = [
+        (0, _remove_codeseparators(legacy_subscript))
+    ]
+    for idx, bp in enumerate(codesep_positions):
+        legacy_subscripts.append(
+            (idx + 1, _remove_codeseparators(legacy_subscript[bp:]))
+        )
+
+    for csi, sub in legacy_subscripts:
+        for ht in sorted(hashtypes):
+            try:
+                sh = SignatureHash(CScript(sub), tx, input_index, ht)
+                parts.append(bytes([ht]) + csi.to_bytes(2, "big") + bytes(sh))
+            except ValueError, CScriptTruncatedPushDataError:
+                # SIGHASH_SINGLE bug
+                if (ht & 0x1F) == SIGHASH_SINGLE and input_index >= len(tx.vout):
+                    sighash_single_bug = b"\x01" + b"\x00" * 31
+                    parts.append(
+                        bytes([ht]) + csi.to_bytes(2, "big") + sighash_single_bug
+                    )
+                continue
+            except AssertionError:
+                continue
 
     return b"".join(parts)

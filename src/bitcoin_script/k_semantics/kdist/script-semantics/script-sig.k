@@ -68,33 +68,36 @@ module SCRIPT-SIG
        <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST
             => ListItem(intToScriptNum(1)) ST </stack>
        <sighash> SIGHASHBLOB </sighash>
+       <codesepIdx> CSI </codesepIdx>
        <flags> F </flags>
        <phase> PH </phase>
     requires lengthBytes(SIG) >Int 0
      andBool notBool (PH ==K witness-v0 andBool hasFlag(F, FLAG_WITNESS_PUBKEYTYPE) andBool notBool #isCompressedPubKey(PK))
-     andBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG)))
+     andBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG), CSI))
 
   // Non-empty sig fails verification, no NULLFAIL: push 0
   rule <k> OP_CHECKSIG => .K ...</k>
        <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST
             => ListItem(intToScriptNum(0)) ST </stack>
        <sighash> SIGHASHBLOB </sighash>
+       <codesepIdx> CSI </codesepIdx>
        <flags> F </flags>
        <phase> PH </phase>
     requires lengthBytes(SIG) >Int 0
      andBool notBool (PH ==K witness-v0 andBool hasFlag(F, FLAG_WITNESS_PUBKEYTYPE) andBool notBool #isCompressedPubKey(PK))
-     andBool notBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG)))
+     andBool notBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG), CSI))
      andBool notBool hasFlag(F, FLAG_NULLFAIL)
 
   // Non-empty sig fails verification, NULLFAIL set: script error
   rule <k> OP_CHECKSIG => #fail("NULLFAIL") ...</k>
        <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
        <sighash> SIGHASHBLOB </sighash>
+       <codesepIdx> CSI </codesepIdx>
        <flags> F </flags>
        <phase> PH </phase>
     requires lengthBytes(SIG) >Int 0
      andBool notBool (PH ==K witness-v0 andBool hasFlag(F, FLAG_WITNESS_PUBKEYTYPE) andBool notBool #isCompressedPubKey(PK))
-     andBool notBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG)))
+     andBool notBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG), CSI))
      andBool hasFlag(F, FLAG_NULLFAIL)
 
   // =========================================================================
@@ -275,25 +278,27 @@ module SCRIPT-SIG
   rule <k> #verifyMultisig(ListItem(PK:Bytes) PKs, ListItem(SIG:Bytes) Sigs)
         => #verifyMultisig(PKs, Sigs) ...</k>
        <sighash> SIGHASHBLOB </sighash>
+       <codesepIdx> CSI </codesepIdx>
        <flags> F </flags>
        <phase> PH </phase>
     requires size(Sigs) <=Int size(PKs)
      andBool lengthBytes(SIG) >Int 0
      andBool #msEncOK(SIG, PK, F)
      andBool notBool (PH ==K witness-v0 andBool hasFlag(F, FLAG_WITNESS_PUBKEYTYPE) andBool notBool #isCompressedPubKey(PK))
-     andBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG)))
+     andBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG), CSI))
 
   // Step 4f: Encoding OK, sig does not match — advance pubkey only
   rule <k> #verifyMultisig(ListItem(PK:Bytes) PKs, ListItem(SIG:Bytes) Sigs)
         => #verifyMultisig(PKs, ListItem(SIG) Sigs) ...</k>
        <sighash> SIGHASHBLOB </sighash>
+       <codesepIdx> CSI </codesepIdx>
        <flags> F </flags>
        <phase> PH </phase>
     requires size(Sigs) <=Int size(PKs)
      andBool lengthBytes(SIG) >Int 0
      andBool #msEncOK(SIG, PK, F)
      andBool notBool (PH ==K witness-v0 andBool hasFlag(F, FLAG_WITNESS_PUBKEYTYPE) andBool notBool #isCompressedPubKey(PK))
-     andBool notBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG)))
+     andBool notBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG), CSI))
 
   // =========================================================================
   // Additional hash opcodes
@@ -315,8 +320,9 @@ module SCRIPT-SIG
   rule <k> OP_HASH256 => .K ...</k>
        <stack> ListItem(V:Bytes) ST => ListItem(Sha256raw(Sha256raw(V))) ST </stack>
 
-  // OP_CODESEPARATOR: NOP for now
+  // OP_CODESEPARATOR: increment codesep counter for sighash subscript selection
   rule <k> OP_CODESEPARATOR => .K ...</k>
+       <codesepIdx> N => N +Int 1 </codesepIdx>
 
   // =========================================================================
   // OP_CHECKSIGVERIFY: CHECKSIG then VERIFY
@@ -325,14 +331,16 @@ module SCRIPT-SIG
   rule <k> OP_CHECKSIGVERIFY => .K ...</k>
        <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
        <sighash> SIGHASHBLOB </sighash>
+       <codesepIdx> CSI </codesepIdx>
     requires lengthBytes(SIG) >Int 0
-     andBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG)))
+     andBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG), CSI))
 
   rule <k> OP_CHECKSIGVERIFY => #fail("CHECKSIGVERIFY") ...</k>
        <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
        <sighash> SIGHASHBLOB </sighash>
+       <codesepIdx> CSI </codesepIdx>
     requires lengthBytes(SIG) >Int 0
-     andBool notBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG)))
+     andBool notBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG), CSI))
 
   rule <k> OP_CHECKSIGVERIFY => #fail("CHECKSIGVERIFY") ...</k>
        <stack> ListItem(_PK:Bytes) ListItem(SIG:Bytes) ST => ST </stack>

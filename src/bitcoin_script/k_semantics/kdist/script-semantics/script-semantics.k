@@ -41,6 +41,7 @@ module SCRIPT-SEMANTICS
       <nSequence> $NSEQUENCE:Int </nSequence>
       <witnessUsed> false </witnessUsed>
       <p2shRedeemBytes> .Bytes </p2shRedeemBytes>
+      <codesepIdx> 0 </codesepIdx>
     </T>
 
   // --- Flag checking (Bitcoin Core verification flags as bitmask) ---
@@ -142,6 +143,7 @@ module SCRIPT-SEMANTICS
        <altstack> _ => .List </altstack>
        <exec> .List </exec>
        <opCount> _ => 0 </opCount>
+       <codesepIdx> _ => 0 </codesepIdx>
        <flags> F </flags>
     requires hasFlag(F, FLAG_P2SH) andBool #isP2SH(PK)
      andBool lengthBytes(PK) <=Int 10000
@@ -152,6 +154,7 @@ module SCRIPT-SEMANTICS
        <altstack> _ => .List </altstack>
        <exec> .List </exec>
        <opCount> _ => 0 </opCount>
+       <codesepIdx> _ => 0 </codesepIdx>
        <flags> F </flags>
     requires notBool (hasFlag(F, FLAG_P2SH) andBool #isP2SH(PK))
      andBool lengthBytes(PK) <=Int 10000
@@ -227,6 +230,7 @@ module SCRIPT-SEMANTICS
        <phase> scriptPubKey => p2sh-redeem </phase>
        <exec> .List </exec>
        <opCount> _ => 0 </opCount>
+       <codesepIdx> _ => 0 </codesepIdx>
        <flags> F </flags>
        <scriptPubKeyBytes> PK </scriptPubKeyBytes>
        <stack> ListItem(V:Bytes) _ => REST </stack>
@@ -388,6 +392,7 @@ module SCRIPT-SEMANTICS
        <altstack> _ => .List </altstack>
        <exec> _ => .List </exec>
        <opCount> _ => 0 </opCount>
+       <codesepIdx> _ => 0 </codesepIdx>
        <phase> _ => witness-v0 </phase>
        <witnessUsed> _ => true </witnessUsed>
     requires #witnessCount(W) >Int 0
@@ -415,6 +420,7 @@ module SCRIPT-SEMANTICS
        <altstack> _ => .List </altstack>
        <exec> _ => .List </exec>
        <opCount> _ => 0 </opCount>
+       <codesepIdx> _ => 0 </codesepIdx>
        <phase> _ => witness-v0 </phase>
        <witnessUsed> _ => true </witnessUsed>
     requires #witnessCount(W) ==Int 2
