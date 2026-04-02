@@ -106,11 +106,35 @@ def verify(
         typer.echo("OK")
     else:
         # Chain verification mode
-        typer.echo(
-            f"Verifying blocks {start}-{end if end is not None else '...'}  "
-            f"(checkpoint: {verifier.utxo.checkpoint_height})"
-        )
-        result = verifier.verify_chain(start=start, end=end)
+        from tqdm import tqdm
+
+        checkpoint = verifier.utxo.checkpoint_height
+        effective_start = max(start, checkpoint + 1)
+        total = (end - effective_start + 1) if end is not None else None
+        label = f"Blocks {effective_start}-{end if end is not None else '...'}"
+
+        inputs_verified = 0
+        with tqdm(
+            total=total,
+            desc=label,
+            unit="blk",
+            dynamic_ncols=True,
+        ) as pbar:
+
+            def _on_block(br: object) -> None:
+                nonlocal inputs_verified
+                inputs_verified += br.input_count  # type: ignore[attr-defined]
+                pbar.set_postfix(
+                    h=br.height,  # type: ignore[attr-defined]
+                    inputs=inputs_verified,
+                    refresh=False,
+                )
+                pbar.update(1)
+
+            result = verifier.verify_chain(
+                start=start, end=end, on_block=_on_block
+            )
+
         typer.echo(
             f"\n{'OK' if result.ok else 'FAILED'}: "
             f"{result.blocks_verified} blocks, "

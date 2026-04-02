@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -311,13 +312,19 @@ class ChainVerifier:
         return self._utxo
 
     def verify_chain(
-        self, start: int = 0, end: int | None = None
+        self,
+        start: int = 0,
+        end: int | None = None,
+        on_block: Callable[[BlockResult], None] | None = None,
     ) -> ChainResult:
         """Verify blocks from start to end (inclusive).
 
         Resumes from UTXO checkpoint if start <= checkpoint.
         Blocks are loaded from .blk files and sorted by prev-hash linkage
         since .blk files may store blocks out of order.
+
+        If *on_block* is given, it is called after each block is verified
+        (useful for progress reporting).
         """
         checkpoint = self._utxo.checkpoint_height
         effective_start = max(start, checkpoint + 1)
@@ -339,6 +346,9 @@ class ChainVerifier:
             total_inputs += result.input_count
             total_blocks += 1
             errors.extend(result.errors)
+
+            if on_block is not None:
+                on_block(result)
 
             if height % 1000 == 0 or (end is not None and height == end):
                 elapsed = time.monotonic() - t0
