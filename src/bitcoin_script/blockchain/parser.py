@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import struct
 from collections.abc import Iterator
 from pathlib import Path
@@ -142,6 +143,57 @@ class BlockFileParser:
                     if skipped < start:
                         continue
                 yield from self._iter_blocks_in_file(f)
+
+    def scan_headers(self) -> Iterator[tuple[bytes, bytes, Path, int, int]]:
+        """Yield (block_hash, prev_hash, file_path, raw_offset, size) for every block.
+
+        Only reads the 80-byte header per block — does NOT deserialize the
+        full block.  Useful for building a chain index without loading all
+        block data into memory.
+        """
+        for path in self._blk_files():
+            with path.open("rb") as f:
+                while True:
+                    file_offset = f.tell()
+                    header = f.read(HEADER_SIZE)
+                    if len(header) < HEADER_SIZE:
+                        break
+
+                    if self._xor_key is not None:
+                        header = _xor_bytes(header, self._xor_key, file_offset)
+
+                    magic, size = struct.unpack("<4sI", header)
+                    if magic != self._magic:
+                        break
+
+                    raw_offset = f.tell()
+
+                    # Read only the 80-byte block header
+                    blk_header = f.read(80)
+                    if len(blk_header) < 80:
+                        break
+                    if self._xor_key is not None:
+                        blk_header = _xor_bytes(blk_header, self._xor_key, raw_offset)
+
+                    # SHA256d of the 80-byte header = block hash
+                    block_hash = hashlib.sha256(
+                        hashlib.sha256(blk_header).digest()
+                    ).digest()
+                    prev_hash = blk_header[4:36]
+
+                    # Skip the rest of the block
+                    f.seek(raw_offset + size)
+
+                    yield (block_hash, prev_hash, path, raw_offset, size)
+
+    def read_block_at(self, path: Path, offset: int, size: int) -> CBlock:
+        """Deserialize a single block given its file location."""
+        with path.open("rb") as f:
+            f.seek(offset)
+            raw = f.read(size)
+            if self._xor_key is not None:
+                raw = _xor_bytes(raw, self._xor_key, offset)
+            return CBlock.deserialize(raw)
 
     def get_block_at_height(self, height: int) -> CBlock:
         """Retrieve the block at a specific height.

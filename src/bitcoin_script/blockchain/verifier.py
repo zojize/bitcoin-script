@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from collections.abc import Callable, Iterator
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -377,71 +377,46 @@ class ChainVerifier:
 
     def _load_chain(
         self, start: int, end: int | None
-    ) -> list[tuple[int, CBlock]]:
-        """Load blocks from .blk files and order them by chain height.
+    ) -> Iterator[tuple[int, CBlock]]:
+        """Yield (height, block) pairs in chain order.
 
-        .blk files store blocks in received order which may differ from
-        chain order. We load blocks incrementally until we have a
-        contiguous chain covering [start, end].
+        Uses a two-pass approach to avoid holding all blocks in memory:
+        1. Scan 80-byte headers to build hash linkage + file positions
+           (stores only hashes and file offsets — ~100 bytes per block)
+        2. Walk the chain from genesis, deserializing blocks lazily
         """
-        target_end = end if end is not None else start + 10000
-
-        blocks_by_hash: dict[bytes, CBlock] = {}
+        # Pass 1: scan headers (only 80 bytes per block, no full deserialization)
         prev_to_hash: dict[bytes, bytes] = {}
-        loaded = 0
+        location: dict[bytes, tuple[Path, int, int]] = {}  # hash -> (path, offset, size)
+        scanned = 0
 
-        for block in self._parser:
-            bhash = block.GetHash()
-            blocks_by_hash[bhash] = block
-            prev_hash = bytes(block.hashPrevBlock)
+        for block_hash, prev_hash, path, offset, size in self._parser.scan_headers():
             if prev_hash not in prev_to_hash:
-                prev_to_hash[prev_hash] = bhash
-            loaded += 1
+                prev_to_hash[prev_hash] = block_hash
+            location[block_hash] = (path, offset, size)
+            scanned += 1
+            if scanned % 50000 == 0:
+                log.info("Scanned %d block headers...", scanned)
 
-            # Periodically check if we have enough chain
-            if loaded % 10000 == 0:
-                chain_len = self._walk_chain_length(prev_to_hash, blocks_by_hash)
-                log.info("Loaded %d blocks, chain length %d", loaded, chain_len)
-                if chain_len > target_end:
-                    break
+        log.info("Scanned %d block headers, walking chain...", scanned)
 
-        log.info("Loaded %d blocks total, building chain...", loaded)
-
-        # Walk chain from genesis
+        # Pass 2: walk chain from genesis, deserialize on demand
         genesis_prev = b"\x00" * 32
         if genesis_prev not in prev_to_hash:
-            return []
+            return
 
-        chain: list[tuple[int, CBlock]] = []
         current_hash = prev_to_hash[genesis_prev]
         height = 0
 
-        while current_hash in blocks_by_hash:
+        while current_hash in location:
             if height >= start:
-                chain.append((height, blocks_by_hash[current_hash]))
+                path, offset, size = location[current_hash]
+                block = self._parser.read_block_at(path, offset, size)
+                yield (height, block)
             if end is not None and height >= end:
                 break
             height += 1
             current_hash = prev_to_hash.get(current_hash, b"")
-
-        log.info("Chain: %d blocks (height %d-%d)", len(chain), start, height)
-        return chain
-
-    @staticmethod
-    def _walk_chain_length(
-        prev_to_hash: dict[bytes, bytes],
-        blocks_by_hash: dict[bytes, CBlock],
-    ) -> int:
-        """Count chain length from genesis without building the full list."""
-        genesis_prev = b"\x00" * 32
-        if genesis_prev not in prev_to_hash:
-            return 0
-        current = prev_to_hash[genesis_prev]
-        length = 0
-        while current in blocks_by_hash:
-            length += 1
-            current = prev_to_hash.get(current, b"")
-        return length
 
     def verify_block(self, height: int) -> BlockResult:
         """Verify a single block at the given height.
