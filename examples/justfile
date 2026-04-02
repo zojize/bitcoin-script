@@ -32,4 +32,4 @@ prove spec:
         examples/specs/{{ spec }}.k
 
 # Prove all K specs that pass
-prove-all: (prove "p2pkh-spec") (prove "timelock-spec")
+prove-all: (prove "p2pkh-spec") (prove "timelock-spec") (prove "arithmetic-spec")

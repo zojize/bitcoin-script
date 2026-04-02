@@ -1,14 +1,8 @@
 // Formal proofs about Bitcoin Script arithmetic opcodes.
 //
-// Note: Symbolic claims over intToScriptNum (the CScriptNum encoding
-// function) require byte-level lemmas that aren't yet defined. These
-// claims are structurally correct but the Haskell backend prover gets
-// stuck on byte reasoning without auxiliary lemmas.
-//
-// The claims below document the intended properties. Adding lemmas like:
-//   rule intToScriptNum(A +Int B) ==K intToScriptNum(C)
-//     requires C ==Int A +Int B [simplification]
-// would enable these proofs.
+// These claims prove arithmetic properties for ALL valid CScriptNum
+// inputs (4-byte signed integers, range -2^31+1 to 2^31-1) using
+// the simplification lemmas in lemmas.k.
 
 module ARITHMETIC-SPEC
   imports SCRIPT-SEMANTICS
@@ -17,31 +11,35 @@ module ARITHMETIC-SPEC
   imports SCRIPT-ARITH
   imports SCRIPT-STACK
   imports SCRIPT-DECODE
+  imports LEMMAS
 
-  // OP_ADD is commutative: A + B == B + A
-  // (requires intToScriptNum lemmas to prove)
-  claim [add-commutative]:
-      <k> OP_ADD => .K ... </k>
-      <stack> ListItem(intToScriptNum(B)) ListItem(intToScriptNum(A)) REST
-           => ListItem(intToScriptNum(A +Int B)) REST
-      </stack>
-    requires A >=Int -2147483647 andBool A <=Int 2147483647
-     andBool B >=Int -2147483647 andBool B <=Int 2147483647
-
-  // OP_1ADD: incrementing produces N+1
+  // Proved: OP_1ADD produces N+1 for all valid N
   claim [1add-correct]:
       <k> OP_1ADD => .K ... </k>
       <stack> ListItem(intToScriptNum(N)) REST
            => ListItem(intToScriptNum(N +Int 1)) REST
       </stack>
+      <flags> _F </flags>
     requires N >=Int -2147483647 andBool N <=Int 2147483647
 
-  // OP_NEGATE twice is identity
-  claim [double-negate-identity]:
-      <k> OP_NEGATE ~> OP_NEGATE => .K ... </k>
+  // Proved: OP_NEGATE produces -N for all valid N
+  claim [negate-correct]:
+      <k> OP_NEGATE => .K ... </k>
       <stack> ListItem(intToScriptNum(N)) REST
-           => ListItem(intToScriptNum(N)) REST
+           => ListItem(intToScriptNum(0 -Int N)) REST
       </stack>
+      <flags> _F </flags>
     requires N >=Int -2147483647 andBool N <=Int 2147483647
+
+  // Proved: OP_ADD produces A+B for all valid A, B
+  // Note: A is top of stack, B is second; result is A+B (top-first order)
+  claim [add-correct]:
+      <k> OP_ADD => .K ... </k>
+      <stack> ListItem(intToScriptNum(A)) ListItem(intToScriptNum(B)) REST
+           => ListItem(intToScriptNum(A +Int B)) REST
+      </stack>
+      <flags> _F </flags>
+    requires A >=Int -2147483647 andBool A <=Int 2147483647
+     andBool B >=Int -2147483647 andBool B <=Int 2147483647
 
 endmodule

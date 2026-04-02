@@ -4,6 +4,7 @@ requires "script-flow.k"
 requires "script-sig.k"
 requires "script-stack.k"
 requires "script-arith.k"
+requires "lemmas.k"
 
 // Kompile entry point for Bitcoin Script.
 module SCRIPT
@@ -13,4 +14,5 @@ module SCRIPT
   imports SCRIPT-SIG
   imports SCRIPT-STACK
   imports SCRIPT-ARITH
+  imports LEMMAS
 endmodule
