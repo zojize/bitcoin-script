@@ -200,11 +200,14 @@ def repl() -> None:
         Stack (1 item):
           0: 0x03 (3)
     """
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.history import InMemoryHistory
     from rich.console import Console
 
     from bitcoin_script.k_semantics import KBitcoinScript
 
     console = Console()
+    session: PromptSession[str] = PromptSession(history=InMemoryHistory())
 
     console.print("[bold]Bitcoin Script REPL[/bold]")
     console.print(
@@ -272,7 +275,7 @@ def repl() -> None:
 
     while True:
         try:
-            line = console.input("[bold cyan]btc>[/bold cyan] ").strip()
+            line = session.prompt("btc> ").strip()
         except EOFError, KeyboardInterrupt:
             console.print()
             break

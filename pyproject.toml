@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "kframework>=7.1.313",
+    "prompt-toolkit>=3.0.52",
     "python-bitcoinlib>=0.12.2",
     "tqdm>=4.67.3",
     "typer>=0.24.1",
