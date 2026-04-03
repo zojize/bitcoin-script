@@ -72,7 +72,7 @@ def _parse_asm(asm: str) -> CScript:
         typer.echo(f"Error: unknown ASM token '{token}'", err=True)
         raise typer.Exit(1)
 
-    return CScript(items)
+    return CScript(items)  # type: ignore[arg-type]
 
 
 def _display_stack(stack: ScriptStack) -> None:
@@ -228,12 +228,12 @@ def _parse_transaction(data: bytes) -> None:
 
     from bitcoin.core import b2lx
 
-    typer.echo(f"txid   : {b2lx(tx.GetTxid()).decode()}")
+    typer.echo(f"txid   : {b2lx(tx.GetTxid())}")
     typer.echo(f"version: {tx.nVersion}")
     typer.echo(f"locktime: {tx.nLockTime}")
     typer.echo(f"inputs ({len(tx.vin)}):")
     for i, inp in enumerate(tx.vin):
-        typer.echo(f"  [{i}] prevout={b2lx(inp.prevout.hash).decode()}:{inp.prevout.n}")
+        typer.echo(f"  [{i}] prevout={b2lx(inp.prevout.hash)}:{inp.prevout.n}")
         typer.echo(f"       scriptSig={inp.scriptSig.hex()}")
         typer.echo(f"       sequence=0x{inp.nSequence:08x}")
     typer.echo(f"outputs ({len(tx.vout)}):")
@@ -252,10 +252,10 @@ def _parse_block(data: bytes) -> None:
         typer.echo(f"Error deserializing block: {exc}", err=True)
         raise typer.Exit(1) from exc
 
-    typer.echo(f"hash    : {b2lx(block.GetHash()).decode()}")
+    typer.echo(f"hash    : {b2lx(block.GetHash())}")
     typer.echo(f"version : {block.nVersion}")
-    typer.echo(f"prev    : {b2lx(block.hashPrevBlock).decode()}")
-    typer.echo(f"merkle  : {b2lx(block.hashMerkleRoot).decode()}")
+    typer.echo(f"prev    : {b2lx(block.hashPrevBlock)}")
+    typer.echo(f"merkle  : {b2lx(block.hashMerkleRoot)}")
     typer.echo(f"time    : {block.nTime}")
     typer.echo(f"bits    : 0x{block.nBits:08x}")
     typer.echo(f"nonce   : {block.nNonce}")
@@ -293,7 +293,7 @@ def validate(
     prev_hash = b"\x00" * 32  # genesis prev block hash
 
     try:
-        parser = BlockFileParser(str(data_dir))
+        parser = BlockFileParser(data_dir)
         for height, block in enumerate(parser):
             try:
                 validate_block(block, prev_hash, height)
