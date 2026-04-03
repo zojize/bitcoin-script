@@ -424,8 +424,12 @@ def op_checksig(
     try:
         if sigversion == 1:
             sighash = SignatureHash(
-                CScript(script_code), tx, input_index, hashtype,
-                amount=input_value, sigversion=1,
+                CScript(script_code),
+                tx,
+                input_index,
+                hashtype,
+                amount=input_value,
+                sigversion=1,
             )
         else:
             sighash = SignatureHash(CScript(script_code), tx, input_index, hashtype)
@@ -483,8 +487,12 @@ def op_checkmultisig(
             der_sig = sig[:-1]
             if sigversion == 1:
                 sighash = SignatureHash(
-                    CScript(script_code), tx, input_index, hashtype,
-                    amount=input_value, sigversion=1,
+                    CScript(script_code),
+                    tx,
+                    input_index,
+                    hashtype,
+                    amount=input_value,
+                    sigversion=1,
                 )
             else:
                 sighash = SignatureHash(CScript(script_code), tx, input_index, hashtype)
