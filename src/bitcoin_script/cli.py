@@ -175,7 +175,11 @@ def verify(
 
 
 @app.command()
-def repl() -> None:
+def repl(
+    backend: Annotated[
+        Backend, typer.Option("--backend", help="Execution backend.")
+    ] = Backend.k,
+) -> None:
     """Interactive Bitcoin Script REPL.
 
     Type opcodes and data to build a script, then execute it through the
@@ -215,6 +219,10 @@ def repl() -> None:
     )
 
     from bitcoin_script.asm import parse_asm
+
+    if backend != Backend.k:
+        typer.echo(f"Backend '{backend.value}' is not yet implemented.", err=True)
+        raise typer.Exit(1)
 
     console.print("Loading K Framework semantics...", style="dim")
     try:
