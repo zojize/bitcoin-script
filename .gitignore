@@ -35,6 +35,20 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
+# Environment / secrets
+.env
+
+# SQLite databases
+*.db
+*.db-shm
+*.db-wal
+
+# Archives
+*.tar.gz
+
+# Temp files
+temp
+
 # Bitcoin data (large files)
 *.blk
 *.dat

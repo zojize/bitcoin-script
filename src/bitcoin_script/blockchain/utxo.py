@@ -38,12 +38,30 @@ class UTXOSet:
         )
         self._conn.commit()
 
-    def add(self, txid: bytes, vout: int, script: bytes, amount: int) -> None:
-        """Add a new unspent output."""
-        self._conn.execute(
-            "INSERT OR REPLACE INTO utxos (txid, vout, script, amount) VALUES (?, ?, ?, ?)",
-            (txid, vout, script, amount),
-        )
+    def __enter__(self) -> UTXOSet:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.close()
+
+    def add(
+        self,
+        txid: bytes,
+        vout: int,
+        script: bytes,
+        amount: int,
+        *,
+        allow_overwrite: bool = False,
+    ) -> None:
+        """Add a new unspent output.
+
+        By default raises sqlite3.IntegrityError on duplicate (txid, vout).
+        Use allow_overwrite=True only for BIP-30 exception blocks (91842, 91880).
+        """
+        sql = (
+            "INSERT OR REPLACE" if allow_overwrite else "INSERT"
+        ) + " INTO utxos (txid, vout, script, amount) VALUES (?, ?, ?, ?)"
+        self._conn.execute(sql, (txid, vout, script, amount))
 
     def spend(self, txid: bytes, vout: int) -> tuple[bytes, int]:
         """Remove an output and return (scriptPubKey, amount).

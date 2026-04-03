@@ -328,23 +328,9 @@ module SCRIPT-SIG
   // OP_CHECKSIGVERIFY: CHECKSIG then VERIFY
   // =========================================================================
 
-  rule <k> OP_CHECKSIGVERIFY => .K ...</k>
-       <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
-       <sighash> SIGHASHBLOB </sighash>
-       <codesepIdx> CSI </codesepIdx>
-    requires lengthBytes(SIG) >Int 0
-     andBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG), CSI))
-
-  rule <k> OP_CHECKSIGVERIFY => #fail("CHECKSIGVERIFY") ...</k>
-       <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
-       <sighash> SIGHASHBLOB </sighash>
-       <codesepIdx> CSI </codesepIdx>
-    requires lengthBytes(SIG) >Int 0
-     andBool notBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG), CSI))
-
-  rule <k> OP_CHECKSIGVERIFY => #fail("CHECKSIGVERIFY") ...</k>
-       <stack> ListItem(_PK:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
-    requires lengthBytes(SIG) ==Int 0
+  // Reuse CHECKSIG validation pipeline (DER, STRICTENC, LOW_S, NULLFAIL, etc.)
+  rule <k> OP_CHECKSIGVERIFY
+        => OP_CHECKSIG ~> OP_VERIFY ...</k>
 
   // =========================================================================
   // OP_CHECKMULTISIGVERIFY: CHECKMULTISIG then VERIFY

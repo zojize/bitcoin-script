@@ -15,6 +15,15 @@ from bitcoin_script.blockchain.flags import flags_for_block
 from bitcoin_script.blockchain.parser import BlockFileParser
 from bitcoin_script.blockchain.utxo import UTXOSet
 from bitcoin_script.k_semantics import KBitcoinScript, ScriptDist
+from bitcoin_script.script_utils import (
+    encode_witness_blob,
+    extract_last_push,
+    extract_sig_hashtypes,
+    find_codesep_positions,
+    is_p2sh,
+    is_witness_program,
+    remove_codeseparators,
+)
 
 log = logging.getLogger(__name__)
 
@@ -90,149 +99,6 @@ class ChainResult:
         return len(self.errors) == 0
 
 
-def _encode_witness_blob(witness_stack: list[bytes]) -> bytes:
-    """Encode witness stack as: <2B BE count> (<2B BE length> <data>)*"""
-    result = len(witness_stack).to_bytes(2, "big")
-    for item in witness_stack:
-        result += len(item).to_bytes(2, "big") + item
-    return result
-
-
-def _is_witness_program(script: bytes) -> tuple[int, bytes] | None:
-    """Detect witness program: <version_byte> <push_2_to_40_bytes>."""
-    if len(script) < 4 or len(script) > 42:
-        return None
-    v = script[0]
-    if v == 0x00:
-        version = 0
-    elif 0x51 <= v <= 0x60:
-        version = v - 0x50
-    else:
-        return None
-    if script[1] + 2 != len(script):
-        return None
-    return (version, script[2:])
-
-
-def _is_p2sh(script: bytes) -> bool:
-    return (
-        len(script) == 23
-        and script[0] == 0xA9
-        and script[1] == 0x14
-        and script[22] == 0x87
-    )
-
-
-def _extract_last_push(script: bytes) -> bytes | None:
-    """Extract the last push data from a script."""
-    pos = 0
-    last_push: bytes | None = None
-    while pos < len(script):
-        op = script[pos]
-        pos += 1
-        if 1 <= op <= 75:
-            last_push = script[pos : pos + op]
-            pos += op
-        elif op == 0x4C and pos < len(script):
-            n = script[pos]
-            pos += 1
-            last_push = script[pos : pos + n]
-            pos += n
-        elif op == 0x4D and pos + 1 < len(script):
-            n = int.from_bytes(script[pos : pos + 2], "little")
-            pos += 2
-            last_push = script[pos : pos + n]
-            pos += n
-        elif op == 0x4E and pos + 3 < len(script):
-            n = int.from_bytes(script[pos : pos + 4], "little")
-            pos += 4
-            last_push = script[pos : pos + n]
-            pos += n
-    return last_push
-
-
-def _extract_sig_hashtypes(data: bytes) -> set[int]:
-    """Extract hashtype bytes from push data that looks like DER signatures."""
-    hashtypes: set[int] = set()
-    pos = 0
-    while pos < len(data):
-        op = data[pos]
-        pos += 1
-        if 1 <= op <= 75:
-            item = data[pos : pos + op]
-            pos += op
-            if len(item) >= 9 and item[0] == 0x30:
-                hashtypes.add(item[-1])
-        elif op == 0x4C and pos < len(data):
-            n = data[pos]
-            pos += 1
-            pos += n
-        elif op == 0x4D and pos + 1 < len(data):
-            n = int.from_bytes(data[pos : pos + 2], "little")
-            pos += 2
-            pos += n
-        elif op == 0x4E and pos + 3 < len(data):
-            n = int.from_bytes(data[pos : pos + 4], "little")
-            pos += 4
-            pos += n
-    return hashtypes
-
-
-def _find_codesep_positions(script: bytes) -> list[int]:
-    """Find byte positions right after each OP_CODESEPARATOR (0xAB) in script."""
-    positions: list[int] = []
-    pos = 0
-    while pos < len(script):
-        op = script[pos]
-        pos += 1
-        if op == 0xAB:
-            positions.append(pos)
-        elif 1 <= op <= 75:
-            pos += op
-        elif op == 0x4C and pos < len(script):
-            pos += 1 + script[pos]
-        elif op == 0x4D and pos + 1 < len(script):
-            pos += 2 + int.from_bytes(script[pos : pos + 2], "little")
-        elif op == 0x4E and pos + 3 < len(script):
-            pos += 4 + int.from_bytes(script[pos : pos + 4], "little")
-    return positions
-
-
-def _remove_codeseparators(script: bytes) -> bytes:
-    """Remove all OP_CODESEPARATOR (0xAB) bytes from script."""
-    result = bytearray()
-    pos = 0
-    while pos < len(script):
-        op = script[pos]
-        if op == 0xAB:
-            pos += 1
-            continue
-        result.append(op)
-        pos += 1
-        if 1 <= op <= 75:
-            result.extend(script[pos : pos + op])
-            pos += op
-        elif op == 0x4C and pos < len(script):
-            n = script[pos]
-            result.append(n)
-            pos += 1
-            result.extend(script[pos : pos + n])
-            pos += n
-        elif op == 0x4D and pos + 1 < len(script):
-            result.extend(script[pos : pos + 2])
-            n = int.from_bytes(script[pos : pos + 2], "little")
-            pos += 2
-            result.extend(script[pos : pos + n])
-            pos += n
-        elif op == 0x4E and pos + 3 < len(script):
-            result.extend(script[pos : pos + 4])
-            n = int.from_bytes(script[pos : pos + 4], "little")
-            pos += 4
-            result.extend(script[pos : pos + n])
-            pos += n
-    return bytes(result)
-
-
 def _compute_sighash_blob(
     tx: CTransaction,
     input_index: int,
@@ -266,7 +132,7 @@ def _compute_sighash_blob(
 
     hashtypes: set[int] = set(standard_hashtypes)
     script_sig = bytes(tx.vin[input_index].scriptSig)
-    hashtypes |= _extract_sig_hashtypes(script_sig)
+    hashtypes |= extract_sig_hashtypes(script_sig)
 
     witness_items: list[bytes] = []
     if tx.wit and input_index < len(tx.wit.vtxinwit):
@@ -278,11 +144,11 @@ def _compute_sighash_blob(
                 hashtypes.add(item[-1])
 
     # Determine witness program
-    wp = _is_witness_program(script_pubkey)
-    if wp is None and _is_p2sh(script_pubkey):
-        redeem = _extract_last_push(script_sig)
+    wp = is_witness_program(script_pubkey)
+    if wp is None and is_p2sh(script_pubkey):
+        redeem = extract_last_push(script_sig)
         if redeem is not None:
-            wp = _is_witness_program(redeem)
+            wp = is_witness_program(redeem)
 
     parts: list[bytes] = []
 
@@ -298,7 +164,7 @@ def _compute_sighash_blob(
             # P2WSH: witness script may contain CODESEPARATOR
             # BIP-143: scriptCode does NOT strip CODESEP bytes (unlike legacy)
             ws = witness_items[-1]
-            codesep_pos = _find_codesep_positions(ws)
+            codesep_pos = find_codesep_positions(ws)
             witness_subscripts = [(0, CScript(ws))]
             for idx, bp in enumerate(codesep_pos):
                 witness_subscripts.append((idx + 1, CScript(ws[bp:])))
@@ -322,18 +188,18 @@ def _compute_sighash_blob(
 
     # Legacy sighash
     legacy_subscript = script_pubkey
-    if _is_p2sh(script_pubkey):
-        redeem = _extract_last_push(script_sig)
+    if is_p2sh(script_pubkey):
+        redeem = extract_last_push(script_sig)
         if redeem is not None:
             legacy_subscript = redeem
 
-    codesep_positions = _find_codesep_positions(legacy_subscript)
+    codesep_positions = find_codesep_positions(legacy_subscript)
     legacy_subscripts: list[tuple[int, bytes]] = [
-        (0, _remove_codeseparators(legacy_subscript))
+        (0, remove_codeseparators(legacy_subscript))
     ]
     for idx, bp in enumerate(codesep_positions):
         legacy_subscripts.append(
-            (idx + 1, _remove_codeseparators(legacy_subscript[bp:]))
+            (idx + 1, remove_codeseparators(legacy_subscript[bp:]))
         )
 
     for csi, sub in legacy_subscripts:
@@ -341,14 +207,13 @@ def _compute_sighash_blob(
             try:
                 sh = SignatureHash(CScript(sub), tx, input_index, ht)
                 parts.append(bytes([ht]) + csi.to_bytes(2, "big") + bytes(sh))
-            except (ValueError,):
-                # SIGHASH_SINGLE bug
+            except AssertionError, ValueError:
+                # SIGHASH_SINGLE bug: hash is 0x0100...00 when input_index >= len(vout)
                 if (ht & 0x1F) == SIGHASH_SINGLE and input_index >= len(tx.vout):
                     parts.append(
                         bytes([ht]) + csi.to_bytes(2, "big") + b"\x01" + b"\x00" * 31
                     )
-                continue
-            except AssertionError:
+                log.debug("sighash failed for ht=%d csi=%d", ht, csi)
                 continue
 
     return b"".join(parts)
@@ -553,7 +418,7 @@ class ChainVerifier:
                         witness_items = [bytes(w) for w in stack]
 
                     witness_blob = (
-                        _encode_witness_blob(witness_items) if witness_items else b""
+                        encode_witness_blob(witness_items) if witness_items else b""
                     )
 
                     sighash = _compute_sighash_blob(
@@ -610,9 +475,16 @@ class ChainVerifier:
                     except KeyError:
                         pass  # already reported above
 
-            # Add outputs
+            # Add outputs (BIP-30: blocks 91842 and 91880 have duplicate txids)
+            bip30 = height in (91842, 91880)
             for vout_idx, txout in enumerate(tx.vout):
-                self._utxo.add(txid, vout_idx, bytes(txout.scriptPubKey), txout.nValue)
+                self._utxo.add(
+                    txid,
+                    vout_idx,
+                    bytes(txout.scriptPubKey),
+                    txout.nValue,
+                    allow_overwrite=bip30,
+                )
 
         self._utxo.checkpoint_height = height
         self._utxo.commit()

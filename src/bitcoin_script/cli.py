@@ -10,6 +10,8 @@ from typing import Annotated, Optional
 
 import typer
 
+from bitcoin_script.script_utils import scriptnum_to_int
+
 app = typer.Typer(
     name="bitcoin-script",
     help="Bitcoin Script interpreter and formal verification toolkit.",
@@ -35,12 +37,7 @@ def _format_stack_item(item: bytes) -> str:
         return "(empty)"
     # Try to show as integer if it's a valid CScriptNum
     if len(item) <= 4:
-        # Little-endian sign-magnitude
-        val = int.from_bytes(item[:-1] if len(item) > 1 else b"\x00", "little")
-        val |= (item[-1] & 0x7F) << (8 * (len(item) - 1))
-        if item[-1] & 0x80:
-            val = -val
-        return f"0x{item.hex()} ({val})"
+        return f"0x{item.hex()} ({scriptnum_to_int(item)})"
     return f"0x{item.hex()}"
 
 

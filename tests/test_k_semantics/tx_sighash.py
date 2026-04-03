@@ -20,7 +20,14 @@ from bitcoin.core.script import (
     SignatureHash,
 )
 
-from .conftest import _find_codesep_positions, _remove_codeseparators
+from bitcoin_script.script_utils import (
+    extract_last_push,
+    extract_push_data,
+    find_codesep_positions,
+    is_p2sh,
+    is_witness_program,
+    remove_codeseparators,
+)
 
 # All standard hashtype values
 _STANDARD_HASHTYPES = [
@@ -33,60 +40,6 @@ _STANDARD_HASHTYPES = [
 ]
 
 
-def _is_p2sh(script_pubkey: bytes) -> bool:
-    """Check if scriptPubKey is P2SH: OP_HASH160 <20 bytes> OP_EQUAL."""
-    return (
-        len(script_pubkey) == 23
-        and script_pubkey[0] == 0xA9
-        and script_pubkey[1] == 0x14
-        and script_pubkey[22] == 0x87
-    )
-
-
-def _is_witness_program(script: bytes) -> tuple[int, bytes] | None:
-    """Detect witness program: <version_byte> <push_2_to_40_bytes>."""
-    if len(script) < 4 or len(script) > 42:
-        return None
-    version_byte = script[0]
-    if version_byte == 0x00:
-        version = 0
-    elif 0x51 <= version_byte <= 0x60:
-        version = version_byte - 0x50
-    else:
-        return None
-    if script[1] + 2 != len(script):
-        return None
-    return (version, script[2:])
-
-
-def _extract_last_push(script: bytes) -> bytes | None:
-    """Extract the last push from a script (for P2SH redeem script extraction)."""
-    pos = 0
-    last_push: bytes | None = None
-    while pos < len(script):
-        op = script[pos]
-        pos += 1
-        if 1 <= op <= 75:
-            last_push = script[pos : pos + op]
-            pos += op
-        elif op == 0x4C and pos < len(script):  # PUSHDATA1
-            n = script[pos]
-            pos += 1
-            last_push = script[pos : pos + n]
-            pos += n
-        elif op == 0x4D and pos + 1 < len(script):  # PUSHDATA2
-            n = int.from_bytes(script[pos : pos + 2], "little")
-            pos += 2
-            last_push = script[pos : pos + n]
-            pos += n
-        elif op == 0x4E and pos + 3 < len(script):  # PUSHDATA4
-            n = int.from_bytes(script[pos : pos + 4], "little")
-            pos += 4
-            last_push = script[pos : pos + n]
-            pos += n
-    return last_push
-
-
 def _extract_hashtypes_from_data(data_items: list[bytes]) -> set[int]:
     """Extract hashtype bytes from data items that look like DER signatures."""
     hashtypes: set[int] = set()
@@ -94,34 +47,6 @@ def _extract_hashtypes_from_data(data_items: list[bytes]) -> set[int]:
         if len(item) >= 9 and item[0] == 0x30:
             hashtypes.add(item[-1])
     return hashtypes
-
-
-def _extract_push_data(script: bytes) -> list[bytes]:
-    """Walk script and extract all push data items."""
-    items: list[bytes] = []
-    pos = 0
-    while pos < len(script):
-        op = script[pos]
-        pos += 1
-        if 1 <= op <= 75:
-            items.append(script[pos : pos + op])
-            pos += op
-        elif op == 0x4C and pos < len(script):
-            n = script[pos]
-            pos += 1
-            items.append(script[pos : pos + n])
-            pos += n
-        elif op == 0x4D and pos + 1 < len(script):
-            n = int.from_bytes(script[pos : pos + 2], "little")
-            pos += 2
-            items.append(script[pos : pos + n])
-            pos += n
-        elif op == 0x4E and pos + 3 < len(script):
-            n = int.from_bytes(script[pos : pos + 4], "little")
-            pos += 4
-            items.append(script[pos : pos + n])
-            pos += n
-    return items
 
 
 def compute_tx_sighash_blob(
@@ -145,16 +70,16 @@ def compute_tx_sighash_blob(
 
     # Gather hashtypes from signatures in scriptSig and witness
     hashtypes: set[int] = set(_STANDARD_HASHTYPES)
-    sig_data = _extract_push_data(script_sig) + witness_items
+    sig_data = extract_push_data(script_sig) + witness_items
     hashtypes |= _extract_hashtypes_from_data(sig_data)
     # Don't discard hashtype 0 — some early Bitcoin transactions use it
 
     # Determine if this is a witness spend
-    wp = _is_witness_program(script_pubkey)
-    if wp is None and _is_p2sh(script_pubkey):
-        redeem = _extract_last_push(script_sig)
+    wp = is_witness_program(script_pubkey)
+    if wp is None and is_p2sh(script_pubkey):
+        redeem = extract_last_push(script_sig)
         if redeem is not None:
-            wp = _is_witness_program(redeem)
+            wp = is_witness_program(redeem)
 
     parts: list[bytes] = []
 
@@ -171,7 +96,7 @@ def compute_tx_sighash_blob(
             # P2WSH: witness script may contain CODESEPARATOR
             # BIP-143: scriptCode does NOT strip CODESEP bytes (unlike legacy)
             ws = witness_items[-1]
-            codesep_pos = _find_codesep_positions(ws)
+            codesep_pos = find_codesep_positions(ws)
             witness_subscripts = [(0, CScript(ws))]
             for idx, bp in enumerate(codesep_pos):
                 witness_subscripts.append((idx + 1, CScript(ws[bp:])))
@@ -195,19 +120,19 @@ def compute_tx_sighash_blob(
 
     # Legacy sighash (always compute — some P2SH-wrapped cases need both)
     legacy_subscript = script_pubkey
-    if _is_p2sh(script_pubkey):
-        redeem = _extract_last_push(script_sig)
+    if is_p2sh(script_pubkey):
+        redeem = extract_last_push(script_sig)
         if redeem is not None:
             legacy_subscript = redeem
 
     # Find CODESEPARATOR positions in legacy subscript
-    codesep_positions = _find_codesep_positions(legacy_subscript)
+    codesep_positions = find_codesep_positions(legacy_subscript)
     legacy_subscripts: list[tuple[int, bytes]] = [
-        (0, _remove_codeseparators(legacy_subscript))
+        (0, remove_codeseparators(legacy_subscript))
     ]
     for idx, bp in enumerate(codesep_positions):
         legacy_subscripts.append(
-            (idx + 1, _remove_codeseparators(legacy_subscript[bp:]))
+            (idx + 1, remove_codeseparators(legacy_subscript[bp:]))
         )
 
     for csi, sub in legacy_subscripts:
