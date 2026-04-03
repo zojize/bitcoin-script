@@ -72,6 +72,7 @@ _SIGVERSION_WITNESS_V0 = 1
 
 # ---- Script-type helpers ----------------------------------------------------
 
+
 def _is_p2sh(script: CScript) -> bool:
     r = bytes(script)
     return len(r) == 23 and r[0] == 0xA9 and r[1] == 0x14 and r[-1] == 0x87
@@ -89,6 +90,7 @@ def _is_p2wsh(script: CScript) -> bool:
 
 # ---- Engine -----------------------------------------------------------------
 
+
 class ScriptEngine:
     """Bitcoin Script virtual machine.
 
@@ -105,7 +107,7 @@ class ScriptEngine:
     _input_index: int
     _input_value: int
     _script_code: bytes
-    _sigversion: int   # _SIGVERSION_BASE or _SIGVERSION_WITNESS_V0
+    _sigversion: int  # _SIGVERSION_BASE or _SIGVERSION_WITNESS_V0
 
     def __init__(
         self,
@@ -165,7 +167,10 @@ class ScriptEngine:
         sig_bytes = bytes(script_sig)
 
         # ---- Size guards ----
-        if len(sig_bytes) > _MAX_SCRIPT_SIZE or len(bytes(script_pubkey)) > _MAX_SCRIPT_SIZE:
+        if (
+            len(sig_bytes) > _MAX_SCRIPT_SIZE
+            or len(bytes(script_pubkey)) > _MAX_SCRIPT_SIZE
+        ):
             return False
 
         # ================================================================
@@ -276,6 +281,7 @@ class ScriptEngine:
 
         # BIP143 script code: OP_DUP OP_HASH160 <hash> OP_EQUALVERIFY OP_CHECKSIG
         from bitcoin_script.script_types.p2wpkh import witness_to_script_code
+
         script_code = witness_to_script_code(pubkey_hash)
 
         # Set up a clean stack with the witness items

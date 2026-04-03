@@ -22,6 +22,7 @@ app = typer.Typer(
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _parse_script(raw: str, as_hex: bool) -> CScript:
     """Parse a script from hex bytes or ASM notation."""
     if as_hex or _looks_like_hex(raw):
@@ -89,13 +90,16 @@ def _display_stack(stack: ScriptStack) -> None:
 # Commands
 # ---------------------------------------------------------------------------
 
+
 @app.command()
 def execute(
     script: Annotated[str, typer.Argument(help="Script in hex or ASM format.")],
     hex: Annotated[bool, typer.Option("--hex", help="Treat input as raw hex.")] = False,
     script_sig: Annotated[
         Optional[str],
-        typer.Option("--sig", "-s", help="Optional scriptSig (hex or ASM) to run first."),
+        typer.Option(
+            "--sig", "-s", help="Optional scriptSig (hex or ASM) to run first."
+        ),
     ] = None,
 ) -> None:
     """Execute a Bitcoin script and display the result."""
@@ -126,18 +130,36 @@ def execute(
 
 @app.command()
 def verify(
-    script_sig: Annotated[str, typer.Argument(help="scriptSig in hex or ASM (empty string '' for SegWit).")],
+    script_sig: Annotated[
+        str,
+        typer.Argument(help="scriptSig in hex or ASM (empty string '' for SegWit)."),
+    ],
     script_pubkey: Annotated[str, typer.Argument(help="scriptPubKey in hex or ASM.")],
-    hex: Annotated[bool, typer.Option("--hex", help="Treat script inputs as raw hex.")] = False,
-    p2sh: Annotated[bool, typer.Option("--p2sh/--no-p2sh", help="Enable P2SH evaluation.")] = True,
-    segwit: Annotated[bool, typer.Option("--segwit/--no-segwit", help="Enable SegWit (P2WPKH/P2WSH) evaluation.")] = True,
+    hex: Annotated[
+        bool, typer.Option("--hex", help="Treat script inputs as raw hex.")
+    ] = False,
+    p2sh: Annotated[
+        bool, typer.Option("--p2sh/--no-p2sh", help="Enable P2SH evaluation.")
+    ] = True,
+    segwit: Annotated[
+        bool,
+        typer.Option(
+            "--segwit/--no-segwit", help="Enable SegWit (P2WPKH/P2WSH) evaluation."
+        ),
+    ] = True,
     witness: Annotated[
         Optional[list[str]],
-        typer.Option("--witness", "-w", help="Witness stack items as hex (repeat for each item)."),
+        typer.Option(
+            "--witness", "-w", help="Witness stack items as hex (repeat for each item)."
+        ),
     ] = None,
     value: Annotated[
         int,
-        typer.Option("--value", "-v", help="Input value in satoshis (required for SegWit sighash)."),
+        typer.Option(
+            "--value",
+            "-v",
+            help="Input value in satoshis (required for SegWit sighash).",
+        ),
     ] = 0,
 ) -> None:
     """Verify a scriptSig against a scriptPubKey (with optional witness for SegWit)."""
@@ -177,7 +199,9 @@ def parse(
     raw: Annotated[str, typer.Argument(help="Raw transaction or block hex.")],
     block: Annotated[
         bool,
-        typer.Option("--block", "-b", help="Parse as a block instead of a transaction."),
+        typer.Option(
+            "--block", "-b", help="Parse as a block instead of a transaction."
+        ),
     ] = False,
 ) -> None:
     """Parse and display a raw transaction or block."""
@@ -214,7 +238,9 @@ def _parse_transaction(data: bytes) -> None:
         typer.echo(f"       sequence=0x{inp.nSequence:08x}")
     typer.echo(f"outputs ({len(tx.vout)}):")
     for i, out in enumerate(tx.vout):
-        typer.echo(f"  [{i}] value={out.nValue} sat  scriptPubKey={out.scriptPubKey.hex()}")
+        typer.echo(
+            f"  [{i}] value={out.nValue} sat  scriptPubKey={out.scriptPubKey.hex()}"
+        )
 
 
 def _parse_block(data: bytes) -> None:
@@ -247,13 +273,19 @@ def validate(
     from pathlib import Path
 
     from bitcoin_script.blockchain.parser import BlockFileParser
-    from bitcoin_script.blockchain.validation import validate_block, validate_transaction
+    from bitcoin_script.blockchain.validation import (
+        validate_block,
+        validate_transaction,
+    )
     from bitcoin_script.blockchain.utxo import UTXOSet
 
     data_dir = Path(path) if path else Path.home() / ".bitcoin"
     if not data_dir.exists():
         typer.echo(f"Error: block data directory not found: {data_dir}", err=True)
-        typer.echo("Provide a path with: bitcoin-script validate /path/to/bitcoin/blocks", err=True)
+        typer.echo(
+            "Provide a path with: bitcoin-script validate /path/to/bitcoin/blocks",
+            err=True,
+        )
         raise typer.Exit(1)
 
     typer.echo(f"Validating from: {data_dir}")
@@ -275,6 +307,7 @@ def validate(
                     validate_transaction(tx, utxo_set, height, is_coinbase)
                 except Exception as exc:
                     from bitcoin.core import b2lx
+
                     txid = b2lx(tx.GetTxid()).decode()
                     typer.echo(
                         f"Block {height} tx {txid} validation failed: {exc}",

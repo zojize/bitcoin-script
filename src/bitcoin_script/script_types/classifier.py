@@ -44,9 +44,9 @@ def is_p2pkh(script: CScript) -> bool:
     r = bytes(script)
     return (
         len(r) == 25
-        and r[0] == 0x76   # OP_DUP
-        and r[1] == 0xA9   # OP_HASH160
-        and r[2] == 0x14   # PUSH 20
+        and r[0] == 0x76  # OP_DUP
+        and r[1] == 0xA9  # OP_HASH160
+        and r[2] == 0x14  # PUSH 20
         and r[23] == 0x88  # OP_EQUALVERIFY
         and r[24] == 0xAC  # OP_CHECKSIG
     )
@@ -57,8 +57,8 @@ def is_p2sh(script: CScript) -> bool:
     r = bytes(script)
     return (
         len(r) == 23
-        and r[0] == 0xA9   # OP_HASH160
-        and r[1] == 0x14   # PUSH 20
+        and r[0] == 0xA9  # OP_HASH160
+        and r[1] == 0x14  # PUSH 20
         and r[22] == 0x87  # OP_EQUAL
     )
 
@@ -94,7 +94,7 @@ def is_multisig(script: CScript) -> bool:
         return False
     if not (0x51 <= r[-2] <= 0x60):  # OP_1..OP_16 for n
         return False
-    if not (0x51 <= r[0] <= 0x60):   # OP_1..OP_16 for m
+    if not (0x51 <= r[0] <= 0x60):  # OP_1..OP_16 for m
         return False
     return True
 
