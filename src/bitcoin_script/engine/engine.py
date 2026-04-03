@@ -475,7 +475,9 @@ class ScriptEngine:
             _OP_CHECKMULTISIGVERIFY,
         ):
             if self._tx is None:
-                raise ScriptInvalidError("Signature-checking opcode requires transaction context")
+                raise ScriptInvalidError(
+                    "Signature-checking opcode requires transaction context"
+                )
             ctx = (
                 self._tx,
                 self._input_index,
