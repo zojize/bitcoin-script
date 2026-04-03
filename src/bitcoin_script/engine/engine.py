@@ -356,15 +356,16 @@ class ScriptEngine:
         op_count = 0
 
         try:
-            for opcode, data, _sop_idx in script:
+            for opcode, data, _sop_idx in script:  # type: ignore[misc]
                 executing = not cond_stack or all(cond_stack)
 
                 # ---- Data-push opcodes (data is not None, including OP_0 -> b'') ----
                 if data is not None:
                     if executing:
-                        if len(data) > _MAX_ELEMENT_SIZE:
+                        push_data = bytes(data)  # type: ignore[arg-type]
+                        if len(push_data) > _MAX_ELEMENT_SIZE:
                             raise PushSizeError("Push data exceeds 520 bytes")
-                        self._stack.push(data)
+                        self._stack.push(push_data)
                     continue
 
                 # ---- Op counter (all non-push opcodes with value > OP_16) ----
@@ -467,24 +468,29 @@ class ScriptEngine:
             return
 
         # Signature-checking opcodes (need tx context + sigversion)
-        ctx = (
-            self._tx,
-            self._input_index,
-            self._input_value,
-            self._script_code,
-            self._sigversion,
-        )
-        if opcode_byte == _OP_CHECKSIG:
-            op_checksig(self._stack, *ctx)
-            return
-        if opcode_byte == _OP_CHECKSIGVERIFY:
-            op_checksigverify(self._stack, *ctx)
-            return
-        if opcode_byte == _OP_CHECKMULTISIG:
-            op_checkmultisig(self._stack, *ctx)
-            return
-        if opcode_byte == _OP_CHECKMULTISIGVERIFY:
-            op_checkmultisigverify(self._stack, *ctx)
+        if opcode_byte in (
+            _OP_CHECKSIG,
+            _OP_CHECKSIGVERIFY,
+            _OP_CHECKMULTISIG,
+            _OP_CHECKMULTISIGVERIFY,
+        ):
+            if self._tx is None:
+                raise ScriptInvalidError("Signature-checking opcode requires transaction context")
+            ctx = (
+                self._tx,
+                self._input_index,
+                self._input_value,
+                self._script_code,
+                self._sigversion,
+            )
+            if opcode_byte == _OP_CHECKSIG:
+                op_checksig(self._stack, *ctx)
+            elif opcode_byte == _OP_CHECKSIGVERIFY:
+                op_checksigverify(self._stack, *ctx)
+            elif opcode_byte == _OP_CHECKMULTISIG:
+                op_checkmultisig(self._stack, *ctx)
+            elif opcode_byte == _OP_CHECKMULTISIGVERIFY:
+                op_checkmultisigverify(self._stack, *ctx)
             return
 
         # All remaining opcodes via dispatch table
