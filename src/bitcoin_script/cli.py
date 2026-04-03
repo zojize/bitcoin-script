@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sys
 from typing import Annotated, Optional
 
 import typer
@@ -245,7 +244,6 @@ def validate(
     ] = None,
 ) -> None:
     """Validate the blockchain from local block files."""
-    import os
     from pathlib import Path
 
     from bitcoin_script.blockchain.parser import BlockFileParser
