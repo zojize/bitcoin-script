@@ -101,9 +101,16 @@ jobs:
           restore-keys: |
             k-build-
 
-      - name: Build K definition
+      - name: Build K definition (LLVM)
         run: |
           CXX=clang++-14 uv run kdist --verbose build -j$(nproc) bitcoin-script-semantics.llvm bitcoin-script-semantics.llvm-lib
 
       - name: Run K Framework tests
-        run: uv run pytest -m k --tb=short -q
+        run: uv run pytest -m k -k "not test_prove" --tb=short -q
+
+      - name: Build K definition (Haskell)
+        run: |
+          uv run kdist --verbose build bitcoin-script-semantics.haskell
+
+      - name: Run K proof specs
+        run: uv run pytest tests/test_k_specs/ -m k --tb=short -q

@@ -1,7 +1,7 @@
-"""Helper utilities for building Bitcoin Script hex programs in tests.
+"""Parse Bitcoin Script ASM notation into raw script bytes.
 
-Provides opcode-to-hex mapping and convenience functions so tests
-can express scripts readably while producing raw hex bytes.
+Supports: OP_-prefixed opcodes, bare opcode names (DUP, ADD), hex data (0xabcd),
+single-quoted strings ('hello'), and bare integers (0, -1, 42).
 """
 
 from __future__ import annotations
@@ -105,14 +105,14 @@ OPCODES: dict[str, str] = {
     "OP_NOP8": "b7",
     "OP_NOP9": "b8",
     "OP_NOP10": "b9",
-    # Timelock (aliases for NOP2/NOP3)
+    # Timelock aliases
     "OP_CHECKLOCKTIMEVERIFY": "b1",
     "OP_CHECKSEQUENCEVERIFY": "b2",
     # PUSHDATA
     "OP_PUSHDATA1": "4c",
     "OP_PUSHDATA2": "4d",
     "OP_PUSHDATA4": "4e",
-    # Disabled opcodes
+    # Disabled
     "OP_CAT": "7e",
     "OP_SUBSTR": "7f",
     "OP_LEFT": "80",
@@ -135,39 +135,27 @@ OPCODES: dict[str, str] = {
     "OP_VERNOTIF": "66",
     "OP_RESERVED1": "89",
     "OP_RESERVED2": "8a",
+    # Pseudo
+    "OP_INVALIDOPCODE": "ff",
 }
 
+# Build bare-name -> hex map (DUP -> 76, ADD -> 93, etc.)
+_BARE_TO_HEX: dict[str, str] = {}
+for _name, _hex_val in OPCODES.items():
+    _BARE_TO_HEX[_name] = _hex_val
+    if _name.startswith("OP_"):
+        _bare = _name[3:]
+        if _bare not in _BARE_TO_HEX:
+            _BARE_TO_HEX[_bare] = _hex_val
 
-def push(data_hex: str) -> str:
-    """Create a push operation: length byte + data.
-
-    Args:
-        data_hex: Hex string of data to push (e.g. "abcd" for 2 bytes).
-
-    Returns:
-        Hex string with push opcode prefix.
-    """
-    data_bytes = bytes.fromhex(data_hex)
-    n = len(data_bytes)
-    if n <= 75:
-        return f"{n:02x}{data_hex}"
-    raise ValueError(f"push() only supports up to 75 bytes, got {n}")
-
-
-def push_int(n: int) -> str:
-    """Push an integer using the smallest encoding.
-
-    Uses OP_0..OP_16 for 0-16, OP_1NEGATE for -1,
-    otherwise CScriptNum encoding with push opcode.
-    """
-    if n == 0:
-        return OPCODES["OP_0"]
-    if n == -1:
-        return OPCODES["OP_1NEGATE"]
-    if 1 <= n <= 16:
-        return OPCODES[f"OP_{n}"]
-    # CScriptNum encoding
-    return push(_int_to_scriptnum_hex(n))
+_BARE_TO_HEX.update(
+    {
+        "CHECKLOCKTIMEVERIFY": OPCODES["OP_CHECKLOCKTIMEVERIFY"],
+        "CHECKSEQUENCEVERIFY": OPCODES["OP_CHECKSEQUENCEVERIFY"],
+        "TRUE": OPCODES["OP_TRUE"],
+        "FALSE": OPCODES["OP_FALSE"],
+    }
+)
 
 
 def _int_to_scriptnum_hex(n: int) -> str:
@@ -176,40 +164,79 @@ def _int_to_scriptnum_hex(n: int) -> str:
         return ""
     negative = n < 0
     absval = abs(n)
-
-    # Encode as little-endian bytes
     result: list[int] = []
     while absval > 0:
         result.append(absval & 0xFF)
         absval >>= 8
-
-    # If the high bit is set, add an extra byte for the sign
     if result[-1] & 0x80:
         result.append(0x80 if negative else 0x00)
     elif negative:
         result[-1] |= 0x80
-
     return bytes(result).hex()
 
 
-def script(*parts: str) -> bytes:
-    """Build script bytes from opcode names and hex data.
+def _push_data_hex(data: bytes) -> str:
+    """Encode a data push using the smallest push opcode."""
+    n = len(data)
+    if n == 0:
+        return "00"  # OP_0
+    if n <= 75:
+        return f"{n:02x}{data.hex()}"
+    if n <= 255:
+        return f"4c{n:02x}{data.hex()}"
+    if n <= 65535:
+        return f"4d{n.to_bytes(2, 'little').hex()}{data.hex()}"
+    return f"4e{n.to_bytes(4, 'little').hex()}{data.hex()}"
 
-    Each part is either:
-    - An opcode name (e.g. "OP_DUP") -> looked up in OPCODES
-    - A raw hex string (e.g. "41abcd...") -> passed through directly
 
-    Returns:
-        Raw script bytes.
+def parse_asm(asm: str) -> bytes:
+    """Parse Bitcoin Script ASM notation into raw script bytes.
 
-    Example:
-        script("OP_DUP", "OP_HASH160", push("ab" * 20), "OP_EQUALVERIFY", "OP_CHECKSIG")
+    Handles: bare opcodes (DUP), OP_-prefixed opcodes, hex data (0xabcd),
+    single-quoted strings ('hello'), and bare integers.
     """
-    hex_parts = []
-    for part in parts:
-        if part in OPCODES:
-            hex_parts.append(OPCODES[part])
-        else:
-            # Raw hex data (e.g. from push())
-            hex_parts.append(part)
-    return bytes.fromhex("".join(hex_parts))
+    if not asm or not asm.strip():
+        return b""
+
+    tokens = asm.split()
+    result: list[str] = []
+
+    for token in tokens:
+        # Single-quoted string: 'hello' -> length-prefixed push
+        if token.startswith("'") and token.endswith("'") and len(token) > 1:
+            data = token[1:-1].encode("ascii")
+            result.append(_push_data_hex(data))
+            continue
+
+        # Hex data: 0xabcd -> length-prefixed push
+        if token.startswith("0x") or token.startswith("0X"):
+            data = bytes.fromhex(token[2:])
+            result.append(_push_data_hex(data))
+            continue
+
+        # Opcode name (OP_-prefixed or bare)
+        if token.upper() in _BARE_TO_HEX:
+            result.append(_BARE_TO_HEX[token.upper()])
+            continue
+
+        # Bare integer
+        try:
+            n = int(token)
+            if n == 0:
+                result.append("00")
+            elif n == -1:
+                result.append("4f")
+            elif 1 <= n <= 16:
+                result.append(f"{0x50 + n:02x}")
+            else:
+                num_hex = _int_to_scriptnum_hex(n)
+                num_bytes = len(num_hex) // 2
+                result.append(f"{num_bytes:02x}")
+                result.append(num_hex)
+            continue
+        except ValueError:
+            pass
+
+        raise ValueError(f"Unknown token: {token}")
+
+    return bytes.fromhex("".join(result))

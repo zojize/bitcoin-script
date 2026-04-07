@@ -21,6 +21,8 @@ module SCRIPT-NUM
   // =========================================================================
 
   // --- Decode: Bytes -> Int ---
+  // NOTE: scriptNumToInt must be total (LLVM backend crashes on partial functions).
+  // The 4-byte limit (nMaxNumSize) is enforced at the opcode rule level, not here.
   syntax Int ::= scriptNumToInt(Bytes) [function]
 
   // Empty bytes = 0
@@ -41,6 +43,51 @@ module SCRIPT-NUM
     requires lengthBytes(B) >Int 0
      andBool Bytes2Int(substrBytes(B, lengthBytes(B) -Int 1, lengthBytes(B)), BE, Unsigned) &Int 128 =/=Int 0
 
+  // --- 4-byte limit predicate (used by opcode rules) ---
+  syntax Bool ::= validNum(Bytes) [function, total]
+  rule validNum(B) => lengthBytes(B) <=Int 4
+
+  // --- 5-byte limit predicate (used by CLTV/CSV: nMaxNumSize=5) ---
+  syntax Bool ::= validNum5(Bytes) [function, total]
+  rule validNum5(B) => lengthBytes(B) <=Int 5
+
+  // --- CScriptNum minimal encoding check (for MINIMALDATA flag) ---
+  // Returns true if the byte encoding is the shortest possible for the value.
+  // Non-minimal: trailing zero byte when second-to-last byte's high bit is clear.
+  syntax Bool ::= #isMinimalNum(Bytes) [function, total]
+
+  // Empty = minimal (represents 0)
+  rule #isMinimalNum(B) => true
+    requires lengthBytes(B) ==Int 0
+
+  // Non-empty: check if last byte's value part (bits 0-6) is zero
+  // If so, either size is 1 (unnecessary zero/sign byte) or
+  // second-to-last byte's high bit is clear (unnecessary padding)
+  rule #isMinimalNum(B) => true
+    requires lengthBytes(B) >Int 0
+     andBool (Bytes2Int(substrBytes(B, lengthBytes(B) -Int 1, lengthBytes(B)), BE, Unsigned) &Int 127) =/=Int 0
+
+  rule #isMinimalNum(B) => false
+    requires lengthBytes(B) ==Int 1
+     andBool (Bytes2Int(substrBytes(B, 0, 1), BE, Unsigned) &Int 127) ==Int 0
+
+  rule #isMinimalNum(B) => true
+    requires lengthBytes(B) >Int 1
+     andBool (Bytes2Int(substrBytes(B, lengthBytes(B) -Int 1, lengthBytes(B)), BE, Unsigned) &Int 127) ==Int 0
+     andBool (Bytes2Int(substrBytes(B, lengthBytes(B) -Int 2, lengthBytes(B) -Int 1), BE, Unsigned) &Int 128) =/=Int 0
+
+  rule #isMinimalNum(B) => false
+    requires lengthBytes(B) >Int 1
+     andBool (Bytes2Int(substrBytes(B, lengthBytes(B) -Int 1, lengthBytes(B)), BE, Unsigned) &Int 127) ==Int 0
+     andBool (Bytes2Int(substrBytes(B, lengthBytes(B) -Int 2, lengthBytes(B) -Int 1), BE, Unsigned) &Int 128) ==Int 0
+
+  // --- Combined check: validNum + optional minimal encoding ---
+  syntax Bool ::= validNumFlags(Bytes, Int) [function, total]
+  rule validNumFlags(B, F) => validNum(B)
+    requires (F &Int 64) ==Int 0  // FLAG_MINIMALDATA = 64
+  rule validNumFlags(B, F) => validNum(B) andBool #isMinimalNum(B)
+    requires (F &Int 64) =/=Int 0
+
   // --- Encode: Int -> Bytes ---
   syntax Bytes ::= intToScriptNum(Int) [function]
   syntax Bytes ::= intToScriptNumAbs(Int) [function]
@@ -60,28 +107,33 @@ module SCRIPT-NUM
   rule intToScriptNumAbs(I) => Int2Bytes(1, I, LE)
     requires I >Int 0 andBool I <Int 128
 
-  rule intToScriptNumAbs(I) => Int2Bytes(2, I, LE) +Bytes Int2Bytes(1, 0, BE)
-    requires I ==Int 128
+  // 1 byte with sign padding (high bit set: 128-255)
+  rule intToScriptNumAbs(I) => Int2Bytes(1, I, LE) +Bytes Int2Bytes(1, 0, BE)
+    requires I >=Int 128 andBool I <Int 256
 
+  // 2 bytes, no padding needed (high bit of byte 1 is 0)
   rule intToScriptNumAbs(I) => Int2Bytes(2, I, LE)
-    requires I >Int 128 andBool I <Int 32768
-     andBool I &Int 32768 ==Int 0
+    requires I >=Int 256 andBool I <Int 32768
 
+  // 2 bytes with sign padding (high bit of byte 1 is set: 32768-65535)
   rule intToScriptNumAbs(I) => Int2Bytes(2, I, LE) +Bytes Int2Bytes(1, 0, BE)
     requires I >=Int 32768 andBool I <Int 65536
-     andBool I &Int 32768 =/=Int 0
 
+  // 3 bytes, no padding needed (high bit of byte 2 is 0)
   rule intToScriptNumAbs(I) => Int2Bytes(3, I, LE)
-    requires I >=Int 32768 andBool I <Int 8388608
-     andBool I &Int 8388608 ==Int 0
+    requires I >=Int 65536 andBool I <Int 8388608
 
+  // 3 bytes with sign padding (high bit of byte 2 is set: 8388608-16777215)
   rule intToScriptNumAbs(I) => Int2Bytes(3, I, LE) +Bytes Int2Bytes(1, 0, BE)
     requires I >=Int 8388608 andBool I <Int 16777216
-     andBool I &Int 8388608 =/=Int 0
 
+  // 4 bytes, no padding needed (high bit of byte 3 is 0)
   rule intToScriptNumAbs(I) => Int2Bytes(4, I, LE)
-    requires I >=Int 8388608 andBool I <Int 2147483648
-     andBool I &Int 2147483648 ==Int 0
+    requires I >=Int 16777216 andBool I <Int 2147483648
+
+  // 5 bytes: value needs 4 unsigned bytes but high bit (bit 31) is set
+  rule intToScriptNumAbs(I) => Int2Bytes(4, I, LE) +Bytes Int2Bytes(1, 0, BE)
+    requires I >=Int 2147483648 andBool I <Int 4294967296
 
   // Set the sign bit (high bit of last byte) for negative encoding
   syntax Bytes ::= "#setSignBit" "(" Bytes ")" [function]
@@ -93,7 +145,6 @@ module SCRIPT-NUM
   // Hex literal to Bytes conversion
   // =========================================================================
 
-  syntax String ::= HexLiteral2String(HexLiteral) [function, total, hook(STRING.token2string)]
   syntax String ::= HexPgm2String(HexPgm) [function, total, hook(STRING.token2string)]
 
   // Convert a hex string (e.g. "abcd01") to raw Bytes

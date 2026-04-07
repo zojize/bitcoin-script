@@ -1,119 +1,68 @@
 # blockchain
 
-Real Bitcoin blockchain data access: downloading, parsing, and validation from genesis.
+Bitcoin blockchain data access, UTXO tracking, and formal script verification.
 
-- `downloader.py` — `BlockchainDownloader` acquires blocks via Bitcoin Core RPC or reads from a local data directory. Supports downloading a range of block heights.
-- `parser.py` — `BlockFileParser` reads Bitcoin Core's `.blk` dat files (4-byte magic `0xF9BEB4D9` + 4-byte size + raw block, repeated) and yields `Block` model objects. Use `iter_blocks(start=N)` to skip the first *N* blocks efficiently without deserializing them.
-- `utxo.py` — `UTXOSet` tracks unspent transaction outputs in a dict keyed by `OutPoint`. Supports add, spend, get, and contains operations for chain validation.
-- `validation.py` — Consensus rule enforcement: proof-of-work, prev-hash linkage, Merkle root integrity, script verification for each input, value conservation, and block subsidy calculation (50 BTC halving every 210,000 blocks).
+## Modules
 
-## Prerequisites
-
-Install Bitcoin Core via Homebrew (macOS) or from [bitcoincore.org](https://bitcoincore.org/en/download/):
-
-```bash
-brew install bitcoin
-```
-
-## Running a mainnet node
-
-1. **Configure RPC credentials** — create or edit your `bitcoin.conf`
-   (`~/Library/Application Support/Bitcoin/bitcoin.conf` on macOS,
-   `~/.bitcoin/bitcoin.conf` on Linux):
-
-   ```ini
-   server=1
-   rpcuser=<your-username>
-   rpcpassword=<your-password>
-   ```
-
-2. **Start the node**:
-
-   ```bash
-   bitcoind -daemon
-   ```
-
-3. **Monitor sync progress** — the initial block download (IBD) syncs the full
-   blockchain and can take several hours to days depending on your hardware and
-   connection:
-
-   ```bash
-   bitcoin-cli getblockchaininfo
-   ```
-
-   Look for `"verificationprogress"` approaching `1.0`. You can start fetching
-   blocks that have already been downloaded even while IBD is in progress.
-
-4. **Stop the node** when you're done:
-
-   ```bash
-   bitcoin-cli stop
-   ```
-
-   This gracefully shuts down `bitcoind`. If you configured custom RPC
-   credentials, pass them explicitly:
-
-   ```bash
-   bitcoin-cli -rpcuser=<your-username> -rpcpassword=<your-password> stop
-   ```
+- **`verifier.py`** — `ChainVerifier` orchestrates block-by-block script verification via K Framework. Reads `.blk` files, builds UTXO set, computes sighash, and invokes K for every transaction input. Supports single-block and chain-range verification with SQLite checkpointing.
+- **`parser.py`** — `BlockFileParser` reads Bitcoin Core's `.blk` dat files with XOR deobfuscation support (v28+). Use `iter_blocks(start=N)` to skip blocks efficiently.
+- **`utxo.py`** — `UTXOSet` tracks unspent transaction outputs in SQLite. Supports add, spend, get, commit, and checkpoint/resume.
+- **`flags.py`** — `flags_for_block(height, timestamp)` returns the bitmask of active consensus verification flags at a given block, covering P2SH through SegWit activation.
+- **`downloader.py`** — `BlockchainDownloader` fetches blocks via Bitcoin Core RPC.
 
 ## Quick start
 
-Fetch the mainnet genesis block from a running Bitcoin Core node:
+### Verify mainnet blocks via CLI
+
+```sh
+# First 1000 blocks
+uv run bitcoin-script verify --end 1000
+
+# Single block (block 170: first real transaction)
+uv run bitcoin-script verify --block 170
+
+# Resume from checkpoint
+uv run bitcoin-script verify --end 50000 --db chain.db
+```
+
+### Python API
 
 ```python
-from bitcoin_script.blockchain.downloader import BlockchainDownloader
+from pathlib import Path
+from bitcoin_script.blockchain.verifier import ChainVerifier
 
-dl = BlockchainDownloader.from_url("http://user:pass@127.0.0.1:8332")
+verifier = ChainVerifier(Path.home() / "Library/Application Support/Bitcoin")
 
-# Genesis block as a decoded dict
-genesis = dl.get_block(0, verbosity=1)
-print(genesis["hash"])      # 000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f
-print(genesis["tx"][0])     # coinbase txid
+# Verify a range of blocks
+result = verifier.verify_chain(start=0, end=999)
+print(f"{result.blocks_verified} blocks, {result.inputs_verified} inputs, OK={result.ok}")
 
-# Raw serialised block hex
-raw_hex = dl.get_block_raw(0)
-
-# Download a range of blocks
-blocks = dl.download_blocks(start_height=0, end_height=9)
-for b in blocks:
-    print(f"Block {b['height']}: {b['hash']}")
+# Verify a single block (UTXO must be built up to height-1)
+block_result = verifier.verify_block(170)
+print(f"Block 170: {block_result.input_count} inputs, OK={block_result.ok}")
 ```
 
-Replace `user:pass` with your `rpcuser` / `rpcpassword` from `bitcoin.conf`.
-
-There is also a runnable demo script at `scripts/demo_downloader.py`.
-Without `BITCOIN_RPC_URL` set it spins up a temporary regtest node automatically:
-
-```bash
-# Regtest (no mainnet node required)
-uv run python scripts/demo_downloader.py
-
-# Mainnet
-BITCOIN_RPC_URL=http://user:pass@127.0.0.1:8332 uv run python scripts/demo_downloader.py
-```
-
-### Parsing local block files
-
-If you already have a Bitcoin Core data directory with `.blk` files, parse them
-directly with `BlockFileParser`:
+### Parse local block files
 
 ```python
 from pathlib import Path
 from itertools import islice
 from bitcoin_script.blockchain.parser import BlockFileParser
 
-data_dir = Path.home() / "Library/Application Support/Bitcoin"  # macOS default
-parser = BlockFileParser(data_dir)
+parser = BlockFileParser(Path.home() / "Library/Application Support/Bitcoin")
 
-# Parse the first 10 blocks
 for block in islice(parser, 10):
     print(block.GetHash()[::-1].hex())
-
-# Skip ahead efficiently — blocks before `start` are not deserialized
-for block in islice(parser.iter_blocks(start=170_000), 5):
-    print(block.GetHash()[::-1].hex(), len(block.vtx), "txs")
 ```
 
-See `scripts/demo_parser.py` for a fuller example that prints transaction
-inputs and outputs.
+## Prerequisites
+
+Install Bitcoin Core and sync the blockchain:
+
+```sh
+brew install bitcoin
+bitcoind -daemon
+bitcoin-cli getblockchaininfo  # wait for sync
+```
+
+The block files are stored at `~/Library/Application Support/Bitcoin/blocks/` (macOS) or `~/.bitcoin/blocks/` (Linux).

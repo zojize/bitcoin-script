@@ -35,7 +35,26 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
+# Environment / secrets
+.env
+
+# SQLite databases
+*.db
+*.db-shm
+*.db-wal
+
+# Archives
+*.tar.gz
+
+# Temp files
+temp
+
 # Bitcoin data (large files)
 *.blk
 *.dat
 blockchain_data/
+
+# Bitcoin Core test vectors (downloaded at test time)
+tests/test_k_semantics/data/
+mainnet_verify.db
+docs/superpowers/

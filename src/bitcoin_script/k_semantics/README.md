@@ -67,12 +67,12 @@ uv run kdist build bitcoin-script-semantics.llvm
 
 This compiles the K definition with the LLVM backend. The build targets defined in `kdist/plugin.py` are:
 
-| Target | Description |
-|--------|-------------|
-| `source` | Copies K source files |
-| `plugin` | Builds the blockchain-k-plugin crypto library (`krypto.a`) |
-| `llvm` | Kompiles via LLVM backend with crypto hooks |
-| `llvm-lib` | Kompiles as a C library variant |
+| Target     | Description                                                |
+| ---------- | ---------------------------------------------------------- |
+| `source`   | Copies K source files                                      |
+| `plugin`   | Builds the blockchain-k-plugin crypto library (`krypto.a`) |
+| `llvm`     | Kompiles via LLVM backend with crypto hooks                |
+| `llvm-lib` | Kompiles as a C library variant                            |
 
 ## Testing
 

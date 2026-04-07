@@ -17,6 +17,9 @@ module SCRIPT-SEMANTICS
   imports LIST
   imports BYTES
 
+  // --- Phase sort ---
+  syntax Phase ::= "scriptSig" | "scriptPubKey" | "p2sh-redeem" | "witness-v0" | "done"
+
   // --- Configuration ---
   configuration
     <T>
@@ -24,14 +27,66 @@ module SCRIPT-SEMANTICS
       <stack> .List </stack>
       <altstack> .List </altstack>
       <exec> .List </exec>
-      <phase> "scriptSig":String </phase>
+      <phase> scriptSig </phase>
+      <error> "" </error>
       <sighash> $SIGHASH:Bytes </sighash>
-      <timestamp> $TIMESTAMP:Int </timestamp>
       <scriptSigBytes> $SCRIPTSIG:Bytes </scriptSigBytes>
       <scriptPubKeyBytes> $SCRIPTPUBKEY:Bytes </scriptPubKeyBytes>
       <witness> $WITNESS:Bytes </witness>
       <savedStack> .List </savedStack>
+      <opCount> 0 </opCount>
+      <flags> $FLAGS:Int </flags>
+      <txVersion> $TXVERSION:Int </txVersion>
+      <nLockTime> $NLOCKTIME:Int </nLockTime>
+      <nSequence> $NSEQUENCE:Int </nSequence>
+      <witnessUsed> false </witnessUsed>
+      <p2shRedeemBytes> .Bytes </p2shRedeemBytes>
+      <codesepIdx> 0 </codesepIdx>
     </T>
+
+  // --- Flag checking (Bitcoin Core verification flags as bitmask) ---
+  syntax Int ::= "FLAG_P2SH"                         [macro]
+               | "FLAG_STRICTENC"                    [macro]
+               | "FLAG_DERSIG"                       [macro]
+               | "FLAG_LOW_S"                        [macro]
+               | "FLAG_NULLDUMMY"                    [macro]
+               | "FLAG_SIGPUSHONLY"                  [macro]
+               | "FLAG_MINIMALDATA"                  [macro]
+               | "FLAG_DISCOURAGE_UPGRADABLE_NOPS"   [macro]
+               | "FLAG_CLEANSTACK"                   [macro]
+               | "FLAG_CHECKLOCKTIMEVERIFY"          [macro]
+               | "FLAG_CHECKSEQUENCEVERIFY"          [macro]
+               | "FLAG_WITNESS"                       [macro]
+               | "FLAG_DISCOURAGE_UPGRADABLE_WITNESS" [macro]
+               | "FLAG_MINIMALIF"                    [macro]
+               | "FLAG_NULLFAIL"                     [macro]
+               | "FLAG_WITNESS_PUBKEYTYPE"           [macro]
+
+  rule FLAG_P2SH                        => 1
+  rule FLAG_STRICTENC                   => 2
+  rule FLAG_DERSIG                      => 4
+  rule FLAG_LOW_S                       => 8
+  rule FLAG_NULLDUMMY                   => 16
+  rule FLAG_SIGPUSHONLY                 => 32
+  rule FLAG_MINIMALDATA                 => 64
+  rule FLAG_DISCOURAGE_UPGRADABLE_NOPS  => 128
+  rule FLAG_CLEANSTACK                  => 256
+  rule FLAG_CHECKLOCKTIMEVERIFY         => 512
+  rule FLAG_CHECKSEQUENCEVERIFY         => 1024
+  rule FLAG_WITNESS                     => 2048
+  rule FLAG_DISCOURAGE_UPGRADABLE_WITNESS => 4096
+  rule FLAG_MINIMALIF                   => 8192
+  rule FLAG_NULLFAIL                    => 16384
+  rule FLAG_WITNESS_PUBKEYTYPE          => 32768
+
+  syntax Bool ::= hasFlag(Int, Int) [function, total]
+  rule hasFlag(FLAGS, BIT) => (FLAGS &Int BIT) =/=Int 0
+
+  // --- Error mechanism ---
+  // #fail(code) sets the error cell and halts execution by clearing the k cell.
+  syntax KItem ::= "#fail" "(" String ")"
+  rule <k> #fail(ERR) ~> _:K => .K </k>
+       <error> _ => ERR </error>
 
   // =========================================================================
   // Initialization: start executing scriptSig (or skip to scriptPubKey)
@@ -40,72 +95,383 @@ module SCRIPT-SEMANTICS
   syntax KItem ::= "#init"
                  | "#phaseComplete"
 
-  // scriptSig is non-empty: decode and execute it
+  // scriptSig is non-empty: decode and execute it (max 10000 bytes)
+  // SIG_PUSHONLY: when flag set, scriptSig must contain only push opcodes
   rule <k> #init => #decodeScript(SIG) ~> #phaseComplete ...</k>
        <scriptSigBytes> SIG </scriptSigBytes>
+       <flags> F </flags>
     requires lengthBytes(SIG) >Int 0
+     andBool lengthBytes(SIG) <=Int 10000
+     andBool (notBool hasFlag(F, FLAG_SIGPUSHONLY) orBool #isPushOnly(SIG))
+
+  rule <k> #init => #fail("SIG_PUSHONLY") ...</k>
+       <scriptSigBytes> SIG </scriptSigBytes>
+       <flags> F </flags>
+    requires lengthBytes(SIG) >Int 0
+     andBool hasFlag(F, FLAG_SIGPUSHONLY)
+     andBool notBool #isPushOnly(SIG)
+
+  rule <k> #init => #fail("SCRIPT_SIZE") ...</k>
+       <scriptSigBytes> SIG </scriptSigBytes>
+    requires lengthBytes(SIG) >Int 10000
 
   // scriptSig is empty: skip straight to scriptPubKey
   rule <k> #init => #decodeScript(PK) ~> #phaseComplete ...</k>
        <scriptSigBytes> SIG </scriptSigBytes>
        <scriptPubKeyBytes> PK </scriptPubKeyBytes>
-       <phase> _ => "scriptPubKey" </phase>
+       <phase> _ => scriptPubKey </phase>
     requires lengthBytes(SIG) ==Int 0
+     andBool lengthBytes(PK) <=Int 10000
+
+  rule <k> #init => #fail("SCRIPT_SIZE") ...</k>
+       <scriptSigBytes> SIG </scriptSigBytes>
+       <scriptPubKeyBytes> PK </scriptPubKeyBytes>
+    requires lengthBytes(SIG) ==Int 0
+     andBool lengthBytes(PK) >Int 10000
 
   // =========================================================================
   // Phase transitions
   // =========================================================================
 
   // After scriptSig completes: save stack if P2SH, then run scriptPubKey
+  // Altstack is cleared between phases; exec stack must be empty (balanced IF/ENDIF)
   rule <k> #phaseComplete => #decodeScript(PK) ~> #phaseComplete ...</k>
-       <phase> "scriptSig" => "scriptPubKey" </phase>
+       <phase> scriptSig => scriptPubKey </phase>
        <scriptPubKeyBytes> PK </scriptPubKeyBytes>
        <stack> ST </stack>
        <savedStack> _ => ST </savedStack>
-       <timestamp> TS </timestamp>
-    requires #isP2SH(PK) andBool TS >=Int 1333238400
+       <altstack> _ => .List </altstack>
+       <exec> .List </exec>
+       <opCount> _ => 0 </opCount>
+       <codesepIdx> _ => 0 </codesepIdx>
+       <flags> F </flags>
+    requires hasFlag(F, FLAG_P2SH) andBool #isP2SH(PK)
+     andBool lengthBytes(PK) <=Int 10000
 
   rule <k> #phaseComplete => #decodeScript(PK) ~> #phaseComplete ...</k>
-       <phase> "scriptSig" => "scriptPubKey" </phase>
+       <phase> scriptSig => scriptPubKey </phase>
        <scriptPubKeyBytes> PK </scriptPubKeyBytes>
-       <timestamp> TS </timestamp>
-    requires notBool #isP2SH(PK) orBool TS <Int 1333238400
+       <altstack> _ => .List </altstack>
+       <exec> .List </exec>
+       <opCount> _ => 0 </opCount>
+       <codesepIdx> _ => 0 </codesepIdx>
+       <flags> F </flags>
+    requires notBool (hasFlag(F, FLAG_P2SH) andBool #isP2SH(PK))
+     andBool lengthBytes(PK) <=Int 10000
 
-  // After scriptPubKey completes, NOT P2SH: done
-  rule <k> #phaseComplete => .K ...</k>
-       <phase> "scriptPubKey" => "done" </phase>
+  // After scriptPubKey completes, NOT P2SH, IS witness program with WITNESS flag:
+  // Native witness: scriptSig must be empty (WITNESS_MALLEATED)
+  rule <k> #phaseComplete => #fail("WITNESS_MALLEATED") ...</k>
+       <phase> scriptPubKey </phase>
+       <exec> .List </exec>
+       <flags> F </flags>
        <scriptPubKeyBytes> PK </scriptPubKeyBytes>
-       <timestamp> TS </timestamp>
-    requires notBool #isP2SH(PK) orBool TS <Int 1333238400
+       <scriptSigBytes> SIG </scriptSigBytes>
+    requires notBool (hasFlag(F, FLAG_P2SH) andBool #isP2SH(PK))
+     andBool hasFlag(F, FLAG_WITNESS) andBool #isWitnessProgram(PK)
+     andBool lengthBytes(SIG) >Int 0
+
+  // Native witness: enter witness verification
+  rule <k> #phaseComplete => #witnessVerify(#witnessVersion(PK), #witnessProgram(PK)) ...</k>
+       <phase> scriptPubKey </phase>
+       <exec> .List </exec>
+       <flags> F </flags>
+       <scriptPubKeyBytes> PK </scriptPubKeyBytes>
+       <scriptSigBytes> SIG </scriptSigBytes>
+    requires notBool (hasFlag(F, FLAG_P2SH) andBool #isP2SH(PK))
+     andBool hasFlag(F, FLAG_WITNESS) andBool #isWitnessProgram(PK)
+     andBool lengthBytes(SIG) ==Int 0
+
+  // After scriptPubKey completes, NOT P2SH, NOT witness program: done
+  // WITNESS_UNEXPECTED: witness data present but no witness program
+  rule <k> #phaseComplete => #fail("WITNESS_UNEXPECTED") ...</k>
+       <phase> scriptPubKey </phase>
+       <exec> .List </exec>
+       <flags> F </flags>
+       <scriptPubKeyBytes> PK </scriptPubKeyBytes>
+       <witness> W </witness>
+       <witnessUsed> false </witnessUsed>
+    requires notBool (hasFlag(F, FLAG_P2SH) andBool #isP2SH(PK))
+     andBool notBool (hasFlag(F, FLAG_WITNESS) andBool #isWitnessProgram(PK))
+     andBool hasFlag(F, FLAG_WITNESS) andBool #witnessCount(W) >Int 0
+
+  // Exec stack must be empty (balanced IF/ENDIF)
+  // CLEANSTACK: when flag set, stack must have exactly 1 element
+  rule <k> #phaseComplete => .K ...</k>
+       <phase> scriptPubKey => done </phase>
+       <exec> .List </exec>
+       <stack> ST </stack>
+       <flags> F </flags>
+       <scriptPubKeyBytes> PK </scriptPubKeyBytes>
+       <witness> W </witness>
+       <witnessUsed> WU </witnessUsed>
+    requires notBool (hasFlag(F, FLAG_P2SH) andBool #isP2SH(PK))
+     andBool notBool (hasFlag(F, FLAG_WITNESS) andBool #isWitnessProgram(PK))
+     andBool (notBool hasFlag(F, FLAG_WITNESS) orBool WU orBool #witnessCount(W) ==Int 0)
+     andBool (notBool hasFlag(F, FLAG_CLEANSTACK) orBool size(ST) ==Int 1)
+
+  rule <k> #phaseComplete => #fail("CLEANSTACK") ...</k>
+       <phase> scriptPubKey </phase>
+       <exec> .List </exec>
+       <stack> ST </stack>
+       <flags> F </flags>
+       <scriptPubKeyBytes> PK </scriptPubKeyBytes>
+       <witness> W </witness>
+       <witnessUsed> WU </witnessUsed>
+    requires notBool (hasFlag(F, FLAG_P2SH) andBool #isP2SH(PK))
+     andBool notBool (hasFlag(F, FLAG_WITNESS) andBool #isWitnessProgram(PK))
+     andBool (notBool hasFlag(F, FLAG_WITNESS) orBool WU orBool #witnessCount(W) ==Int 0)
+     andBool hasFlag(F, FLAG_CLEANSTACK) andBool size(ST) =/=Int 1
 
   // After scriptPubKey completes, IS P2SH, scriptPubKey succeeded:
   // restore saved stack, pop redeem script, decode and execute it
+  // Save redeem bytes for P2SH-wrapped witness detection
   rule <k> #phaseComplete => #decodeScript(REDEEM) ~> #phaseComplete ...</k>
-       <phase> "scriptPubKey" => "p2sh-redeem" </phase>
+       <phase> scriptPubKey => p2sh-redeem </phase>
+       <exec> .List </exec>
+       <opCount> _ => 0 </opCount>
+       <codesepIdx> _ => 0 </codesepIdx>
+       <flags> F </flags>
        <scriptPubKeyBytes> PK </scriptPubKeyBytes>
-       <timestamp> TS </timestamp>
        <stack> ListItem(V:Bytes) _ => REST </stack>
        <savedStack> ListItem(REDEEM:Bytes) REST </savedStack>
        <scriptSigBytes> SIG </scriptSigBytes>
-    requires #isP2SH(PK) andBool TS >=Int 1333238400
+       <p2shRedeemBytes> _ => REDEEM </p2shRedeemBytes>
+    requires hasFlag(F, FLAG_P2SH) andBool #isP2SH(PK)
      andBool #isPushOnly(SIG)
      andBool #isTruthy(V)
+     andBool lengthBytes(REDEEM) <=Int 10000
 
   // After scriptPubKey completes, IS P2SH, but scriptPubKey FAILED (stack top falsy):
   // do not execute redeem script, just finish
   rule <k> #phaseComplete => .K ...</k>
-       <phase> "scriptPubKey" => "done" </phase>
+       <phase> scriptPubKey => done </phase>
+       <exec> .List </exec>
+       <flags> F </flags>
        <stack> ListItem(V:Bytes) _ </stack>
        <scriptPubKeyBytes> PK </scriptPubKeyBytes>
-       <timestamp> TS </timestamp>
        <scriptSigBytes> SIG </scriptSigBytes>
-    requires #isP2SH(PK) andBool TS >=Int 1333238400
+    requires hasFlag(F, FLAG_P2SH) andBool #isP2SH(PK)
      andBool #isPushOnly(SIG)
      andBool notBool #isTruthy(V)
 
-  // After p2sh-redeem completes: done
+  // After p2sh-redeem completes: check for P2SH-wrapped witness program
+  rule <k> #phaseComplete => #witnessVerify(#witnessVersion(REDEEM), #witnessProgram(REDEEM)) ...</k>
+       <phase> p2sh-redeem </phase>
+       <exec> .List </exec>
+       <flags> F </flags>
+       <p2shRedeemBytes> REDEEM </p2shRedeemBytes>
+    requires hasFlag(F, FLAG_WITNESS) andBool #isWitnessProgram(REDEEM)
+
+  // After p2sh-redeem completes, NOT witness: done (CLEANSTACK + WITNESS_UNEXPECTED)
+  rule <k> #phaseComplete => #fail("WITNESS_UNEXPECTED") ...</k>
+       <phase> p2sh-redeem </phase>
+       <exec> .List </exec>
+       <flags> F </flags>
+       <p2shRedeemBytes> REDEEM </p2shRedeemBytes>
+       <witness> W </witness>
+       <witnessUsed> false </witnessUsed>
+    requires notBool (hasFlag(F, FLAG_WITNESS) andBool #isWitnessProgram(REDEEM))
+     andBool hasFlag(F, FLAG_WITNESS) andBool #witnessCount(W) >Int 0
+
   rule <k> #phaseComplete => .K ...</k>
-       <phase> "p2sh-redeem" => "done" </phase>
+       <phase> p2sh-redeem => done </phase>
+       <exec> .List </exec>
+       <stack> ST </stack>
+       <flags> F </flags>
+       <p2shRedeemBytes> REDEEM </p2shRedeemBytes>
+       <witness> W </witness>
+       <witnessUsed> WU </witnessUsed>
+    requires notBool (hasFlag(F, FLAG_WITNESS) andBool #isWitnessProgram(REDEEM))
+     andBool (notBool hasFlag(F, FLAG_WITNESS) orBool WU orBool #witnessCount(W) ==Int 0)
+     andBool (notBool hasFlag(F, FLAG_CLEANSTACK) orBool size(ST) ==Int 1)
+
+  rule <k> #phaseComplete => #fail("CLEANSTACK") ...</k>
+       <phase> p2sh-redeem </phase>
+       <exec> .List </exec>
+       <stack> ST </stack>
+       <flags> F </flags>
+       <p2shRedeemBytes> REDEEM </p2shRedeemBytes>
+       <witness> W </witness>
+       <witnessUsed> WU </witnessUsed>
+    requires notBool (hasFlag(F, FLAG_WITNESS) andBool #isWitnessProgram(REDEEM))
+     andBool (notBool hasFlag(F, FLAG_WITNESS) orBool WU orBool #witnessCount(W) ==Int 0)
+     andBool hasFlag(F, FLAG_CLEANSTACK) andBool size(ST) =/=Int 1
+
+  // =========================================================================
+  // Witness program detection (BIP 141)
+  // =========================================================================
+  // A witness program is: <version_byte> <push_2_to_40_bytes>
+  // Version byte: OP_0 (0x00) or OP_1-OP_16 (0x51-0x60)
+  // Total script length: 4-42 bytes, second byte + 2 == total length
+
+  syntax Bool ::= #isWitnessProgram(Bytes) [function, total]
+  rule #isWitnessProgram(B) => true
+    requires lengthBytes(B) >=Int 4 andBool lengthBytes(B) <=Int 42
+     andBool (#scriptByte(B) ==Int 0
+              orBool (#scriptByte(B) >=Int 81 andBool #scriptByte(B) <=Int 96))
+     andBool Bytes2Int(substrBytes(B, 1, 2), BE, Unsigned) +Int 2 ==Int lengthBytes(B)
+  rule #isWitnessProgram(_) => false [owise]
+
+  // Extract witness version: OP_0 → 0, OP_N → N
+  syntax Int ::= #witnessVersion(Bytes) [function]
+  rule #witnessVersion(B) => 0 requires #scriptByte(B) ==Int 0
+  rule #witnessVersion(B) => #scriptByte(B) -Int 80
+    requires #scriptByte(B) >=Int 81 andBool #scriptByte(B) <=Int 96
+
+  // Extract witness program data (bytes after version + push opcode)
+  syntax Bytes ::= #witnessProgram(Bytes) [function]
+  rule #witnessProgram(B) => substrBytes(B, 2, lengthBytes(B))
+
+  // =========================================================================
+  // Witness blob decoding
+  // =========================================================================
+  // Blob format: <2-byte BE count> (<2-byte BE item_length> <item_bytes>)*
+
+  // Count of witness items in the blob
+  syntax Int ::= #witnessCount(Bytes) [function, total]
+  rule #witnessCount(W) => Bytes2Int(substrBytes(W, 0, 2), BE, Unsigned)
+    requires lengthBytes(W) >=Int 2
+  rule #witnessCount(W) => 0
+    requires lengthBytes(W) <Int 2
+
+  // Decode the Nth witness item (0-indexed) from the blob
+  // Skips past the 2-byte count header, then iterates to find item N
+  syntax Bytes ::= #witnessItemAt(Bytes, Int) [function]
+  rule #witnessItemAt(W, N) => #witnessItemSkip(substrBytes(W, 2, lengthBytes(W)), N)
+    requires lengthBytes(W) >=Int 2
+
+  // Skip N items, then read the next one
+  syntax Bytes ::= #witnessItemSkip(Bytes, Int) [function]
+  rule #witnessItemSkip(B, 0) =>
+    substrBytes(B, 2, 2 +Int Bytes2Int(substrBytes(B, 0, 2), BE, Unsigned))
+    requires lengthBytes(B) >=Int 2
+  rule #witnessItemSkip(B, N) =>
+    #witnessItemSkip(
+      substrBytes(B, 2 +Int Bytes2Int(substrBytes(B, 0, 2), BE, Unsigned), lengthBytes(B)),
+      N -Int 1)
+    requires N >Int 0 andBool lengthBytes(B) >=Int 2
+
+  // Build a K List of witness items from the blob (indices FROM to TO exclusive)
+  syntax List ::= #witnessList(Bytes, Int, Int) [function]
+  rule #witnessList(_, FROM, TO) => .List requires FROM >=Int TO
+  rule #witnessList(W, FROM, TO) =>
+    ListItem(#witnessItemAt(W, FROM)) #witnessList(W, FROM +Int 1, TO)
+    requires FROM <Int TO
+
+  // Push witness items onto the stack (items FROM to TO, pushed first-to-last
+  // so item FROM ends up at the bottom, item TO-1 at the top)
+  syntax KItem ::= "#pushWitnessStack" "(" Bytes "," Int "," Int ")"
+  rule <k> #pushWitnessStack(_, FROM, TO) => .K ...</k>
+    requires FROM >=Int TO
+  rule <k> #pushWitnessStack(W, FROM, TO)
+        => #pushWitnessStack(W, FROM +Int 1, TO) ...</k>
+       <stack> ST => ListItem(#witnessItemAt(W, FROM)) ST </stack>
+    requires FROM <Int TO
+
+  // =========================================================================
+  // Witness verification (BIP 141)
+  // =========================================================================
+  syntax KItem ::= "#witnessVerify" "(" Int "," Bytes ")"
+                 | "#witnessComplete"
+
+  // Version 0, empty witness stack → error
+  rule <k> #witnessVerify(0, _) => #fail("WITNESS_PROGRAM_WITNESS_EMPTY") ...</k>
+       <witness> W </witness>
+    requires #witnessCount(W) ==Int 0
+
+  // --- Version 0, 32-byte program (P2WSH) ---
+  // Witness script is the last item. SHA256(script) must equal program.
+  // Remaining items become the initial stack.
+  rule <k> #witnessVerify(0, PROG)
+        => #pushWitnessStack(W, 0, #witnessCount(W) -Int 1)
+        ~> #decodeScript(#witnessItemAt(W, #witnessCount(W) -Int 1))
+        ~> #witnessComplete ...</k>
+       <witness> W </witness>
+       <stack> _ => .List </stack>
+       <altstack> _ => .List </altstack>
+       <exec> _ => .List </exec>
+       <opCount> _ => 0 </opCount>
+       <codesepIdx> _ => 0 </codesepIdx>
+       <phase> _ => witness-v0 </phase>
+       <witnessUsed> _ => true </witnessUsed>
+    requires #witnessCount(W) >Int 0
+     andBool lengthBytes(PROG) ==Int 32
+     andBool Sha256raw(#witnessItemAt(W, #witnessCount(W) -Int 1)) ==K PROG
+
+  // P2WSH: hash mismatch
+  rule <k> #witnessVerify(0, PROG) => #fail("WITNESS_PROGRAM_MISMATCH") ...</k>
+       <witness> W </witness>
+    requires #witnessCount(W) >Int 0
+     andBool lengthBytes(PROG) ==Int 32
+     andBool Sha256raw(#witnessItemAt(W, #witnessCount(W) -Int 1)) =/=K PROG
+
+  // --- Version 0, 20-byte program (P2WPKH) ---
+  // Witness must have exactly 2 items (sig, pubkey).
+  // Synthesize P2PKH: OP_DUP OP_HASH160 <20-byte-program> OP_EQUALVERIFY OP_CHECKSIG
+  rule <k> #witnessVerify(0, PROG)
+        => #pushWitnessStack(W, 0, 2)
+        ~> #decodeScript(Int2Bytes(1, 118, BE) +Bytes Int2Bytes(1, 169, BE)
+             +Bytes Int2Bytes(1, 20, BE) +Bytes PROG
+             +Bytes Int2Bytes(1, 136, BE) +Bytes Int2Bytes(1, 172, BE))
+        ~> #witnessComplete ...</k>
+       <witness> W </witness>
+       <stack> _ => .List </stack>
+       <altstack> _ => .List </altstack>
+       <exec> _ => .List </exec>
+       <opCount> _ => 0 </opCount>
+       <codesepIdx> _ => 0 </codesepIdx>
+       <phase> _ => witness-v0 </phase>
+       <witnessUsed> _ => true </witnessUsed>
+    requires #witnessCount(W) ==Int 2
+     andBool lengthBytes(PROG) ==Int 20
+
+  // P2WPKH: wrong witness count
+  rule <k> #witnessVerify(0, PROG) => #fail("WITNESS_PROGRAM_MISMATCH") ...</k>
+       <witness> W </witness>
+    requires #witnessCount(W) =/=Int 2
+     andBool #witnessCount(W) >Int 0
+     andBool lengthBytes(PROG) ==Int 20
+
+  // --- Version 0, wrong program length ---
+  rule <k> #witnessVerify(0, PROG) => #fail("WITNESS_PROGRAM_WRONG_LENGTH") ...</k>
+       <witness> W </witness>
+    requires #witnessCount(W) >Int 0
+     andBool lengthBytes(PROG) =/=Int 20 andBool lengthBytes(PROG) =/=Int 32
+
+  // --- Version 1+: DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM ---
+  rule <k> #witnessVerify(V, _) => #fail("DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM") ...</k>
+       <flags> F </flags>
+    requires V >Int 0
+     andBool hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_WITNESS)
+
+  // --- Version 1+: future witness versions (anyone-can-spend, no discourage) ---
+  rule <k> #witnessVerify(V, _) => .K ...</k>
+       <phase> _ => done </phase>
+       <flags> F </flags>
+       <witnessUsed> _ => true </witnessUsed>
+    requires V >Int 0
+     andBool notBool hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_WITNESS)
+
+  // --- Witness execution complete ---
+  // Stack must have exactly 1 truthy item (CLEANSTACK always enforced in witness)
+  rule <k> #witnessComplete => .K ...</k>
+       <phase> witness-v0 => done </phase>
+       <exec> .List </exec>
+       <stack> ListItem(V:Bytes) .List </stack>
+    requires #isTruthy(V)
+
+  rule <k> #witnessComplete => #fail("EVAL_FALSE") ...</k>
+       <phase> witness-v0 </phase>
+       <exec> .List </exec>
+       <stack> ListItem(V:Bytes) .List </stack>
+    requires notBool #isTruthy(V)
+
+  rule <k> #witnessComplete => #fail("CLEANSTACK") ...</k>
+       <phase> witness-v0 </phase>
+       <exec> .List </exec>
+       <stack> ST </stack>
+    requires size(ST) =/=Int 1
 
   // =========================================================================
   // P2SH detection and push-only check
@@ -125,12 +491,32 @@ module SCRIPT-SEMANTICS
   rule #isPushOnly(B) => true
     requires lengthBytes(B) ==Int 0
 
+  // PUSHBYTES_1 through PUSHBYTES_75: skip 1 + N bytes
   rule #isPushOnly(B) => #isPushOnly(substrBytes(B, 1 +Int #scriptByte(B), lengthBytes(B)))
     requires lengthBytes(B) >Int 0
      andBool #scriptByte(B) >=Int 1
      andBool #scriptByte(B) <=Int 75
      andBool lengthBytes(B) >Int #scriptByte(B)
 
+  // PUSHDATA1 (0x4c = 76): skip 1 (opcode) + 1 (length byte) + N (data)
+  rule #isPushOnly(B) => #isPushOnly(substrBytes(B, 2 +Int Bytes2Int(substrBytes(B, 1, 2), BE, Unsigned), lengthBytes(B)))
+    requires lengthBytes(B) >Int 1
+     andBool #scriptByte(B) ==Int 76
+     andBool lengthBytes(B) >=Int 2 +Int Bytes2Int(substrBytes(B, 1, 2), BE, Unsigned)
+
+  // PUSHDATA2 (0x4d = 77): skip 1 + 2 (LE length) + N
+  rule #isPushOnly(B) => #isPushOnly(substrBytes(B, 3 +Int Bytes2Int(substrBytes(B, 1, 3), LE, Unsigned), lengthBytes(B)))
+    requires lengthBytes(B) >Int 2
+     andBool #scriptByte(B) ==Int 77
+     andBool lengthBytes(B) >=Int 3 +Int Bytes2Int(substrBytes(B, 1, 3), LE, Unsigned)
+
+  // PUSHDATA4 (0x4e = 78): skip 1 + 4 (LE length) + N
+  rule #isPushOnly(B) => #isPushOnly(substrBytes(B, 5 +Int Bytes2Int(substrBytes(B, 1, 5), LE, Unsigned), lengthBytes(B)))
+    requires lengthBytes(B) >Int 4
+     andBool #scriptByte(B) ==Int 78
+     andBool lengthBytes(B) >=Int 5 +Int Bytes2Int(substrBytes(B, 1, 5), LE, Unsigned)
+
+  // OP_0, OP_1NEGATE, OP_1..OP_16
   rule #isPushOnly(B) => #isPushOnly(#scriptTail(B))
     requires lengthBytes(B) >Int 0
      andBool ( #scriptByte(B) ==Int 0
@@ -139,375 +525,42 @@ module SCRIPT-SEMANTICS
   rule #isPushOnly(_) => false [owise]
 
   // =========================================================================
-  // Script sequencing: flatten Script Script into K sequence
-  // =========================================================================
-  rule <k> S1:Script S2:Script => S1 ~> S2 ...</k>
 
   // =========================================================================
-  // Hex script decoding: HexPgm -> Bytes -> opcodes
+  // OP_PUSHDATA: push raw bytes onto the stack (emitted by decoder for data pushes)
   // =========================================================================
 
-  // Strip "0x" prefix, convert hex string to bytes, decode
-  rule <k> H:HexPgm => #decodeScript(hexStringToBytes(substrString(HexPgm2String(H), 2, lengthString(HexPgm2String(H))))) ...</k>
-
-  // --- Decode helpers ---
-  syntax Int ::= #scriptByte(Bytes) [function]
-  rule #scriptByte(B) => Bytes2Int(substrBytes(B, 0, 1), BE, Unsigned)
-
-  syntax Bytes ::= #scriptTail(Bytes) [function]
-  rule #scriptTail(B) => substrBytes(B, 1, lengthBytes(B))
-
-  // --- Decode entry point ---
-  syntax KItem ::= "#decodeScript" "(" Bytes ")"
-                 | "#decodePush" "(" Int "," Bytes ")"
-
-  // Empty script — done
-  rule <k> #decodeScript(B) => .K ...</k>
-    requires lengthBytes(B) ==Int 0
-
-  // OP_0 (0x00)
-  rule <k> #decodeScript(B) => OP_0 ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0
-     andBool #scriptByte(B) ==Int 0
-
-  // OP_PUSHBYTES_1 through OP_PUSHBYTES_75 (0x01 - 0x4b)
-  // Extracts N bytes and pushes them directly onto the stack
-  rule <k> #decodeScript(B) => #decodePush(#scriptByte(B), #scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0
-     andBool #scriptByte(B) >=Int 1
-     andBool #scriptByte(B) <=Int 75
-
-  rule <k> #decodePush(N, B) => #decodeScript(substrBytes(B, N, lengthBytes(B))) ...</k>
-       <stack> ST => ListItem(substrBytes(B, 0, N)) ST </stack>
-       <exec> EX </exec>
-    requires lengthBytes(B) >=Int N
-     andBool #allTrue(EX)
-
-  // OP_1NEGATE (0x4f = 79)
-  rule <k> #decodeScript(B) => OP_1NEGATE ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 79
-
-  // OP_1 through OP_16 (0x51 - 0x60)
-  rule <k> #decodeScript(B) => OP_1  ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 81
-  rule <k> #decodeScript(B) => OP_2  ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 82
-  rule <k> #decodeScript(B) => OP_3  ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 83
-  rule <k> #decodeScript(B) => OP_4  ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 84
-  rule <k> #decodeScript(B) => OP_5  ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 85
-  rule <k> #decodeScript(B) => OP_6  ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 86
-  rule <k> #decodeScript(B) => OP_7  ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 87
-  rule <k> #decodeScript(B) => OP_8  ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 88
-  rule <k> #decodeScript(B) => OP_9  ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 89
-  rule <k> #decodeScript(B) => OP_10 ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 90
-  rule <k> #decodeScript(B) => OP_11 ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 91
-  rule <k> #decodeScript(B) => OP_12 ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 92
-  rule <k> #decodeScript(B) => OP_13 ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 93
-  rule <k> #decodeScript(B) => OP_14 ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 94
-  rule <k> #decodeScript(B) => OP_15 ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 95
-  rule <k> #decodeScript(B) => OP_16 ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 96
-
-  // OP_NOP (0x61 = 97)
-  rule <k> #decodeScript(B) => OP_NOP ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 97
-
-  // OP_IF (0x63 = 99)
-  rule <k> #decodeScript(B) => OP_IF ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 99
-
-  // OP_NOTIF (0x64 = 100)
-  rule <k> #decodeScript(B) => OP_NOTIF ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 100
-
-  // OP_ELSE (0x67 = 103)
-  rule <k> #decodeScript(B) => OP_ELSE ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 103
-
-  // OP_ENDIF (0x68 = 104)
-  rule <k> #decodeScript(B) => OP_ENDIF ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 104
-
-  // OP_VERIFY (0x69 = 105)
-  rule <k> #decodeScript(B) => OP_VERIFY ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 105
-
-  // OP_RETURN (0x6a = 106)
-  rule <k> #decodeScript(B) => OP_RETURN ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 106
-
-  // OP_TOALTSTACK (0x6b = 107)
-  rule <k> #decodeScript(B) => OP_TOALTSTACK ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 107
-
-  // OP_FROMALTSTACK (0x6c = 108)
-  rule <k> #decodeScript(B) => OP_FROMALTSTACK ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 108
-
-  // OP_2DROP (0x6d = 109)
-  rule <k> #decodeScript(B) => OP_2DROP ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 109
-
-  // OP_2DUP (0x6e = 110)
-  rule <k> #decodeScript(B) => OP_2DUP ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 110
-
-  // OP_3DUP (0x6f = 111)
-  rule <k> #decodeScript(B) => OP_3DUP ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 111
-
-  // OP_2OVER (0x70 = 112)
-  rule <k> #decodeScript(B) => OP_2OVER ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 112
-
-  // OP_2ROT (0x71 = 113)
-  rule <k> #decodeScript(B) => OP_2ROT ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 113
-
-  // OP_2SWAP (0x72 = 114)
-  rule <k> #decodeScript(B) => OP_2SWAP ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 114
-
-  // OP_IFDUP (0x73 = 115)
-  rule <k> #decodeScript(B) => OP_IFDUP ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 115
-
-  // OP_DEPTH (0x74 = 116)
-  rule <k> #decodeScript(B) => OP_DEPTH ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 116
-
-  // OP_DROP (0x75 = 117)
-  rule <k> #decodeScript(B) => OP_DROP ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 117
-
-  // OP_DUP (0x76 = 118)
-  rule <k> #decodeScript(B) => OP_DUP ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 118
-
-  // OP_NIP (0x77 = 119)
-  rule <k> #decodeScript(B) => OP_NIP ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 119
-
-  // OP_OVER (0x78 = 120)
-  rule <k> #decodeScript(B) => OP_OVER ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 120
-
-  // OP_PICK (0x79 = 121)
-  rule <k> #decodeScript(B) => OP_PICK ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 121
-
-  // OP_ROLL (0x7a = 122)
-  rule <k> #decodeScript(B) => OP_ROLL ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 122
-
-  // OP_ROT (0x7b = 123)
-  rule <k> #decodeScript(B) => OP_ROT ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 123
-
-  // OP_SWAP (0x7c = 124)
-  rule <k> #decodeScript(B) => OP_SWAP ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 124
-
-  // OP_TUCK (0x7d = 125)
-  rule <k> #decodeScript(B) => OP_TUCK ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 125
-
-  // OP_SIZE (0x82 = 130)
-  rule <k> #decodeScript(B) => OP_SIZE ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 130
-
-  // OP_EQUAL (0x87 = 135)
-  rule <k> #decodeScript(B) => OP_EQUAL ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 135
-
-  // OP_EQUALVERIFY (0x88 = 136)
-  rule <k> #decodeScript(B) => OP_EQUALVERIFY ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 136
-
-  // OP_1ADD (0x8b = 139)
-  rule <k> #decodeScript(B) => OP_1ADD ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 139
-
-  // OP_1SUB (0x8c = 140)
-  rule <k> #decodeScript(B) => OP_1SUB ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 140
-
-  // OP_NEGATE (0x8f = 143)
-  rule <k> #decodeScript(B) => OP_NEGATE ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 143
-
-  // OP_ABS (0x90 = 144)
-  rule <k> #decodeScript(B) => OP_ABS ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 144
-
-  // OP_NOT (0x91 = 145)
-  rule <k> #decodeScript(B) => OP_NOT ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 145
-
-  // OP_0NOTEQUAL (0x92 = 146)
-  rule <k> #decodeScript(B) => OP_0NOTEQUAL ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 146
-
-  // OP_ADD (0x93 = 147)
-  rule <k> #decodeScript(B) => OP_ADD ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 147
-
-  // OP_SUB (0x94 = 148)
-  rule <k> #decodeScript(B) => OP_SUB ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 148
-
-  // OP_BOOLAND (0x9a = 154)
-  rule <k> #decodeScript(B) => OP_BOOLAND ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 154
-
-  // OP_BOOLOR (0x9b = 155)
-  rule <k> #decodeScript(B) => OP_BOOLOR ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 155
-
-  // OP_NUMEQUAL (0x9c = 156)
-  rule <k> #decodeScript(B) => OP_NUMEQUAL ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 156
-
-  // OP_NUMEQUALVERIFY (0x9d = 157)
-  rule <k> #decodeScript(B) => OP_NUMEQUALVERIFY ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 157
-
-  // OP_NUMNOTEQUAL (0x9e = 158)
-  rule <k> #decodeScript(B) => OP_NUMNOTEQUAL ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 158
-
-  // OP_LESSTHAN (0x9f = 159)
-  rule <k> #decodeScript(B) => OP_LESSTHAN ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 159
-
-  // OP_GREATERTHAN (0xa0 = 160)
-  rule <k> #decodeScript(B) => OP_GREATERTHAN ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 160
-
-  // OP_LESSTHANOREQUAL (0xa1 = 161)
-  rule <k> #decodeScript(B) => OP_LESSTHANOREQUAL ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 161
-
-  // OP_GREATERTHANOREQUAL (0xa2 = 162)
-  rule <k> #decodeScript(B) => OP_GREATERTHANOREQUAL ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 162
-
-  // OP_MIN (0xa3 = 163)
-  rule <k> #decodeScript(B) => OP_MIN ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 163
-
-  // OP_MAX (0xa4 = 164)
-  rule <k> #decodeScript(B) => OP_MAX ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 164
-
-  // OP_WITHIN (0xa5 = 165)
-  rule <k> #decodeScript(B) => OP_WITHIN ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 165
-
-  // OP_RIPEMD160 (0xa6 = 166)
-  rule <k> #decodeScript(B) => OP_RIPEMD160 ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 166
-
-  // OP_SHA1 (0xa7 = 167)
-  rule <k> #decodeScript(B) => OP_SHA1 ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 167
-
-  // OP_SHA256 (0xa8 = 168)
-  rule <k> #decodeScript(B) => OP_SHA256 ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 168
-
-  // OP_HASH160 (0xa9 = 169)
-  rule <k> #decodeScript(B) => OP_HASH160 ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 169
-
-  // OP_HASH256 (0xaa = 170)
-  rule <k> #decodeScript(B) => OP_HASH256 ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 170
-
-  // OP_CODESEPARATOR (0xab = 171)
-  rule <k> #decodeScript(B) => OP_CODESEPARATOR ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 171
-
-  // OP_CHECKSIG (0xac = 172)
-  rule <k> #decodeScript(B) => OP_CHECKSIG ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 172
-
-  // OP_CHECKSIGVERIFY (0xad = 173)
-  rule <k> #decodeScript(B) => OP_CHECKSIGVERIFY ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 173
-
-  // OP_CHECKMULTISIG (0xae = 174)
-  rule <k> #decodeScript(B) => OP_CHECKMULTISIG ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 174
-
-  // OP_CHECKMULTISIGVERIFY (0xaf = 175)
-  rule <k> #decodeScript(B) => OP_CHECKMULTISIGVERIFY ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 175
-
-  // =========================================================================
-  // OP_PUSHBYTES_* (ASM syntax — shared implementation via #pushBytes)
-  // =========================================================================
-
-  syntax KItem ::= "#pushBytes" "(" Int "," HexLiteral ")"
-
-  rule <k> OP_PUSHBYTES_20 H => #pushBytes(20, H) ...</k>
-  rule <k> OP_PUSHBYTES_32 H => #pushBytes(32, H) ...</k>
-  rule <k> OP_PUSHBYTES_33 H => #pushBytes(33, H) ...</k>
-  rule <k> OP_PUSHBYTES_65 H => #pushBytes(65, H) ...</k>
-  rule <k> OP_PUSHBYTES_70 H => #pushBytes(70, H) ...</k>
-  rule <k> OP_PUSHBYTES_71 H => #pushBytes(71, H) ...</k>
-  rule <k> OP_PUSHBYTES_72 H => #pushBytes(72, H) ...</k>
-  rule <k> OP_PUSHBYTES_73 H => #pushBytes(73, H) ...</k>
-
-  rule <k> #pushBytes(N, H) => .K ...</k>
-       <stack> ST => ListItem(hexStringToBytes(HexLiteral2String(H))) ST </stack>
-       <exec> EX </exec>
-    requires lengthString(HexLiteral2String(H)) ==Int 2 *Int N
-     andBool #allTrue(EX)
-
-  // =========================================================================
-  // OP_PUSH (test helper: push integer onto stack as CScriptNum bytes)
-  // =========================================================================
-
-  rule <k> OP_PUSH I:Int => .K ...</k>
-       <stack> ST => ListItem(intToScriptNum(I)) ST </stack>
-       <exec> EX </exec>
-    requires #allTrue(EX)
+  // MINIMALDATA: check push encoding at execution time (not decode) so dead branches pass
+  rule <k> OP_PUSHDATA(OPC, D) => .K ...</k>
+       <stack> ST => ListItem(D) ST </stack>
+       <flags> F </flags>
+    requires notBool hasFlag(F, FLAG_MINIMALDATA) orBool #isMinimalPush(OPC, D)
+
+  rule <k> OP_PUSHDATA(OPC, D) => #fail("MINIMALDATA") ...</k>
+       <flags> F </flags>
+    requires hasFlag(F, FLAG_MINIMALDATA) andBool notBool #isMinimalPush(OPC, D)
 
   // =========================================================================
   // OP_0 through OP_16: push small integer constants as CScriptNum bytes
   // =========================================================================
 
-  rule <k> OP_0  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(0))  ST </stack>  <exec> EX </exec>  requires #allTrue(EX)
-  rule <k> OP_1  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(1))  ST </stack>  <exec> EX </exec>  requires #allTrue(EX)
-  rule <k> OP_2  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(2))  ST </stack>  <exec> EX </exec>  requires #allTrue(EX)
-  rule <k> OP_3  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(3))  ST </stack>  <exec> EX </exec>  requires #allTrue(EX)
-  rule <k> OP_4  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(4))  ST </stack>  <exec> EX </exec>  requires #allTrue(EX)
-  rule <k> OP_5  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(5))  ST </stack>  <exec> EX </exec>  requires #allTrue(EX)
-  rule <k> OP_6  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(6))  ST </stack>  <exec> EX </exec>  requires #allTrue(EX)
-  rule <k> OP_7  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(7))  ST </stack>  <exec> EX </exec>  requires #allTrue(EX)
-  rule <k> OP_8  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(8))  ST </stack>  <exec> EX </exec>  requires #allTrue(EX)
-  rule <k> OP_9  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(9))  ST </stack>  <exec> EX </exec>  requires #allTrue(EX)
-  rule <k> OP_10 => .K ...</k>  <stack> ST => ListItem(intToScriptNum(10)) ST </stack>  <exec> EX </exec>  requires #allTrue(EX)
-  rule <k> OP_11 => .K ...</k>  <stack> ST => ListItem(intToScriptNum(11)) ST </stack>  <exec> EX </exec>  requires #allTrue(EX)
-  rule <k> OP_12 => .K ...</k>  <stack> ST => ListItem(intToScriptNum(12)) ST </stack>  <exec> EX </exec>  requires #allTrue(EX)
-  rule <k> OP_13 => .K ...</k>  <stack> ST => ListItem(intToScriptNum(13)) ST </stack>  <exec> EX </exec>  requires #allTrue(EX)
-  rule <k> OP_14 => .K ...</k>  <stack> ST => ListItem(intToScriptNum(14)) ST </stack>  <exec> EX </exec>  requires #allTrue(EX)
-  rule <k> OP_15 => .K ...</k>  <stack> ST => ListItem(intToScriptNum(15)) ST </stack>  <exec> EX </exec>  requires #allTrue(EX)
-  rule <k> OP_16 => .K ...</k>  <stack> ST => ListItem(intToScriptNum(16)) ST </stack>  <exec> EX </exec>  requires #allTrue(EX)
+  rule <k> OP_0  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(0))  ST </stack>
+  rule <k> OP_1  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(1))  ST </stack>
+  rule <k> OP_2  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(2))  ST </stack>
+  rule <k> OP_3  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(3))  ST </stack>
+  rule <k> OP_4  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(4))  ST </stack>
+  rule <k> OP_5  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(5))  ST </stack>
+  rule <k> OP_6  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(6))  ST </stack>
+  rule <k> OP_7  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(7))  ST </stack>
+  rule <k> OP_8  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(8))  ST </stack>
+  rule <k> OP_9  => .K ...</k>  <stack> ST => ListItem(intToScriptNum(9))  ST </stack>
+  rule <k> OP_10 => .K ...</k>  <stack> ST => ListItem(intToScriptNum(10)) ST </stack>
+  rule <k> OP_11 => .K ...</k>  <stack> ST => ListItem(intToScriptNum(11)) ST </stack>
+  rule <k> OP_12 => .K ...</k>  <stack> ST => ListItem(intToScriptNum(12)) ST </stack>
+  rule <k> OP_13 => .K ...</k>  <stack> ST => ListItem(intToScriptNum(13)) ST </stack>
+  rule <k> OP_14 => .K ...</k>  <stack> ST => ListItem(intToScriptNum(14)) ST </stack>
+  rule <k> OP_15 => .K ...</k>  <stack> ST => ListItem(intToScriptNum(15)) ST </stack>
+  rule <k> OP_16 => .K ...</k>  <stack> ST => ListItem(intToScriptNum(16)) ST </stack>
 
   // =========================================================================
   // OP_1NEGATE: push -1 as CScriptNum
@@ -515,114 +568,34 @@ module SCRIPT-SEMANTICS
 
   rule <k> OP_1NEGATE => .K ...</k>
        <stack> ST => ListItem(intToScriptNum(-1)) ST </stack>
-       <exec> EX </exec>
-    requires #allTrue(EX)
+
 
   // =========================================================================
-  // OP_NOP: do nothing
+  // Shared syntax declarations (rules defined in submodules)
   // =========================================================================
 
-  rule <k> OP_NOP => .K ...</k>
-       <exec> EX </exec>
-    requires #allTrue(EX)
-
-  // =========================================================================
-  // OP_VERIFY: pop top, continue if truthy, get stuck if falsy
-  // =========================================================================
-
-  rule <k> OP_VERIFY => .K ...</k>
-       <stack> ListItem(V:Bytes) ST => ST </stack>
-       <exec> EX </exec>
-    requires #isTruthy(V)
-     andBool #allTrue(EX)
-
-  // OP_VERIFY with falsy value: execution gets stuck (no rule matches)
-
-  // =========================================================================
-  // OP_RETURN: immediately fail (get stuck)
-  // =========================================================================
-  // No rule for OP_RETURN — execution gets stuck
-
-  // =========================================================================
-  // IF/ELSE/ENDIF conditional execution
-  // =========================================================================
-  // The <exec> cell holds a list of booleans tracking nested IF state.
-  // Execution proceeds only when all entries are true (#allTrue).
-
+  // Execution guard (rules in SCRIPT-FLOW)
+  syntax KItem ::= "#guardExec" "(" OpCode ")"
   syntax Bool ::= #allTrue(List) [function]
-  rule #allTrue(.List) => true
-  rule #allTrue(ListItem(true) REST) => #allTrue(REST)
-  rule #allTrue(ListItem(false) _) => false
 
-  // --- When currently executing (#allTrue(<exec>) is true) ---
+  // Decoder syntax and helpers (rules in SCRIPT-DECODE)
+  syntax KItem ::= "#decodeScript" "(" Bytes ")"
+                 | "#decode1" "(" Bytes ")"
+                 | "#decodePush" "(" Int "," Int "," Bytes ")"
 
-  // OP_IF: pop top, push #isTruthy(top) onto <exec>
-  rule <k> OP_IF => .K ...</k>
-       <stack> ListItem(V:Bytes) ST => ST </stack>
-       <exec> EX => ListItem(#isTruthy(V)) EX </exec>
-    requires #allTrue(EX)
+  syntax Int ::= #scriptByte(Bytes) [function]
+  rule #scriptByte(B) => Bytes2Int(substrBytes(B, 0, 1), BE, Unsigned)
 
-  // OP_NOTIF: pop top, push negation onto <exec>
-  rule <k> OP_NOTIF => .K ...</k>
-       <stack> ListItem(V:Bytes) ST => ST </stack>
-       <exec> EX => ListItem(notBool #isTruthy(V)) EX </exec>
-    requires #allTrue(EX)
+  syntax Bytes ::= #scriptTail(Bytes) [function]
+  rule #scriptTail(B) => substrBytes(B, 1, lengthBytes(B))
+  syntax KItem ::= "#countOp"
+                 | "#countOps" "(" Int ")"
+  syntax Bool ::= #isMinimalPush(Int, Bytes) [function, total]
 
-  // --- When NOT currently executing ---
-
-  // OP_IF/OP_NOTIF in non-executing context: push false to track nesting
-  rule <k> OP_IF => .K ...</k>
-       <exec> EX => ListItem(false) EX </exec>
-    requires notBool #allTrue(EX)
-
-  rule <k> OP_NOTIF => .K ...</k>
-       <exec> EX => ListItem(false) EX </exec>
-    requires notBool #allTrue(EX)
-
-  // --- OP_ELSE: always fires ---
-  // If the rest of <exec> is all-true, toggle top; otherwise keep false
-  rule <k> OP_ELSE => .K ...</k>
-       <exec> ListItem(true) REST => ListItem(false) REST </exec>
-    requires #allTrue(REST)
-
-  rule <k> OP_ELSE => .K ...</k>
-       <exec> ListItem(false) REST => ListItem(true) REST </exec>
-    requires #allTrue(REST)
-
-  // OP_ELSE in deeply nested non-executing block: don't toggle
-  rule <k> OP_ELSE => .K ...</k>
-       <exec> ListItem(_) REST => ListItem(false) REST </exec>
-    requires notBool #allTrue(REST)
-
-  // --- OP_ENDIF: always fires ---
-  rule <k> OP_ENDIF => .K ...</k>
-       <exec> ListItem(_) REST => REST </exec>
-
-  // --- Skip rules for non-executing context ---
-  // When not executing, opcodes are consumed but have no effect.
-  // Push operations skip their data without pushing to stack.
-
-  // Helper to identify flow-control opcodes that must still fire in non-executing context
-  syntax Bool ::= #isFlowControl(OpCode) [function]
-  rule #isFlowControl(OP_IF) => true
-  rule #isFlowControl(OP_NOTIF) => true
-  rule #isFlowControl(OP_ELSE) => true
-  rule #isFlowControl(OP_ENDIF) => true
-  rule #isFlowControl(_) => false [owise]
-
-  // Skip push data in non-executing context
-  rule <k> #decodePush(N, B) => #decodeScript(substrBytes(B, N, lengthBytes(B))) ...</k>
-       <exec> EX </exec>
-    requires notBool #allTrue(EX)
-     andBool lengthBytes(B) >=Int N
-
-  // Skip all non-flow-control opcodes in non-executing context.
-  // Priority 25 fires before default-priority (50) execution rules.
-  rule <k> OP:OpCode => .K ...</k>
-       <exec> EX </exec>
-    requires notBool #allTrue(EX)
-     andBool notBool #isFlowControl(OP)
-    [priority(25)]
+  // Sig verification syntax (rules in SCRIPT-SIG)
+  syntax KItem ::= "#collectPubKeys" "(" Int "," List ")"
+                 | "#collectSigs" "(" Int "," List "," List ")"
+                 | "#verifyMultisig" "(" List "," List ")"
 
   // =========================================================================
   // #isTruthy: Bitcoin truthiness check
@@ -663,18 +636,16 @@ module SCRIPT-SEMANTICS
 
   rule <k> OP_DUP => .K ...</k>
        <stack> ListItem(V) ST => ListItem(V) ListItem(V) ST </stack>
-       <exec> EX </exec>
-    requires #allTrue(EX)
 
   // =========================================================================
   // OP_ADD: pop two CScriptNum bytes, add, push result as CScriptNum bytes
   // =========================================================================
 
   rule <k> OP_ADD => .K ...</k>
+       <flags> F </flags>
        <stack> ListItem(A:Bytes) ListItem(B:Bytes) ST
             => ListItem(intToScriptNum(scriptNumToInt(A) +Int scriptNumToInt(B))) ST </stack>
-       <exec> EX </exec>
-    requires #allTrue(EX)
+    requires validNumFlags(A, F) andBool validNumFlags(B, F)
 
   // =========================================================================
   // OP_HASH160: RIPEMD160(SHA256(data))
@@ -682,8 +653,6 @@ module SCRIPT-SEMANTICS
 
   rule <k> OP_HASH160 => .K ...</k>
        <stack> ListItem(V:Bytes) ST => ListItem(RipEmd160raw(Sha256raw(V))) ST </stack>
-       <exec> EX </exec>
-    requires #allTrue(EX)
 
   // =========================================================================
   // OP_EQUAL: pop two byte values, push 1 if equal, 0 if not
@@ -693,151 +662,23 @@ module SCRIPT-SEMANTICS
   rule <k> OP_EQUAL => .K ...</k>
        <stack> ListItem(V:Bytes) ListItem(V:Bytes) ST
             => ListItem(intToScriptNum(1)) ST </stack>
-       <exec> EX </exec>
-    requires #allTrue(EX)
 
   // Not equal: owise catches the case where A =/= B
   rule <k> OP_EQUAL => .K ...</k>
        <stack> ListItem(_:Bytes) ListItem(_:Bytes) ST
             => ListItem(intToScriptNum(0)) ST </stack>
-       <exec> EX </exec>
-    requires #allTrue(EX)
     [owise]
 
   // =========================================================================
-  // OP_EQUALVERIFY: pop two byte values, continue if equal, otherwise stuck
+  // OP_EQUALVERIFY: pop two byte values, continue if equal, fail if not
   // =========================================================================
 
   rule <k> OP_EQUALVERIFY => .K ...</k>
        <stack> ListItem(V:Bytes) ListItem(V:Bytes) ST => ST </stack>
-       <exec> EX </exec>
-    requires #allTrue(EX)
 
-  // =========================================================================
-  // OP_CHECKSIG (reads sighash from <sighash> cell)
-  // =========================================================================
+  rule <k> OP_EQUALVERIFY => #fail("EQUALVERIFY") ...</k>
+       <stack> ListItem(A:Bytes) ListItem(B:Bytes) ST => ST </stack>
+    requires A =/=K B
 
-  rule <k> OP_CHECKSIG => .K ...</k>
-       <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST
-            => ListItem(intToScriptNum(1)) ST </stack>
-       <sighash> SIGHASH </sighash>
-       <exec> EX </exec>
-    requires ecdsaVerify(PK, SIG, SIGHASH)
-     andBool #allTrue(EX)
-
-  rule <k> OP_CHECKSIG => .K ...</k>
-       <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST
-            => ListItem(intToScriptNum(0)) ST </stack>
-       <sighash> SIGHASH </sighash>
-       <exec> EX </exec>
-    requires notBool ecdsaVerify(PK, SIG, SIGHASH)
-     andBool #allTrue(EX)
-    [owise]
-
-  // =========================================================================
-  // OP_CHECKMULTISIG (reads sighash from <sighash> cell)
-  // =========================================================================
-  // Stack layout (top to bottom):
-  //   N, pkN, ..., pk1, M, sigM, ..., sig1, dummy
-
-  syntax KItem ::= "#collectPubKeys" "(" Int "," List ")"
-                 | "#collectSigs" "(" Int "," List "," List ")"
-                 | "#verifyMultisig" "(" List "," List ")"
-
-  // Step 1: Pop N from stack (CScriptNum), begin collecting pubkeys
-  rule <k> OP_CHECKMULTISIG => #collectPubKeys(scriptNumToInt(N), .List) ...</k>
-       <stack> ListItem(N:Bytes) ST => ST </stack>
-       <exec> EX </exec>
-    requires #allTrue(EX)
-
-  // Step 2a: Pop one pubkey, prepend to collected list
-  rule <k> #collectPubKeys(N, PKs) => #collectPubKeys(N -Int 1, ListItem(PK) PKs) ...</k>
-       <stack> ListItem(PK) ST => ST </stack>
-    requires N >Int 0
-
-  // Step 2b: All N pubkeys collected; pop M (CScriptNum) and begin collecting sigs
-  rule <k> #collectPubKeys(0, PKs) => #collectSigs(scriptNumToInt(M), PKs, .List) ...</k>
-       <stack> ListItem(M:Bytes) ST => ST </stack>
-
-  // Step 3a: Pop one sig, prepend to collected list
-  rule <k> #collectSigs(M, PKs, Sigs) => #collectSigs(M -Int 1, PKs, ListItem(SIG) Sigs) ...</k>
-       <stack> ListItem(SIG) ST => ST </stack>
-    requires M >Int 0
-
-  // Step 3b: All M sigs collected; pop dummy element, begin verification
-  rule <k> #collectSigs(0, PKs, Sigs) => #verifyMultisig(PKs, Sigs) ...</k>
-       <stack> ListItem(_) ST => ST </stack>
-
-  // Step 4a: All sigs verified (sigs list exhausted) — push true
-  rule <k> #verifyMultisig(_, .List) => .K ...</k>
-       <stack> ST => ListItem(intToScriptNum(1)) ST </stack>
-
-  // Step 4b: Sigs remain but pubkeys exhausted — push false
-  rule <k> #verifyMultisig(.List, ListItem(_) _) => .K ...</k>
-       <stack> ST => ListItem(intToScriptNum(0)) ST </stack>
-
-  // Step 4c: Current sig matches current pubkey — advance both
-  rule <k> #verifyMultisig(ListItem(PK:Bytes) PKs, ListItem(SIG:Bytes) Sigs)
-        => #verifyMultisig(PKs, Sigs) ...</k>
-       <sighash> SIGHASH </sighash>
-    requires ecdsaVerify(PK, SIG, SIGHASH)
-
-  // Step 4d: Current sig does not match current pubkey — advance pubkey only
-  rule <k> #verifyMultisig(ListItem(PK:Bytes) PKs, ListItem(SIG:Bytes) Sigs)
-        => #verifyMultisig(PKs, ListItem(SIG) Sigs) ...</k>
-       <sighash> SIGHASH </sighash>
-    requires notBool ecdsaVerify(PK, SIG, SIGHASH)
-
-  // =========================================================================
-  // Additional hash opcodes
-  // =========================================================================
-
-  // OP_RIPEMD160: RIPEMD160(data) — single hash
-  rule <k> OP_RIPEMD160 => .K ...</k>
-       <stack> ListItem(V:Bytes) ST => ListItem(RipEmd160raw(V)) ST </stack>
-       <exec> EX </exec>
-    requires #allTrue(EX)
-
-  // OP_SHA1: not implemented (no SHA1 hook in KRYPTO) — gets stuck
-
-  // OP_SHA256: SHA256(data) — single hash
-  rule <k> OP_SHA256 => .K ...</k>
-       <stack> ListItem(V:Bytes) ST => ListItem(Sha256raw(V)) ST </stack>
-       <exec> EX </exec>
-    requires #allTrue(EX)
-
-  // OP_HASH256: SHA256(SHA256(data)) — double hash
-  rule <k> OP_HASH256 => .K ...</k>
-       <stack> ListItem(V:Bytes) ST => ListItem(Sha256raw(Sha256raw(V))) ST </stack>
-       <exec> EX </exec>
-    requires #allTrue(EX)
-
-  // OP_CODESEPARATOR: NOP for now
-  rule <k> OP_CODESEPARATOR => .K ...</k>
-       <exec> EX </exec>
-    requires #allTrue(EX)
-
-  // =========================================================================
-  // OP_CHECKSIGVERIFY: CHECKSIG then VERIFY
-  // =========================================================================
-
-  rule <k> OP_CHECKSIGVERIFY => .K ...</k>
-       <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
-       <sighash> SIGHASH </sighash>
-       <exec> EX </exec>
-    requires ecdsaVerify(PK, SIG, SIGHASH)
-     andBool #allTrue(EX)
-
-  // Invalid signature: execution gets stuck (no rule matches)
-
-  // =========================================================================
-  // OP_CHECKMULTISIGVERIFY: CHECKMULTISIG then VERIFY
-  // =========================================================================
-
-  // Reuse CHECKMULTISIG collection pipeline, then verify the result
-  rule <k> OP_CHECKMULTISIGVERIFY
-        => OP_CHECKMULTISIG ~> OP_VERIFY ...</k>
-       <exec> EX </exec>
-    requires #allTrue(EX)
 
 endmodule

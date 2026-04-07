@@ -166,8 +166,8 @@ class TestP2PKHBlock50061:
         assert k.success(result)
         assert k.stack(result) == [b"\x01"]
 
-    def test_wrong_pubkey_hash_stuck(self, k: KBitcoinScript) -> None:
-        """EQUALVERIFY should get stuck when pubkey hash doesn't match."""
+    def test_wrong_pubkey_hash_fails(self, k: KBitcoinScript) -> None:
+        """EQUALVERIFY should fail when pubkey hash doesn't match."""
         wrong_hash = "dead" + "00" * 18
         result = k.verify_script(
             script_sig=script(push(BLOCK50061_SIG_DER), push(BLOCK50061_PUBKEY)),
@@ -180,7 +180,8 @@ class TestP2PKHBlock50061:
             ),
             sighash=bytes.fromhex(BLOCK50061_SIGHASH),
         )
-        assert k.is_stuck(result)
+        assert not k.success(result)
+        assert k.error(result) == "EQUALVERIFY"
 
     def test_wrong_sighash_pushes_0(self, k: KBitcoinScript) -> None:
         """With correct pubkey hash but wrong sighash, CHECKSIG should push 0."""

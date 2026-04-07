@@ -102,14 +102,15 @@ class TestOpEqualVerify:
         assert not k.is_stuck(result)
         assert k.stack(result) == []  # both consumed
 
-    def test_unequal_stuck(self, k: KBitcoinScript) -> None:
-        """Different values should cause EQUALVERIFY to get stuck."""
+    def test_unequal_fails(self, k: KBitcoinScript) -> None:
+        """Different values should cause EQUALVERIFY to fail."""
         hex_a = "aa" * 20
         hex_b = "bb" * 20
         result = k.verify_script(
             script_pubkey=script(push(hex_a), push(hex_b), "OP_EQUALVERIFY"),
         )
-        assert k.is_stuck(result)
+        assert not k.success(result)
+        assert k.error(result) == "EQUALVERIFY"
 
     def test_insufficient_stack_stuck(self, k: KBitcoinScript) -> None:
         result = k.verify_script(
@@ -179,7 +180,7 @@ class TestP2PKH:
         assert k.stack(result) == [b"\x01"]
 
     def test_p2pkh_wrong_pubkey(self, k: KBitcoinScript) -> None:
-        """P2PKH with wrong pubkey: EQUALVERIFY should get stuck."""
+        """P2PKH with wrong pubkey: EQUALVERIFY should fail."""
         msg_hash = hashlib.sha256(b"p2pkh test tx").digest()
         sig = _sign_der(PRIVKEY, msg_hash)
         wrong_pubkey = "04" + "aa" * 64
@@ -195,5 +196,5 @@ class TestP2PKH:
             ),
             sighash=msg_hash,
         )
-        assert k.is_stuck(result)
         assert not k.success(result)
+        assert k.error(result) == "EQUALVERIFY"

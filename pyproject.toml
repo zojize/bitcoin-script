@@ -6,7 +6,9 @@ readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "kframework>=7.1.313",
+    "prompt-toolkit>=3.0.52",
     "python-bitcoinlib>=0.12.2",
+    "tqdm>=4.67.3",
     "typer>=0.24.1",
 ]
 
@@ -29,15 +31,19 @@ packages = ["src/bitcoin_script"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-addopts = "-m 'not rpc and not k'"
+addopts = "-m 'not rpc and not k and not mainnet'"
 markers = [
     "rpc: tests that require a running Bitcoin Core RPC node",
     "k: tests that require K Framework and a compiled K definition",
+    "mainnet: tests that require Bitcoin Core mainnet block files and K Framework",
 ]
 
 [tool.ruff]
 target-version = "py314"
 src = ["src"]
+exclude = [
+    "src/bitcoin_script/k_semantics/kdist/plugin",
+]
 
 [tool.pyright]
 venvPath = "."
