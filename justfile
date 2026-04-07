@@ -31,9 +31,13 @@ check: lint-check format-check typecheck
 test *args:
     uv run pytest {{ args }}
 
-# Run K Framework tests
+# Run K Framework tests (execution via LLVM)
 test-k *args:
-    uv run pytest -m k {{ args }}
+    uv run pytest -m k -k "not test_prove" {{ args }}
+
+# Run K proof specs (verification via Haskell)
+test-prove *args:
+    uv run pytest tests/test_k_specs/ -m k {{ args }}
 
 # Run all tests including K Framework
 test-all *args:

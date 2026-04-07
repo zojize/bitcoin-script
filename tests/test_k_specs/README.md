@@ -2,7 +2,7 @@
 
 K claims mechanically verified by `kprove` (Haskell backend).
 
-## Proven claims (27 total)
+## Proven claims (34 total)
 
 **arithmetic-spec.k** (3) — symbolic, all valid CScriptNum inputs:
 - OP_1ADD(N) == N+1, OP_NEGATE(N) == -N, OP_ADD(A,B) == A+B
@@ -29,29 +29,25 @@ K claims mechanically verified by `kprove` (Haskell backend).
 **scriptnum-spec.k** (4) — CScriptNum encoding at boundaries:
 - zero, 1+(-1)=0, 127+1=128 boundary, negate encoding
 
-## Blocked
+**historical-bugs-spec.k** (7+1) — before/after flag activation:
+- MINIMALDATA: non-minimal zero accepted/rejected
+- NULLDUMMY: non-null dummy accepted/rejected
+- CLEANSTACK: extra stack items accepted/rejected
+- DISCOURAGE_UPGRADABLE_NOPS: NOP1 accepted/rejected
+- (1 claim needs booster for `#isMinimalNum` byte evaluation)
 
-HTLC hash path and P2PKH end-to-end need SHA256/HASH160/ECDSA
-which are C++ hooks unavailable in the Haskell backend.
+## Blocked on booster integration
 
-## TODO: planned specs
-
-**P2SH phase transition**: saved stack restore, redeem script execution
-
-**Script size limits**: scripts > 10000 bytes rejected
-
-**Opcode count limits**: 201+ non-push opcodes rejected
-
-**Haskell-native crypto hooks**: would unblock P2PKH, P2SH, HTLC
-hash path proofs — the most valuable remaining specs.
+HTLC hash path, P2PKH end-to-end, and MINIMALDATA rejection need
+concrete evaluation of KRYPTO hooks / byte operations via
+kore-rpc-booster with `--llvm-backend-library`.
 
 ## Running proofs
 
 ```sh
 uv run kdist build bitcoin-script-semantics.haskell  # one-time
-cd examples
-just prove-all          # all 8 spec files
-just prove htlc-spec    # single spec
+just test-prove                                       # all specs via pytest
+just prove htlc-spec                                  # single spec via examples/justfile
 ```
 
 ## Architecture

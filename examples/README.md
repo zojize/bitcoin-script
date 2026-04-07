@@ -42,20 +42,10 @@ uv run python examples/verify_block.py 170       # block 170 (first real tx)
 uv run python examples/verify_block.py 170 180   # range
 ```
 
-## K proof specs (`specs/`)
+## K proof specs
 
-K claims that can be mechanically verified by the Haskell backend prover
-(`kprove`). See [specs/README.md](specs/README.md) for details.
-
-Currently provable:
-- `p2pkh-spec.k` — OP_DUP, EQUALVERIFY correctness (3 claims)
-- `timelock-spec.k` — CLTV pass/NOP behavior (2 claims)
-
-Blocked on byte-level simplification lemmas:
-- `arithmetic-spec.k` — OP_ADD commutativity, OP_NEGATE identity
-- `htlc-spec.k` — HTLC spending path correctness
-
-See [specs/README.md](specs/README.md) for what's needed to unblock these.
+Formal verification specs live in `tests/test_k_specs/` and run via
+pytest in CI. See [tests/test_k_specs/README.md](../tests/test_k_specs/README.md).
 
 ## Running
 
@@ -63,6 +53,6 @@ See [specs/README.md](specs/README.md) for what's needed to unblock these.
 cd examples
 just              # list recipes
 just all          # run all Python examples
-just prove-all    # prove all K specs
+just prove-all    # prove K specs via pytest
 just fuzz 500     # fuzz 500 scripts
 ```

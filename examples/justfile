@@ -24,12 +24,13 @@ verify-block height:
 verify-range start end:
     uv run python examples/verify_block.py {{ start }} {{ end }}
 
-# --- K Framework specs (require Haskell backend) ---
+# --- K proof specs (in tests/test_k_specs/) ---
+
+# Prove all K specs via pytest
+prove-all:
+    uv run pytest tests/test_k_specs/ -m k --tb=short -v
 
 # Prove a single K spec
 prove spec *args:
     uv run kprove --definition $(uv run kdist which bitcoin-script-semantics.haskell) \
-        examples/specs/{{ spec }}.k {{ args }}
-
-# Prove all K specs (htlc hash path claims excluded — need kore-rpc-booster for SHA256)
-prove-all: (prove "arithmetic-spec") (prove "symbolic-spec") (prove "timelock-spec") (prove "htlc-spec" "--exclude HTLC-SPEC.hash-path-correct-preimage,HTLC-SPEC.hash-path-wrong-preimage") (prove "branch-spec") (prove "phase-spec") (prove "limits-spec") (prove "scriptnum-spec")
+        tests/test_k_specs/{{ spec }}.k {{ args }}
