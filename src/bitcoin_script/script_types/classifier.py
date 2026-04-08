@@ -14,6 +14,7 @@ class ScriptType(Enum):
     P2SH = auto()
     P2WPKH = auto()
     P2WSH = auto()
+    P2TR = auto()
     P2PK = auto()
     MULTISIG = auto()
     NULL_DATA = auto()
@@ -30,6 +31,8 @@ def classify(script: CScript) -> ScriptType:
         return ScriptType.P2WPKH
     if is_p2wsh(script):
         return ScriptType.P2WSH
+    if is_p2tr(script):
+        return ScriptType.P2TR
     if is_p2pk(script):
         return ScriptType.P2PK
     if is_multisig(script):
@@ -73,6 +76,12 @@ def is_p2wsh(script: CScript) -> bool:
     """OP_0 <32 bytes> (34 bytes)"""
     r = bytes(script)
     return len(r) == 34 and r[0] == 0x00 and r[1] == 0x20
+
+
+def is_p2tr(script: CScript) -> bool:
+    """OP_1 <32 bytes> (34 bytes)"""
+    r = bytes(script)
+    return len(r) == 34 and r[0] == 0x51 and r[1] == 0x20
 
 
 def is_p2pk(script: CScript) -> bool:
