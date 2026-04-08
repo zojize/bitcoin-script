@@ -95,5 +95,5 @@ P2SH, DERSIG, STRICTENC, LOW_S, NULLDUMMY, SIGPUSHONLY, MINIMALDATA, DISCOURAGE_
 
 ## Known gaps
 
-- **CONST_SCRIPTCODE**: not enforced (prevents CODESEPARATOR in witness v0). Affects 28 tx vectors.
+- **CONST_SCRIPTCODE**: enforced — prohibits OP_CODESEPARATOR in base (non-witness) phases.
 - **Taproot (BIP 341/342)**: not implemented (5 test vectors xfailed).

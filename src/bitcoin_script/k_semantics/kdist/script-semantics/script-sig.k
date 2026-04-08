@@ -320,18 +320,18 @@ module SCRIPT-SIG
   rule <k> OP_HASH256 => .K ...</k>
        <stack> ListItem(V:Bytes) ST => ListItem(Sha256raw(Sha256raw(V))) ST </stack>
 
-  // OP_CODESEPARATOR: forbidden in witness-v0 when CONST_SCRIPTCODE is active
+  // OP_CODESEPARATOR: forbidden in base (non-witness) phases when CONST_SCRIPTCODE is active
   rule <k> OP_CODESEPARATOR => #fail("CONST_SCRIPTCODE") ...</k>
-       <phase> witness-v0 </phase>
+       <phase> P </phase>
        <flags> F </flags>
-    requires hasFlag(F, FLAG_CONST_SCRIPTCODE)
+    requires P =/=K witness-v0 andBool hasFlag(F, FLAG_CONST_SCRIPTCODE)
 
   // OP_CODESEPARATOR: increment codesep counter for sighash subscript selection
   rule <k> OP_CODESEPARATOR => .K ...</k>
        <codesepIdx> N => N +Int 1 </codesepIdx>
        <phase> P </phase>
        <flags> F </flags>
-    requires notBool (P ==K witness-v0 andBool hasFlag(F, FLAG_CONST_SCRIPTCODE))
+    requires notBool (P =/=K witness-v0 andBool hasFlag(F, FLAG_CONST_SCRIPTCODE))
 
   // =========================================================================
   // OP_CHECKSIGVERIFY: CHECKSIG then VERIFY
