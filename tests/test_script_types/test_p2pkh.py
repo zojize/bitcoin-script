@@ -34,7 +34,7 @@ class TestP2PKH:
     def test_create_script_sig(self) -> None:
         """Should create a valid P2PKH scriptSig from sig and pubkey."""
         sig = b"\x30" + b"\x44" * 70 + b"\x01"
-        pubkey = b"\x02" + b"\xAB" * 32
+        pubkey = b"\x02" + b"\xab" * 32
         script = create_script_sig(sig, pubkey)
         pushes = list(script)
         assert pushes[0] == sig
