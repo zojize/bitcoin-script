@@ -15,6 +15,7 @@ from bitcoin_script.engine.engine import ScriptEngine
 from bitcoin_script.engine.errors import ScriptError
 from bitcoin_script.engine.flags import ScriptVerifyFlag
 from bitcoin_script.engine.stack import ScriptStack
+from bitcoin_script.script_types.classifier import classify
 
 app = typer.Typer(
     name="bitcoin-script",
@@ -253,6 +254,17 @@ def parse(
         _parse_block(data)
     else:
         _parse_transaction(data)
+
+
+@app.command()
+def classify_script(
+    script: Annotated[str, typer.Argument(help="Script in hex or ASM format.")],
+    hex: Annotated[bool, typer.Option("--hex", help="Treat input as raw hex.")] = False,
+) -> None:
+    """Classify a scriptPubKey into its standard template type."""
+    parsed = _parse_script(script, hex)
+    script_type = classify(parsed)
+    typer.echo(f"Type: {script_type.name}")
 
 
 def _parse_transaction(data: bytes) -> None:

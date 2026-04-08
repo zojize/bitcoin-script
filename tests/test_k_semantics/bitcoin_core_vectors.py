@@ -209,8 +209,6 @@ def classify_tx_vector(entry: list) -> str | None:
 
     if "BADTX" in flags:
         return "BADTX: tests malformed tx deserialization"
-    if "CONST_SCRIPTCODE" in flags:
-        return "CONST_SCRIPTCODE not enforced"
     if "TAPROOT" in flags:
         return "taproot not implemented"
     return None
@@ -241,8 +239,5 @@ def classify_vector(entry: list) -> str | None:
         return f"flag-dependent error: {expected}"
     if expected in _RESOURCE_ERRORS:
         return f"resource limit: {expected}"
-
-    if "CONST_SCRIPTCODE" in flags and expected != "OK":
-        return "CONST_SCRIPTCODE not enforced"
 
     return None

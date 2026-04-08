@@ -61,6 +61,7 @@ module SCRIPT-SEMANTICS
                | "FLAG_MINIMALIF"                    [macro]
                | "FLAG_NULLFAIL"                     [macro]
                | "FLAG_WITNESS_PUBKEYTYPE"           [macro]
+               | "FLAG_CONST_SCRIPTCODE"             [macro]
 
   rule FLAG_P2SH                        => 1
   rule FLAG_STRICTENC                   => 2
@@ -78,6 +79,7 @@ module SCRIPT-SEMANTICS
   rule FLAG_MINIMALIF                   => 8192
   rule FLAG_NULLFAIL                    => 16384
   rule FLAG_WITNESS_PUBKEYTYPE          => 32768
+  rule FLAG_CONST_SCRIPTCODE            => 65536
 
   syntax Bool ::= hasFlag(Int, Int) [function, total]
   rule hasFlag(FLAGS, BIT) => (FLAGS &Int BIT) =/=Int 0
