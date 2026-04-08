@@ -29,7 +29,7 @@ def create_script_pubkey(script_hash: bytes) -> CScript:
     """
     if len(script_hash) != 20:
         raise ValueError("script_hash must be 20 bytes")
-    return CScript([OP_HASH160, script_hash, OP_EQUAL])
+    return CScript([OP_HASH160, script_hash, OP_EQUAL])  # type: ignore[arg-type]
 
 
 def deserialize_redeem_script(script_sig: CScript) -> CScript:

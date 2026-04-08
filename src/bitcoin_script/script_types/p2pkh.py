@@ -31,7 +31,7 @@ def create_script_pubkey(pubkey_hash: bytes) -> CScript:
     """
     if len(pubkey_hash) != 20:
         raise ValueError("pubkey_hash must be 20 bytes")
-    return CScript([OP_DUP, OP_HASH160, pubkey_hash, OP_EQUALVERIFY, OP_CHECKSIG])
+    return CScript([OP_DUP, OP_HASH160, pubkey_hash, OP_EQUALVERIFY, OP_CHECKSIG])  # type: ignore[arg-type]
 
 
 def create_script_sig(signature: bytes, pubkey: bytes) -> CScript:
@@ -39,4 +39,4 @@ def create_script_sig(signature: bytes, pubkey: bytes) -> CScript:
 
     Returns: <signature> <pubkey>
     """
-    return CScript([signature, pubkey])
+    return CScript([signature, pubkey])  # type: ignore[arg-type]

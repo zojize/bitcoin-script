@@ -34,7 +34,7 @@ class TestP2SH:
         """Should extract the redeem script from a P2SH scriptSig."""
         redeem = b"\x51\xae"  # OP_1 OP_CHECKMULTISIG
         sig = b"\x30" + b"\x44" * 70 + b"\x01"
-        script_sig = CScript([sig, redeem])
+        script_sig = CScript([sig, redeem])  # type: ignore[arg-type]
         extracted = deserialize_redeem_script(script_sig)
         assert bytes(extracted) == redeem
 
