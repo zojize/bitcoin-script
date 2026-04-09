@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-from bitcoin_script.benchmark.dataset import BenchmarkInput
 from bitcoin_script.benchmark.extractor import extract_inputs_from_block
 
 
