@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, fields
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import cast
+from typing import Any
 
 import msgpack
 
@@ -88,10 +88,6 @@ def save_dataset(dataset: Dataset, path: Path) -> None:
 def load_dataset(path: Path) -> Dataset:
     """Deserialize a dataset from a MessagePack file."""
     with path.open("rb") as f:
-        raw = cast(dict[str, object], msgpack.unpack(f, raw=False))
-    inputs = [
-        BenchmarkInput.from_dict(d)
-        for d in cast(list[dict[str, object]], raw["inputs"])
-    ]
-    header = cast(dict[str, object], raw["header"])
-    return Dataset(inputs=inputs, header=header)
+        raw: Any = msgpack.unpack(f, raw=False)
+    inputs = [BenchmarkInput.from_dict(d) for d in raw["inputs"]]
+    return Dataset(inputs=inputs, header=raw["header"])
