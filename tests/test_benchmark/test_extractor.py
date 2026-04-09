@@ -34,4 +34,5 @@ class TestExtractInputsFromBlock:
     def test_extract_returns_benchmark_input_type(self) -> None:
         """Non-coinbase inputs should produce BenchmarkInput objects."""
         from bitcoin_script.benchmark.extractor import extract_inputs_from_block
+
         assert callable(extract_inputs_from_block)
