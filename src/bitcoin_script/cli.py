@@ -686,3 +686,145 @@ def repl(
             console.print(f"[dim]  script: {raw.hex()} ({len(raw)} bytes)[/dim]")
         except Exception as e:
             console.print(f"[yellow]  warning: {e}[/yellow]")
+
+
+# ---------------------------------------------------------------------------
+# Benchmark commands
+# ---------------------------------------------------------------------------
+
+benchmark_app = typer.Typer(
+    name="benchmark",
+    help="Benchmark script verification: K Framework vs Bitcoin Core.",
+)
+app.add_typer(benchmark_app)
+
+
+@benchmark_app.command(name="extract")
+def benchmark_extract(
+    blocks_dir: Annotated[
+        Optional[str],
+        typer.Option("--blocks-dir", help="Bitcoin Core data directory."),
+    ] = None,
+    output: Annotated[
+        str, typer.Option("--output", "-o", help="Output dataset file.")
+    ] = "benchmark-dataset.msgpack",
+    continuous_end: Annotated[
+        int, typer.Option("--continuous-end", help="Last block for continuous range.")
+    ] = 9999,
+    representative: Annotated[
+        int, typer.Option("--representative", help="Blocks per era to sample.")
+    ] = 10,
+    stress_count: Annotated[
+        int, typer.Option("--stress-count", help="Number of stress blocks.")
+    ] = 20,
+) -> None:
+    """Extract benchmark inputs from mainnet blocks into a dataset file."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+        datefmt="%H:%M:%S",
+    )
+    from tqdm import tqdm
+
+    from bitcoin_script.benchmark.extractor import extract_dataset
+
+    data_dir = Path(blocks_dir) if blocks_dir else _default_bitcoin_dir()
+    if not (data_dir / "blocks" / "blk00000.dat").exists():
+        typer.echo(f"Block files not found at {data_dir}/blocks/", err=True)
+        raise typer.Exit(1)
+
+    out_path = Path(output)
+    with tqdm(desc="Extracting", unit="blk", dynamic_ncols=True) as pbar:
+
+        def _on_block(height: int, count: int) -> None:
+            pbar.set_postfix(h=height, inputs=count, refresh=False)
+            pbar.update(1)
+
+        ds = extract_dataset(
+            data_dir,
+            output=out_path,
+            continuous_end=continuous_end,
+            blocks_per_era=representative,
+            stress_count=stress_count,
+            on_block=_on_block,
+        )
+
+    typer.echo(
+        f"Extracted {len(ds.inputs):,} inputs from {ds.header['block_count']} blocks -> {out_path}"
+    )
+
+
+@benchmark_app.command(name="run")
+def benchmark_run(
+    dataset: Annotated[
+        str, typer.Option("--dataset", "-d", help="Input dataset file.")
+    ] = "benchmark-dataset.msgpack",
+    output: Annotated[
+        str, typer.Option("--output", "-o", help="Output results file.")
+    ] = "benchmark-results.json",
+    k_only: Annotated[
+        bool, typer.Option("--k-only", help="Only run K Framework.")
+    ] = False,
+    core_only: Annotated[
+        bool, typer.Option("--core-only", help="Only run libbitcoinconsensus.")
+    ] = False,
+    iterations: Annotated[
+        int, typer.Option("--iterations", help="Iterations for Core timing.")
+    ] = 100,
+) -> None:
+    """Run benchmark on a dataset, timing both K Framework and libbitcoinconsensus."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+        datefmt="%H:%M:%S",
+    )
+    from tqdm import tqdm
+
+    from bitcoin_script.benchmark.dataset import load_dataset
+    from bitcoin_script.benchmark.runner import run_benchmark, save_results
+
+    ds = load_dataset(Path(dataset))
+    typer.echo(f"Loaded dataset: {len(ds.inputs):,} inputs")
+
+    run_k = not core_only
+    run_core = not k_only
+
+    with tqdm(total=len(ds.inputs), desc="Benchmarking", unit="inp") as pbar:
+
+        def _on_input(_i: int, _total: int) -> None:
+            pbar.update(1)
+
+        results = run_benchmark(
+            ds,
+            run_k=run_k,
+            run_core=run_core,
+            core_iterations=iterations,
+            on_input=_on_input,
+        )
+
+    out_path = Path(output)
+    save_results(results, out_path)
+    typer.echo(f"Results saved: {len(results.input_results):,} inputs -> {out_path}")
+
+
+@benchmark_app.command(name="report")
+def benchmark_report(
+    results: Annotated[
+        str, typer.Option("--results", "-r", help="Input results file.")
+    ] = "benchmark-results.json",
+    fmt: Annotated[
+        str, typer.Option("--format", "-f", help="Output format: table, json, csv.")
+    ] = "table",
+) -> None:
+    """Generate a benchmark report from results."""
+    from bitcoin_script.benchmark.report import format_csv, format_json, format_table
+    from bitcoin_script.benchmark.runner import load_results
+
+    res = load_results(Path(results))
+
+    if fmt == "json":
+        typer.echo(format_json(res))
+    elif fmt == "csv":
+        typer.echo(format_csv(res))
+    else:
+        typer.echo(format_table(res))
