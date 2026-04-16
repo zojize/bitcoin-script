@@ -2,7 +2,7 @@
 
 K claims mechanically verified by `kprove` (Haskell backend).
 
-## Proven claims (34 total)
+## Proven claims (56 total)
 
 **arithmetic-spec.k** (3) — symbolic, all valid CScriptNum inputs:
 - OP_1ADD(N) == N+1, OP_NEGATE(N) == -N, OP_ADD(A,B) == A+B
@@ -28,6 +28,26 @@ K claims mechanically verified by `kprove` (Haskell backend).
 
 **scriptnum-spec.k** (4) — CScriptNum encoding at boundaries:
 - zero, 1+(-1)=0, 127+1=128 boundary, negate encoding
+
+**csv-spec.k** (4) — concrete CSV (BIP 112) execution:
+- pass/NOP/fail-early/fail-old-version (mirrors timelock-spec for relative locks)
+
+**stack-ops-spec.k** (6) — symbolic stack manipulation:
+- SWAP, ROT, OVER, NIP, TUCK correct for any byte values
+- TOALTSTACK~>FROMALTSTACK roundtrip preserves value
+
+**disabled-ops-spec.k** (3) — disabled opcodes always fail:
+- OP_CAT fails in live branch, OP_CAT fails in dead IF branch
+- OP_RETURN halts execution
+
+**arithmetic-extended-spec.k** (5) — symbolic extended arithmetic:
+- OP_SUB, OP_ABS (positive/negative), OP_MIN, OP_MAX correct for all valid inputs
+
+**equalverify-spec.k** (2) — concrete OP_EQUALVERIFY:
+- matching values pass, mismatched values produce EQUALVERIFY error
+
+**guardexec-spec.k** (2) — dead branch opcode skipping:
+- OP_ADD in dead IF branch skipped (would crash), OP_RESERVED in dead branch skipped
 
 **historical-bugs-spec.k** (7+1) — before/after flag activation:
 - MINIMALDATA: non-minimal zero accepted/rejected
