@@ -571,8 +571,14 @@ module SCRIPT-DECODE
      andBool PH =/=K witness-v1
 
   // OP_CHECKSIGADD (0xba = 186) — real opcode in tapscript (BIP 342)
+  // In non-tapscript contexts, 0xba is an undefined opcode (fails when executed)
   rule <k> #decode1(B) => #guardExec(OP_CHECKSIGADD) ~> #decodeScript(#scriptTail(B)) ...</k>
+       <phase> witness-v1 </phase>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 186
+  rule <k> #decode1(B) => #guardExec(OP_RESERVED_OP) ~> #decodeScript(#scriptTail(B)) ...</k>
+       <phase> PH </phase>
+    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 186
+     andBool PH =/=K witness-v1
 
   // Undefined opcodes: 0xbb-0xfe (187-254)
   // In tapscript (witness-v1): OP_SUCCESSx (BIP 342)
