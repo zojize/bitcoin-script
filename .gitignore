@@ -58,3 +58,4 @@ blockchain_data/
 tests/test_k_semantics/data/
 mainnet_verify.db
 docs/superpowers/
+script-kompiled/

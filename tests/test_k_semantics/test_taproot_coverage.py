@@ -27,6 +27,25 @@ from .conftest import (
 
 pytestmark = pytest.mark.k
 
+
+def _has_schnorr_support() -> bool:
+    """Check if libsecp256k1 has Schnorr/extrakeys module (requires >= 0.2.0)."""
+    try:
+        lib = _find_libsecp256k1()
+        # Check for a function that only exists with the extrakeys module
+        lib.secp256k1_keypair_create  # noqa: B018
+        lib.secp256k1_schnorrsig_sign32  # noqa: B018
+        return True
+    except RuntimeError, AttributeError:
+        return False
+
+
+if not _has_schnorr_support():
+    pytest.skip(
+        "libsecp256k1 missing Schnorr/extrakeys support (requires >= 0.2.0)",
+        allow_module_level=True,
+    )
+
 # Standard taproot flags
 TAPROOT_FLAGS = flags_to_bitmask({"P2SH", "WITNESS", "TAPROOT"})
 
