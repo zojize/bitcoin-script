@@ -74,4 +74,4 @@ just prove htlc-spec                                  # single spec via examples
 
 - `script.k` — LLVM execution entry point (no lemmas)
 - `script-verification.k` — Haskell proof entry point (imports lemmas)
-- `lemmas.k` — 7 simplification rules for symbolic CScriptNum reasoning
+- `lemmas.k` — 11 simplification rules for symbolic CScriptNum reasoning
