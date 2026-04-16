@@ -93,9 +93,7 @@ def test_llvm_prove(
     kore_final = llvm_interpret(definition_dir=llvm_dir, pattern=kore_init)
 
     # Extract target config (RHS of all rewrites, existential vars as wildcards)
-    target_config = bottom_up(
-        lambda t: t.rhs if isinstance(t, KRewrite) else t, config
-    )
+    target_config = bottom_up(lambda t: t.rhs if isinstance(t, KRewrite) else t, config)
     kore_target = kast_to_kore(defn, target_config, sort=GENERATED_TOP_CELL)
 
     # Verify the claim by checking key cells in the LLVM output
@@ -125,6 +123,7 @@ def test_llvm_prove(
 def _norm(s: str) -> str:
     """Normalize KORE text: strip \\left-assoc wrappers and list concatenation."""
     import re
+
     s = re.sub(r"\\left-assoc\{\}\(Lbl'Unds'List'Unds'\{\}\(", "", s)
     # Remove trailing extra parens from the wrapper
     while s.endswith("))") and s.count("(") < s.count(")"):
