@@ -108,6 +108,8 @@ OPCODES: dict[str, str] = {
     # Timelock (aliases for NOP2/NOP3)
     "OP_CHECKLOCKTIMEVERIFY": "b1",
     "OP_CHECKSEQUENCEVERIFY": "b2",
+    # Tapscript (BIP 342)
+    "OP_CHECKSIGADD": "ba",
     # PUSHDATA
     "OP_PUSHDATA1": "4c",
     "OP_PUSHDATA2": "4d",
