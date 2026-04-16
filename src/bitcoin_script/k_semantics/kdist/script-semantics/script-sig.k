@@ -194,6 +194,92 @@ module SCRIPT-SIG
      andBool lengthBytes(SIG) >Int 0
 
   // =========================================================================
+  // OP_CHECKSIGADD (BIP 342 — tapscript multisig, witness-v1 only)
+  // =========================================================================
+  // Stack: pubkey (top), num, sig (bottom of the 3)
+
+  // Empty pubkey (0 bytes) → error
+  rule <k> OP_CHECKSIGADD => #fail("TAPSCRIPT_EMPTY_PUBKEY") ...</k>
+       <stack> ListItem(PK:Bytes) ListItem(_N:Bytes) ListItem(_SIG:Bytes) ST => ST </stack>
+       <phase> witness-v1 </phase>
+    requires lengthBytes(PK) ==Int 0
+
+  // Empty sig → push N (no verification, no error)
+  rule <k> OP_CHECKSIGADD => .K ...</k>
+       <stack> ListItem(PK:Bytes) ListItem(N:Bytes) ListItem(SIG:Bytes) ST
+            => ListItem(N) ST </stack>
+       <phase> witness-v1 </phase>
+    requires lengthBytes(PK) >Int 0
+     andBool lengthBytes(SIG) ==Int 0
+
+  // 32-byte pubkey: invalid Schnorr sig length (not 64 or 65)
+  rule <k> OP_CHECKSIGADD => #fail("SCHNORR_SIG_SIZE") ...</k>
+       <stack> ListItem(PK:Bytes) ListItem(_N:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
+       <phase> witness-v1 </phase>
+    requires lengthBytes(PK) ==Int 32
+     andBool lengthBytes(SIG) >Int 0
+     andBool lengthBytes(SIG) =/=Int 64
+     andBool lengthBytes(SIG) =/=Int 65
+
+  // 32-byte pubkey: 65-byte sig with hash type 0x00 is invalid
+  rule <k> OP_CHECKSIGADD => #fail("SCHNORR_SIG_HASHTYPE") ...</k>
+       <stack> ListItem(PK:Bytes) ListItem(_N:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
+       <phase> witness-v1 </phase>
+    requires lengthBytes(PK) ==Int 32
+     andBool lengthBytes(SIG) ==Int 65
+     andBool Bytes2Int(substrBytes(SIG, 64, 65), BE, Unsigned) ==Int 0
+
+  // 32-byte pubkey: Schnorr verify succeeds → push N+1
+  rule <k> OP_CHECKSIGADD => .K ...</k>
+       <stack> ListItem(PK:Bytes) ListItem(N:Bytes) ListItem(SIG:Bytes) ST
+            => ListItem(intToScriptNum(scriptNumToInt(N) +Int 1)) ST </stack>
+       <sighash> SIGHASHBLOB </sighash>
+       <codesepIdx> CSI </codesepIdx>
+       <phase> witness-v1 </phase>
+    requires lengthBytes(PK) ==Int 32
+     andBool (lengthBytes(SIG) ==Int 64
+       orBool (lengthBytes(SIG) ==Int 65
+         andBool Bytes2Int(substrBytes(SIG, 64, 65), BE, Unsigned) =/=Int 0))
+     andBool SchnorrVerify(
+               PK,
+               lookupSighash(SIGHASHBLOB, #tapSigHashType(SIG), CSI),
+               #tapSigBody(SIG))
+
+  // 32-byte pubkey: Schnorr verify fails → error
+  rule <k> OP_CHECKSIGADD => #fail("SCHNORR_SIG") ...</k>
+       <stack> ListItem(PK:Bytes) ListItem(_N:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
+       <sighash> SIGHASHBLOB </sighash>
+       <codesepIdx> CSI </codesepIdx>
+       <phase> witness-v1 </phase>
+    requires lengthBytes(PK) ==Int 32
+     andBool (lengthBytes(SIG) ==Int 64
+       orBool (lengthBytes(SIG) ==Int 65
+         andBool Bytes2Int(substrBytes(SIG, 64, 65), BE, Unsigned) =/=Int 0))
+     andBool notBool SchnorrVerify(
+               PK,
+               lookupSighash(SIGHASHBLOB, #tapSigHashType(SIG), CSI),
+               #tapSigBody(SIG))
+
+  // Non-32-byte non-empty pubkey in tapscript: unknown key type → push N+1
+  // (future softfork compatibility, BIP 342)
+  rule <k> OP_CHECKSIGADD => .K ...</k>
+       <stack> ListItem(PK:Bytes) ListItem(N:Bytes) ListItem(SIG:Bytes) ST
+            => ListItem(intToScriptNum(scriptNumToInt(N) +Int 1)) ST </stack>
+       <phase> witness-v1 </phase>
+    requires lengthBytes(PK) >Int 0
+     andBool lengthBytes(PK) =/=Int 32
+     andBool lengthBytes(SIG) >Int 0
+
+  // =========================================================================
+  // OP_CHECKMULTISIG / OP_CHECKMULTISIGVERIFY — disabled in tapscript (BIP 342)
+  // =========================================================================
+  rule <k> OP_CHECKMULTISIG => #fail("TAPSCRIPT_CHECKMULTISIG") ...</k>
+       <phase> witness-v1 </phase>
+
+  rule <k> OP_CHECKMULTISIGVERIFY => #fail("TAPSCRIPT_CHECKMULTISIG") ...</k>
+       <phase> witness-v1 </phase>
+
+  // =========================================================================
   // OP_CHECKMULTISIG
   // =========================================================================
   // Stack layout (top to bottom):
@@ -203,17 +289,22 @@ module SCRIPT-SIG
 
   // Step 1: Pop N from stack (CScriptNum), begin collecting pubkeys
   // PUBKEY_COUNT: N must be in [0, 20]. Also count N ops for OP_COUNT limit.
+  // Note: tapscript (witness-v1) rules above handle OP_CHECKMULTISIG separately.
   rule <k> OP_CHECKMULTISIG => #countOps(scriptNumToInt(N)) ~> #collectPubKeys(scriptNumToInt(N), .List) ...</k>
        <stack> ListItem(N:Bytes) ST => ST </stack>
        <flags> FL </flags>
-    requires validNumFlags(N, FL)
+       <phase> PH </phase>
+    requires PH =/=K witness-v1
+     andBool validNumFlags(N, FL)
      andBool scriptNumToInt(N) >=Int 0
      andBool scriptNumToInt(N) <=Int 20
 
   rule <k> OP_CHECKMULTISIG => #fail("PUBKEY_COUNT") ...</k>
        <stack> ListItem(N:Bytes) ST => ST </stack>
        <flags> FL </flags>
-    requires validNumFlags(N, FL)
+       <phase> PH </phase>
+    requires PH =/=K witness-v1
+     andBool validNumFlags(N, FL)
      andBool (scriptNumToInt(N) <Int 0 orBool scriptNumToInt(N) >Int 20)
 
   // Step 2a: Pop one pubkey, append to collected list
@@ -442,7 +533,10 @@ module SCRIPT-SIG
   // =========================================================================
 
   // Reuse CHECKMULTISIG collection pipeline, then verify the result
+  // (tapscript rule above handles witness-v1 separately)
   rule <k> OP_CHECKMULTISIGVERIFY
         => OP_CHECKMULTISIG ~> OP_VERIFY ...</k>
+       <phase> PH </phase>
+    requires PH =/=K witness-v1
 
 endmodule

@@ -92,6 +92,15 @@ module SCRIPT-SEMANTICS
   rule <k> #fail(ERR) ~> _:K => .K </k>
        <error> _ => ERR </error>
 
+  // --- OP_SUCCESS mechanism (BIP 342 tapscript) ---
+  // #opSuccess causes unconditional script success during decoding.
+  // Clears the entire k cell (including remaining decode work).
+  // Pushes a truthy value onto the stack so success() returns true.
+  syntax KItem ::= "#opSuccess"
+  rule <k> #opSuccess ~> _:K => .K </k>
+       <stack> _ => ListItem(intToScriptNum(1)) .List </stack>
+       <phase> _ => done </phase>
+
   // =========================================================================
   // Initialization: start executing scriptSig (or skip to scriptPubKey)
   // =========================================================================

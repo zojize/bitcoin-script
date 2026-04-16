@@ -479,12 +479,23 @@ module SCRIPT-DECODE
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 185
 
   // OP_RESERVED_OP: reserved opcodes that fail when executed but are OK in dead branches
-  // 0x50 (80) = OP_RESERVED
-  rule <k> #decode1(B) => #guardExec(OP_RESERVED_OP) ~> #decodeScript(#scriptTail(B)) ...</k>
+  // In tapscript (witness-v1), 0x50 and 0x62 are OP_SUCCESSx (BIP 342)
+  // 0x50 (80) = OP_RESERVED — OP_SUCCESS in tapscript
+  rule <k> #decode1(B) => #opSuccess ...</k>
+       <phase> witness-v1 </phase>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 80
-  // 0x62 (98) = OP_VER
   rule <k> #decode1(B) => #guardExec(OP_RESERVED_OP) ~> #decodeScript(#scriptTail(B)) ...</k>
+       <phase> PH </phase>
+    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 80
+     andBool PH =/=K witness-v1
+  // 0x62 (98) = OP_VER — OP_SUCCESS in tapscript
+  rule <k> #decode1(B) => #opSuccess ...</k>
+       <phase> witness-v1 </phase>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 98
+  rule <k> #decode1(B) => #guardExec(OP_RESERVED_OP) ~> #decodeScript(#scriptTail(B)) ...</k>
+       <phase> PH </phase>
+    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 98
+     andBool PH =/=K witness-v1
   // 0x89 (137) = OP_RESERVED1
   rule <k> #decode1(B) => #guardExec(OP_RESERVED_OP) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 137
@@ -500,36 +511,85 @@ module SCRIPT-DECODE
   rule <k> #decode1(B) => OP_INVALIDOPCODE ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 102
 
-  // Disabled opcodes: always fail even in dead branches
+  // Disabled opcodes: always fail even in dead branches (non-tapscript)
+  // In tapscript (witness-v1), these are OP_SUCCESSx (BIP 342)
+
   // 0x7e (126) = OP_CAT, 0x7f (127) = OP_SUBSTR
-  rule <k> #decode1(B) => OP_INVALIDOPCODE ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decode1(B) => #opSuccess ...</k>
+       <phase> witness-v1 </phase>
     requires lengthBytes(B) >Int 0
      andBool #scriptByte(B) >=Int 126 andBool #scriptByte(B) <=Int 127
-  // 0x80 (128) = OP_LEFT, 0x81 (129) = OP_RIGHT
   rule <k> #decode1(B) => OP_INVALIDOPCODE ~> #decodeScript(#scriptTail(B)) ...</k>
+       <phase> PH </phase>
+    requires lengthBytes(B) >Int 0
+     andBool #scriptByte(B) >=Int 126 andBool #scriptByte(B) <=Int 127
+     andBool PH =/=K witness-v1
+
+  // 0x80 (128) = OP_LEFT, 0x81 (129) = OP_RIGHT
+  rule <k> #decode1(B) => #opSuccess ...</k>
+       <phase> witness-v1 </phase>
     requires lengthBytes(B) >Int 0
      andBool #scriptByte(B) >=Int 128 andBool #scriptByte(B) <=Int 129
-  // 0x83 (131) = OP_INVERT, 0x84 (132) = OP_AND, 0x85 (133) = OP_OR, 0x86 (134) = OP_XOR
   rule <k> #decode1(B) => OP_INVALIDOPCODE ~> #decodeScript(#scriptTail(B)) ...</k>
+       <phase> PH </phase>
+    requires lengthBytes(B) >Int 0
+     andBool #scriptByte(B) >=Int 128 andBool #scriptByte(B) <=Int 129
+     andBool PH =/=K witness-v1
+
+  // 0x83 (131) = OP_INVERT, 0x84 (132) = OP_AND, 0x85 (133) = OP_OR, 0x86 (134) = OP_XOR
+  rule <k> #decode1(B) => #opSuccess ...</k>
+       <phase> witness-v1 </phase>
     requires lengthBytes(B) >Int 0
      andBool #scriptByte(B) >=Int 131 andBool #scriptByte(B) <=Int 134
-  // 0x8d (141) = OP_2MUL, 0x8e (142) = OP_2DIV
   rule <k> #decode1(B) => OP_INVALIDOPCODE ~> #decodeScript(#scriptTail(B)) ...</k>
+       <phase> PH </phase>
+    requires lengthBytes(B) >Int 0
+     andBool #scriptByte(B) >=Int 131 andBool #scriptByte(B) <=Int 134
+     andBool PH =/=K witness-v1
+
+  // 0x8d (141) = OP_2MUL, 0x8e (142) = OP_2DIV
+  rule <k> #decode1(B) => #opSuccess ...</k>
+       <phase> witness-v1 </phase>
     requires lengthBytes(B) >Int 0
      andBool #scriptByte(B) >=Int 141 andBool #scriptByte(B) <=Int 142
+  rule <k> #decode1(B) => OP_INVALIDOPCODE ~> #decodeScript(#scriptTail(B)) ...</k>
+       <phase> PH </phase>
+    requires lengthBytes(B) >Int 0
+     andBool #scriptByte(B) >=Int 141 andBool #scriptByte(B) <=Int 142
+     andBool PH =/=K witness-v1
+
   // 0x95 (149) = OP_MUL, 0x96 (150) = OP_DIV, 0x97 (151) = OP_MOD
   // 0x98 (152) = OP_LSHIFT, 0x99 (153) = OP_RSHIFT
-  rule <k> #decode1(B) => OP_INVALIDOPCODE ~> #decodeScript(#scriptTail(B)) ...</k>
+  rule <k> #decode1(B) => #opSuccess ...</k>
+       <phase> witness-v1 </phase>
     requires lengthBytes(B) >Int 0
      andBool #scriptByte(B) >=Int 149 andBool #scriptByte(B) <=Int 153
+  rule <k> #decode1(B) => OP_INVALIDOPCODE ~> #decodeScript(#scriptTail(B)) ...</k>
+       <phase> PH </phase>
+    requires lengthBytes(B) >Int 0
+     andBool #scriptByte(B) >=Int 149 andBool #scriptByte(B) <=Int 153
+     andBool PH =/=K witness-v1
 
-  // Undefined opcodes: 0xba-0xff (186-255) — fail when executed, OK in dead branches
-  // NOTE: In tapscript (witness-v1), opcodes 0x50, 0x62, 0x7e-0x81, 0x83-0x86,
-  // 0x8d-0x8e, 0x95-0x99, 0xbb-0xfe are OP_SUCCESSx (immediately succeed).
-  // OP_CHECKSIGADD (0xba) is a real opcode in tapscript.
-  // This phase-aware behavior will be added when tapscript execution is implemented.
+  // OP_CHECKSIGADD (0xba = 186) — real opcode in tapscript (BIP 342)
+  rule <k> #decode1(B) => #guardExec(OP_CHECKSIGADD) ~> #decodeScript(#scriptTail(B)) ...</k>
+    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 186
+
+  // Undefined opcodes: 0xbb-0xfe (187-254)
+  // In tapscript (witness-v1): OP_SUCCESSx (BIP 342)
+  // In non-tapscript: reserved (fail when executed, OK in dead branches)
+  rule <k> #decode1(B) => #opSuccess ...</k>
+       <phase> witness-v1 </phase>
+    requires lengthBytes(B) >Int 0
+     andBool #scriptByte(B) >=Int 187 andBool #scriptByte(B) <=Int 254
   rule <k> #decode1(B) => #guardExec(OP_RESERVED_OP) ~> #decodeScript(#scriptTail(B)) ...</k>
-    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) >=Int 186
+       <phase> PH </phase>
+    requires lengthBytes(B) >Int 0
+     andBool #scriptByte(B) >=Int 187 andBool #scriptByte(B) <=Int 254
+     andBool PH =/=K witness-v1
+
+  // 0xff (255) = OP_INVALIDOPCODE — fails when executed, OK in dead branches
+  rule <k> #decode1(B) => #guardExec(OP_RESERVED_OP) ~> #decodeScript(#scriptTail(B)) ...</k>
+    requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 255
 
 
 endmodule
