@@ -110,11 +110,12 @@ uv run ruff check src/ tests/          # Lint (matches CI exactly)
 uv run ruff format --check src/ tests/ # Format check (matches CI exactly)
 uv run pyright src/                    # Typecheck (matches CI exactly)
 uv run pytest --tb=short -q            # Non-K tests
+uv run pytest -m k --tb=short -q      # K Framework tests (requires built definition)
 ```
 
 If format check fails, fix with `uv run ruff format src/ tests/` and re-check.
 If lint fails, fix with `uv run ruff check --fix src/ tests/` and re-check.
-Only push once all four commands pass with zero errors.
+Only push once all five commands pass with zero errors.
 
 ## Code preferences
 
