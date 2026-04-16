@@ -263,25 +263,38 @@ def _compact_size(n: int) -> bytes:
 
 def _find_libsecp256k1() -> ctypes.CDLL:
     """Find and load libsecp256k1 from nix store or system."""
+    import ctypes.util
     import glob
 
-    for p in sorted(
-        glob.glob("/nix/store/*-secp256k1-*/lib/libsecp256k1.dylib"), reverse=True
-    ):
-        try:
-            return ctypes.CDLL(p)
-        except OSError:
-            continue
-    # Try system paths
+    # Nix store (macOS .dylib and Linux .so)
+    for pattern in [
+        "/nix/store/*-secp256k1-*/lib/libsecp256k1.dylib",
+        "/nix/store/*-secp256k1-*/lib/libsecp256k1.so",
+    ]:
+        for p in sorted(glob.glob(pattern), reverse=True):
+            try:
+                return ctypes.CDLL(p)
+            except OSError:
+                continue
+    # Common system paths
     for p in [
         "/opt/homebrew/lib/libsecp256k1.dylib",
         "/usr/local/lib/libsecp256k1.so",
         "/usr/lib/libsecp256k1.so",
+        "/usr/lib/x86_64-linux-gnu/libsecp256k1.so",
+        "/usr/lib/aarch64-linux-gnu/libsecp256k1.so",
     ]:
         try:
             return ctypes.CDLL(p)
         except OSError:
             continue
+    # ctypes.util.find_library as last resort
+    path = ctypes.util.find_library("secp256k1")
+    if path:
+        try:
+            return ctypes.CDLL(path)
+        except OSError:
+            pass
     raise RuntimeError("libsecp256k1 not found")
 
 
