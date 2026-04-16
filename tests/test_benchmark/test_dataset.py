@@ -65,7 +65,7 @@ class TestDataset:
         ds = Dataset(inputs=inputs)
         save_dataset(ds, p)
         loaded = load_dataset(p)
-        assert loaded.header["version"] == 1
+        assert loaded.header["version"] == 2
         assert loaded.header["input_count"] == 5
         assert len(loaded.inputs) == 5
         assert loaded.inputs[0].block_height == 0
