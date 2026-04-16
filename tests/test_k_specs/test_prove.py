@@ -14,7 +14,10 @@ import pytest
 
 SPEC_DIR = Path(__file__).parent
 
-# Claims that need kore-rpc-booster for crypto hook evaluation
+# Claims excluded from automated proving.
+# - Crypto hooks: need kore-rpc-booster with --llvm-backend-library
+# - Symbolic branch: Haskell backend can't determine function branch for
+#   symbolic arithmetic (e.g. intToScriptNum(0 -Int N) for symbolic N<0)
 EXCLUDE_CLAIMS: dict[str, list[str]] = {
     "htlc-spec": [
         "HTLC-SPEC.hash-path-correct-preimage",
@@ -22,6 +25,9 @@ EXCLUDE_CLAIMS: dict[str, list[str]] = {
     ],
     "historical-bugs-spec": [
         "HISTORICAL-BUGS-SPEC.non-minimal-zero-rejected-with-flag",
+    ],
+    "arithmetic-extended-spec": [
+        "ARITHMETIC-EXTENDED-SPEC.abs-negative",
     ],
 }
 

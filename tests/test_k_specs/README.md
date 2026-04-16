@@ -40,8 +40,9 @@ K claims mechanically verified by `kprove` (Haskell backend).
 - OP_CAT fails in live branch, OP_CAT fails in dead IF branch
 - OP_RETURN halts execution
 
-**arithmetic-extended-spec.k** (5) — symbolic extended arithmetic:
-- OP_SUB, OP_ABS (positive/negative), OP_MIN, OP_MAX correct for all valid inputs
+**arithmetic-extended-spec.k** (4+1) — symbolic extended arithmetic:
+- OP_SUB, OP_ABS (positive), OP_MIN, OP_MAX correct for all valid inputs
+- (1 claim: abs-negative needs booster — Haskell backend can't select `intToScriptNum` branch for symbolic `0 -Int N`)
 
 **equalverify-spec.k** (2) — concrete OP_EQUALVERIFY:
 - matching values pass, mismatched values produce EQUALVERIFY error
