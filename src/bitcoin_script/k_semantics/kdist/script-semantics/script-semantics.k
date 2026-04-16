@@ -42,6 +42,7 @@ module SCRIPT-SEMANTICS
       <witnessUsed> false </witnessUsed>
       <p2shRedeemBytes> .Bytes </p2shRedeemBytes>
       <codesepIdx> 0 </codesepIdx>
+      <sigopsWeight> $SIGOPSBUDGET:Int </sigopsWeight>
     </T>
 
   // --- Flag checking (Bitcoin Core verification flags as bitmask) ---

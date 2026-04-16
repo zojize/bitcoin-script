@@ -236,6 +236,7 @@ class KBitcoinScript:
         tx_version: int = 1,
         n_locktime: int = 0,
         n_sequence: int = 0xFFFFFFFF,
+        sigops_budget: int | None = None,
     ) -> Pattern:
         """Build and run a full script verification.
 
@@ -248,6 +249,9 @@ class KBitcoinScript:
             tx_version: Spending transaction version (for BIP-68 CSV: must be >= 2).
             n_locktime: Spending transaction nLockTime (for BIP-65 CLTV).
             n_sequence: Spending input nSequence (for BIP-65 CLTV / BIP-68 CSV).
+            sigops_budget: BIP 342 signature validation weight budget.
+                If None (default), uses a large value (effectively unlimited for
+                non-tapscript, or should be computed from witness size for tapscript).
 
         Returns:
             The final KORE pattern after execution.
@@ -261,6 +265,7 @@ class KBitcoinScript:
             tx_version=tx_version,
             n_locktime=n_locktime,
             n_sequence=n_sequence,
+            sigops_budget=sigops_budget,
         )
         return self.run(pat)
 
@@ -275,6 +280,7 @@ class KBitcoinScript:
         tx_version: int = 1,
         n_locktime: int = 0,
         n_sequence: int = 0xFFFFFFFF,
+        sigops_budget: int | None = None,
     ) -> Pattern:
         """Build an initial KORE configuration.
 
@@ -287,6 +293,8 @@ class KBitcoinScript:
             tx_version: Spending transaction version (for BIP-68 CSV: must be >= 2).
             n_locktime: Spending transaction nLockTime (for BIP-65 CLTV).
             n_sequence: Spending input nSequence (for BIP-65 CLTV / BIP-68 CSV).
+            sigops_budget: BIP 342 signature validation weight budget.
+                If None (default), uses a large value (effectively unlimited).
 
         Returns:
             The initial KORE pattern.
@@ -307,6 +315,9 @@ class KBitcoinScript:
         def _int_var(val: int) -> Pattern:
             return inj(sort_int, SORT_K_ITEM, DV(sort_int, String(str(val))))
 
+        # Default to effectively unlimited budget for non-tapscript
+        budget = sigops_budget if sigops_budget is not None else 2_000_000_000
+
         return top_cell_initializer(
             {
                 "$SCRIPTSIG": _bytes_var(script_sig),
@@ -317,6 +328,7 @@ class KBitcoinScript:
                 "$TXVERSION": _int_var(tx_version),
                 "$NLOCKTIME": _int_var(n_locktime),
                 "$NSEQUENCE": _int_var(n_sequence),
+                "$SIGOPSBUDGET": _int_var(budget),
             }
         )
 

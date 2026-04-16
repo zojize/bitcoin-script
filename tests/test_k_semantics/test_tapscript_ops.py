@@ -368,3 +368,152 @@ class TestOpSuccess:
             flags=SEGWIT_FLAGS,
         )
         assert not k.success(result), "0xbb should fail in non-tapscript context"
+
+
+# =========================================================================
+# Signature validation weight budget (BIP 342)
+# =========================================================================
+
+
+class TestSigopsWeightBudget:
+    """BIP 342 signature validation weight budget tests."""
+
+    def test_budget_allows_single_sig(self, k):
+        """Budget of exactly 50 allows one non-empty sig (unknown pubkey type)."""
+        # Unknown pubkey type (33 bytes) with non-empty sig succeeds and costs 50
+        pubkey_hex = "ab" * 33  # 33-byte pubkey (unknown type → push 1)
+        sig_hex = "cc" * 64  # non-empty sig
+
+        script_sig, script_pubkey, witness_blob = _build_tapscript_spend(
+            "CHECKSIG",
+            witness_stack_hex=[sig_hex, pubkey_hex],
+        )
+
+        result = k.verify_script(
+            script_sig=script_sig,
+            script_pubkey=script_pubkey,
+            witness=witness_blob,
+            flags=TAPROOT_FLAGS,
+            sigops_budget=50,
+        )
+        assert k.success(result), "Budget of 50 should allow one sig check"
+
+    def test_budget_exhausted_single_sig(self, k):
+        """Budget of 49 fails for one non-empty sig."""
+        pubkey_hex = "ab" * 33  # unknown type
+        sig_hex = "cc" * 64  # non-empty sig
+
+        script_sig, script_pubkey, witness_blob = _build_tapscript_spend(
+            "CHECKSIG",
+            witness_stack_hex=[sig_hex, pubkey_hex],
+        )
+
+        result = k.verify_script(
+            script_sig=script_sig,
+            script_pubkey=script_pubkey,
+            witness=witness_blob,
+            flags=TAPROOT_FLAGS,
+            sigops_budget=49,
+        )
+        assert not k.success(result)
+        assert k.error(result) == "TAPSCRIPT_VALIDATION_WEIGHT"
+
+    def test_empty_sig_no_budget_cost(self, k):
+        """Empty signature costs 0 weight — budget of 0 still succeeds."""
+        pubkey_hex = "ab" * 32  # 32-byte pubkey
+        sig_hex = ""  # empty signature → push 0, but that's falsy
+
+        # Use a script that checks empty sig then pushes a truthy value:
+        # OP_CHECKSIG OP_DROP OP_1
+        script_sig, script_pubkey, witness_blob = _build_tapscript_spend(
+            "CHECKSIG DROP 1",
+            witness_stack_hex=[sig_hex, pubkey_hex],
+        )
+
+        result = k.verify_script(
+            script_sig=script_sig,
+            script_pubkey=script_pubkey,
+            witness=witness_blob,
+            flags=TAPROOT_FLAGS,
+            sigops_budget=0,
+        )
+        assert k.success(result), "Empty sig should cost 0 budget"
+
+    def test_budget_allows_two_checksig(self, k):
+        """Budget of 100 allows two non-empty sigs via two CHECKSIG ops."""
+        # Script: CHECKSIG DROP CHECKSIG
+        # Stack (bottom to top): sig1, pk1, sig2, pk2
+        # First CHECKSIG: (pk2, sig2) → push 1 (unknown pubkey, costs 50)
+        # DROP: remove 1
+        # Second CHECKSIG: (pk1, sig1) → push 1 (unknown pubkey, costs 50)
+        pk1_hex = "ab" * 33  # unknown type
+        pk2_hex = "cd" * 33  # unknown type
+        sig1_hex = "aa" * 64  # non-empty
+        sig2_hex = "bb" * 64  # non-empty
+
+        script_sig, script_pubkey, witness_blob = _build_tapscript_spend(
+            "CHECKSIG DROP CHECKSIG",
+            witness_stack_hex=[sig1_hex, pk1_hex, sig2_hex, pk2_hex],
+        )
+
+        result = k.verify_script(
+            script_sig=script_sig,
+            script_pubkey=script_pubkey,
+            witness=witness_blob,
+            flags=TAPROOT_FLAGS,
+            sigops_budget=100,
+        )
+        assert k.success(result), "Budget of 100 should allow two sig checks"
+
+    def test_budget_exhausted_second_checksig(self, k):
+        """Budget of 99 fails on second non-empty sig (first costs 50, second needs 50)."""
+        pk1_hex = "ab" * 33
+        pk2_hex = "cd" * 33
+        sig1_hex = "aa" * 64
+        sig2_hex = "bb" * 64
+
+        script_sig, script_pubkey, witness_blob = _build_tapscript_spend(
+            "CHECKSIG DROP CHECKSIG",
+            witness_stack_hex=[sig1_hex, pk1_hex, sig2_hex, pk2_hex],
+        )
+
+        result = k.verify_script(
+            script_sig=script_sig,
+            script_pubkey=script_pubkey,
+            witness=witness_blob,
+            flags=TAPROOT_FLAGS,
+            sigops_budget=99,
+        )
+        assert not k.success(result)
+        assert k.error(result) == "TAPSCRIPT_VALIDATION_WEIGHT"
+
+    def test_checksigverify_also_costs_budget(self, k):
+        """OP_CHECKSIGVERIFY (rewritten to CHECKSIG + VERIFY) also costs budget."""
+        pubkey_hex = "ab" * 33  # unknown type → push 1
+        sig_hex = "cc" * 64  # non-empty
+
+        script_sig, script_pubkey, witness_blob = _build_tapscript_spend(
+            "CHECKSIGVERIFY 1",
+            witness_stack_hex=[sig_hex, pubkey_hex],
+        )
+
+        # Budget of 49 should fail
+        result = k.verify_script(
+            script_sig=script_sig,
+            script_pubkey=script_pubkey,
+            witness=witness_blob,
+            flags=TAPROOT_FLAGS,
+            sigops_budget=49,
+        )
+        assert not k.success(result)
+        assert k.error(result) == "TAPSCRIPT_VALIDATION_WEIGHT"
+
+        # Budget of 50 should succeed
+        result = k.verify_script(
+            script_sig=script_sig,
+            script_pubkey=script_pubkey,
+            witness=witness_blob,
+            flags=TAPROOT_FLAGS,
+            sigops_budget=50,
+        )
+        assert k.success(result)
