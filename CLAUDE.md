@@ -117,6 +117,9 @@ If format check fails, fix with `uv run ruff format src/ tests/` and re-check.
 If lint fails, fix with `uv run ruff check --fix src/ tests/` and re-check.
 Only push once all five commands pass with zero errors.
 
+**After pushing**, monitor CI with `gh pr checks <number>` or `gh run list -b <branch>`.
+If CI fails, investigate immediately — do not move on to other work until CI is green.
+
 ## Code preferences
 
 - Python target: 3.14. Use `from __future__ import annotations`.
