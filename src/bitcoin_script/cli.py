@@ -727,8 +727,20 @@ def benchmark_extract(
         bool,
         typer.Option("--skip-taproot", help="Skip Taproot-era representative blocks."),
     ] = False,
+    source: Annotated[
+        str,
+        typer.Option(
+            "--source",
+            help="Data source: 'local' (Bitcoin Core .blk files) or 'api' (Blockstream esplora).",
+        ),
+    ] = "local",
 ) -> None:
-    """Extract benchmark inputs from mainnet blocks into a dataset file."""
+    """Extract benchmark inputs from mainnet blocks into a dataset file.
+
+    With --source api, fetches blocks from Blockstream's esplora REST API
+    (no Bitcoin Core node required). Only target blocks are fetched — the
+    continuous range is skipped unless --continuous-end is set explicitly.
+    """
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
@@ -736,30 +748,52 @@ def benchmark_extract(
     )
     from tqdm import tqdm
 
-    from bitcoin_script.benchmark.extractor import extract_dataset
-
-    data_dir = Path(blocks_dir) if blocks_dir else _default_bitcoin_dir()
-    if not (data_dir / "blocks" / "blk00000.dat").exists():
-        typer.echo(f"Block files not found at {data_dir}/blocks/", err=True)
-        raise typer.Exit(1)
-
     out_path = Path(output)
-    with tqdm(desc="Extracting", unit="blk", dynamic_ncols=True) as pbar:
 
-        def _on_block(height: int, count: int) -> None:
-            pbar.set_postfix(h=height, inputs=count, refresh=False)
-            pbar.update(1)
+    if source == "api":
+        from bitcoin_script.benchmark.api_extractor import extract_dataset_api
 
-        ds = extract_dataset(
-            data_dir,
-            output=out_path,
-            continuous_end=continuous_end,
-            blocks_per_era=representative,
-            stress_count=stress_count,
-            on_block=_on_block,
-            utxo_db=utxo_db,
-            skip_taproot=skip_taproot,
-        )
+        # Skip continuous range for API mode (10K blocks is impractical).
+        api_continuous = -1 if continuous_end == 9999 else continuous_end
+
+        with tqdm(desc="Fetching blocks", unit="blk", dynamic_ncols=True) as pbar:
+
+            def _on_block_api(height: int, count: int) -> None:
+                pbar.set_postfix(h=height, inputs=count, refresh=False)
+                pbar.update(1)
+
+            ds = extract_dataset_api(
+                output=out_path,
+                continuous_end=api_continuous,
+                blocks_per_era=representative,
+                stress_count=stress_count,
+                skip_taproot=skip_taproot,
+                on_block=_on_block_api,
+            )
+    else:
+        from bitcoin_script.benchmark.extractor import extract_dataset
+
+        data_dir = Path(blocks_dir) if blocks_dir else _default_bitcoin_dir()
+        if not (data_dir / "blocks" / "blk00000.dat").exists():
+            typer.echo(f"Block files not found at {data_dir}/blocks/", err=True)
+            raise typer.Exit(1)
+
+        with tqdm(desc="Extracting", unit="blk", dynamic_ncols=True) as pbar:
+
+            def _on_block(height: int, count: int) -> None:
+                pbar.set_postfix(h=height, inputs=count, refresh=False)
+                pbar.update(1)
+
+            ds = extract_dataset(
+                data_dir,
+                output=out_path,
+                continuous_end=continuous_end,
+                blocks_per_era=representative,
+                stress_count=stress_count,
+                on_block=_on_block,
+                utxo_db=utxo_db,
+                skip_taproot=skip_taproot,
+            )
 
     typer.echo(
         f"Extracted {len(ds.inputs):,} inputs from {ds.header['block_count']} blocks -> {out_path}"
