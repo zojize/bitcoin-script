@@ -100,6 +100,22 @@ kdist build --force          # Rebuild K semantics after .k file changes
 uv run bitcoin-script verify --end 1000  # Verify mainnet blocks via CLI
 ```
 
+## Mandatory pre-push pipeline
+
+**You MUST run these checks locally and confirm they pass before every `git push`.**
+No exceptions. CI will reject the push otherwise, wasting time and cluttering the PR.
+
+```sh
+uv run ruff check src/ tests/          # Lint (matches CI exactly)
+uv run ruff format --check src/ tests/ # Format check (matches CI exactly)
+uv run pyright src/                    # Typecheck (matches CI exactly)
+uv run pytest --tb=short -q            # Non-K tests
+```
+
+If format check fails, fix with `uv run ruff format src/ tests/` and re-check.
+If lint fails, fix with `uv run ruff check --fix src/ tests/` and re-check.
+Only push once all four commands pass with zero errors.
+
 ## Code preferences
 
 - Python target: 3.14. Use `from __future__ import annotations`.
