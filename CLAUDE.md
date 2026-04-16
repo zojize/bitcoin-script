@@ -71,8 +71,19 @@ Benchmark compares K Framework against libbitcoinconsensus (Bitcoin Core 27.2) o
 
 Zero correctness mismatches across all 225,417 inputs. K is faster than Core on stress/complex scripts; the 0.62ms floor on simple scripts is Python KORE text serialization overhead (a native Rust/C caller would eliminate this).
 
+**Extraction** supports two data sources:
+
 ```sh
-uv run bitcoin-script benchmark extract    # Extract inputs from mainnet blocks
+# From Blockstream esplora API (no Bitcoin Core node required, ~30 min)
+uv run bitcoin-script benchmark extract --source api --skip-taproot
+
+# From local Bitcoin Core .blk files (requires synced node, ~2 hours)
+uv run bitcoin-script benchmark extract --blocks-dir ~/.bitcoin
+```
+
+The API source fetches only target blocks (representative + stress) directly, using the API's `prevout` field to resolve spent outputs without maintaining a local UTXO set. The continuous block range (0-9999) is skipped in API mode.
+
+```sh
 uv run bitcoin-script benchmark run        # Run K + Core benchmark
 uv run bitcoin-script benchmark report     # Generate report from results
 ```
