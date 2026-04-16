@@ -10,6 +10,12 @@ module SCRIPT-SIG
   // OP_CHECKSIG (extracts hashtype from sig, looks up sighash in blob)
   // =========================================================================
 
+  // TAPSCRIPT: empty pubkey (0 bytes) is explicitly invalid (BIP 342)
+  rule <k> OP_CHECKSIG => #fail("TAPSCRIPT_EMPTY_PUBKEY") ...</k>
+       <stack> ListItem(PK:Bytes) ListItem(_SIG:Bytes) ST => ST </stack>
+       <phase> witness-v1 </phase>
+    requires lengthBytes(PK) ==Int 0
+
   // DERSIG/STRICTENC/LOW_S: invalid DER signature → SIG_DER error
   rule <k> OP_CHECKSIG => #fail("SIG_DER") ...</k>
        <stack> ListItem(_PK:Bytes) ListItem(SIG:Bytes) ST => ST </stack>

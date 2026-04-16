@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import ctypes
+import hashlib
 import json
 import urllib.request
 from pathlib import Path
@@ -55,6 +57,7 @@ SCRIPT_FLAGS: dict[str, int] = {
     "WITNESS_PUBKEYTYPE": 1 << 15,
     "COMPRESSED_PUBKEYTYPE": 1 << 15,
     "CONST_SCRIPTCODE": 1 << 16,
+    "TAPROOT": 1 << 17,
 }
 
 
@@ -236,6 +239,190 @@ def compute_witness_sighash_blob(
     legacy_parts = compute_sighash_blob(script_pubkey, script_sig, hashtypes)
     # Merge: BIP-143 sighashes take precedence (come first in blob)
     return b"".join(parts) + legacy_parts
+
+
+# ── Taproot placeholder expansion ─────────────────────────────────────
+
+
+def _tagged_hash(tag: str, msg: bytes) -> bytes:
+    """BIP 340 tagged hash: SHA256(SHA256(tag) || SHA256(tag) || msg)."""
+    tag_hash = hashlib.sha256(tag.encode()).digest()
+    return hashlib.sha256(tag_hash + tag_hash + msg).digest()
+
+
+def _compact_size(n: int) -> bytes:
+    """Bitcoin compact size encoding."""
+    if n <= 252:
+        return n.to_bytes(1, "little")
+    if n <= 0xFFFF:
+        return b"\xfd" + n.to_bytes(2, "little")
+    if n <= 0xFFFFFFFF:
+        return b"\xfe" + n.to_bytes(4, "little")
+    return b"\xff" + n.to_bytes(8, "little")
+
+
+def _find_libsecp256k1() -> ctypes.CDLL:
+    """Find and load libsecp256k1 from nix store or system."""
+    import glob
+
+    for p in sorted(
+        glob.glob("/nix/store/*-secp256k1-*/lib/libsecp256k1.dylib"), reverse=True
+    ):
+        try:
+            return ctypes.CDLL(p)
+        except OSError:
+            continue
+    # Try system paths
+    for p in [
+        "/opt/homebrew/lib/libsecp256k1.dylib",
+        "/usr/local/lib/libsecp256k1.so",
+        "/usr/lib/libsecp256k1.so",
+    ]:
+        try:
+            return ctypes.CDLL(p)
+        except OSError:
+            continue
+    raise RuntimeError("libsecp256k1 not found")
+
+
+def _taproot_tweak_pubkey(
+    internal_key: bytes, tweak: bytes
+) -> tuple[bytes, int]:
+    """Compute taproot tweaked pubkey: Q = P + t*G.
+
+    Returns (x_only_output_key, parity).
+    """
+    lib = _find_libsecp256k1()
+
+    # secp256k1_context_create
+    lib.secp256k1_context_create.restype = ctypes.c_void_p
+    lib.secp256k1_context_create.argtypes = [ctypes.c_uint]
+    ctx = lib.secp256k1_context_create(0x0101)  # VERIFY | SIGN
+
+    # Parse x-only pubkey
+    xonly_buf = (ctypes.c_ubyte * 64)()  # secp256k1_xonly_pubkey is 64 bytes
+    lib.secp256k1_xonly_pubkey_parse.restype = ctypes.c_int
+    lib.secp256k1_xonly_pubkey_parse.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_char_p,
+    ]
+    ok = lib.secp256k1_xonly_pubkey_parse(ctx, xonly_buf, internal_key)
+    assert ok == 1, "Failed to parse internal key"
+
+    # Tweak add
+    pubkey_buf = (ctypes.c_ubyte * 64)()  # secp256k1_pubkey is 64 bytes
+    lib.secp256k1_xonly_pubkey_tweak_add.restype = ctypes.c_int
+    lib.secp256k1_xonly_pubkey_tweak_add.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_char_p,
+    ]
+    ok = lib.secp256k1_xonly_pubkey_tweak_add(ctx, pubkey_buf, xonly_buf, tweak)
+    assert ok == 1, "Failed to tweak pubkey"
+
+    # Extract x-only from tweaked pubkey
+    tweaked_xonly = (ctypes.c_ubyte * 64)()
+    parity_out = ctypes.c_int(0)
+    lib.secp256k1_xonly_pubkey_from_pubkey.restype = ctypes.c_int
+    lib.secp256k1_xonly_pubkey_from_pubkey.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_int),
+        ctypes.c_void_p,
+    ]
+    ok = lib.secp256k1_xonly_pubkey_from_pubkey(
+        ctx, tweaked_xonly, ctypes.byref(parity_out), pubkey_buf
+    )
+    assert ok == 1, "Failed to extract x-only from tweaked pubkey"
+
+    # Serialize x-only
+    output = (ctypes.c_ubyte * 32)()
+    lib.secp256k1_xonly_pubkey_serialize.restype = ctypes.c_int
+    lib.secp256k1_xonly_pubkey_serialize.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+    ]
+    lib.secp256k1_xonly_pubkey_serialize(ctx, output, tweaked_xonly)
+
+    lib.secp256k1_context_destroy.restype = None
+    lib.secp256k1_context_destroy.argtypes = [ctypes.c_void_p]
+    lib.secp256k1_context_destroy(ctx)
+
+    return bytes(output), parity_out.value
+
+
+# Deterministic internal key for test vectors (a valid x-only pubkey).
+# This is the x-coordinate of the generator point G on secp256k1.
+_INTERNAL_KEY = bytes.fromhex(
+    "79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798"
+)
+
+# Default tapscript leaf version (0xc0 per BIP 342)
+_TAPSCRIPT_LEAF_VERSION = 0xC0
+
+
+def expand_taproot_witness(
+    witness_hex_list: list[str],
+    pubkey_asm: str,
+) -> tuple[list[bytes], str]:
+    """Expand #SCRIPT#, #CONTROLBLOCK#, #TAPROOTOUTPUT# in taproot test vectors.
+
+    Returns (expanded_witness_items, expanded_pubkey_asm).
+    """
+    from .bitcoin_core_vectors import parse_bitcoin_core_asm
+
+    # Find the script item (contains "#SCRIPT#") and control block placeholder
+    script_idx = -1
+    for i, item in enumerate(witness_hex_list):
+        if "#SCRIPT#" in item:
+            script_idx = i
+            break
+
+    if script_idx == -1:
+        # No taproot placeholders — return as-is
+        return [bytes.fromhex(h) for h in witness_hex_list], pubkey_asm
+
+    # Parse the tapscript ASM (everything after "#SCRIPT#")
+    script_asm = witness_hex_list[script_idx].replace("#SCRIPT#", "").strip()
+    tapscript = parse_bitcoin_core_asm(script_asm)
+
+    # Compute leaf hash: TaggedHash("TapLeaf", leaf_version || compact_size(len) || script)
+    leaf_hash = _tagged_hash(
+        "TapLeaf",
+        bytes([_TAPSCRIPT_LEAF_VERSION]) + _compact_size(len(tapscript)) + tapscript,
+    )
+
+    # Merkle root = leaf hash (single leaf, no sibling nodes)
+    merkle_root = leaf_hash
+
+    # Compute tweak: TaggedHash("TapTweak", internal_key || merkle_root)
+    tweak = _tagged_hash("TapTweak", _INTERNAL_KEY + merkle_root)
+
+    # Compute tweaked output key via libsecp256k1 ctypes
+    output_key, parity = _taproot_tweak_pubkey(_INTERNAL_KEY, tweak)
+
+    # Build control block: leaf_version | parity (1 byte) + internal_key (32 bytes)
+    # No merkle path nodes (single leaf)
+    cb_first_byte = _TAPSCRIPT_LEAF_VERSION | parity
+    control_block = bytes([cb_first_byte]) + _INTERNAL_KEY
+
+    # Expand witness items
+    expanded: list[bytes] = []
+    for item in witness_hex_list:
+        if "#SCRIPT#" in item:
+            expanded.append(tapscript)
+        elif item == "#CONTROLBLOCK#":
+            expanded.append(control_block)
+        else:
+            expanded.append(bytes.fromhex(item))
+
+    # Expand scriptPubKey: replace #TAPROOTOUTPUT# with hex of output key
+    expanded_pubkey_asm = pubkey_asm.replace("#TAPROOTOUTPUT#", output_key.hex())
+
+    return expanded, expanded_pubkey_asm
 
 
 @pytest.fixture(scope="session")

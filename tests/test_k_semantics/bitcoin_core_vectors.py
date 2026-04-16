@@ -223,21 +223,9 @@ def classify_vector(entry: list) -> str | None:
     # Witness-format vectors have different field positions
     is_witness = isinstance(entry[0], list)
     if is_witness:
-        flags_str = entry[3] if len(entry) > 3 else ""
         expected = entry[4] if len(entry) > 4 else "OK"
     else:
-        flags_str = entry[2] if len(entry) > 2 else ""
         expected = entry[3] if len(entry) > 3 else "OK"
-    flags = parse_flags(flags_str)
-
-    # --- Taproot: not implemented ---
-    # Scaffolding is in place (FLAG_TAPROOT, witness-v1 phase, #taprootVerify,
-    # annex detection, key/script path detection, OP_CHECKSIGADD syntax).
-    # Remaining work: Schnorr signature verification hook, tapscript execution,
-    # OP_SUCCESSx handling, and Merkle path validation.
-    if "TAPROOT" in flags:
-        return "taproot not implemented"
-
     # --- Expected errors that correspond to unimplemented validation ---
     if expected in _FLAG_ERRORS:
         return f"flag-dependent error: {expected}"
