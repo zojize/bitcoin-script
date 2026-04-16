@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "kframework>=7.1.313",
+    "msgpack>=1.1.0",
     "prompt-toolkit>=3.0.52",
     "python-bitcoinlib>=0.12.2",
     "tqdm>=4.67.3",
@@ -17,6 +18,7 @@ bitcoin-script = "bitcoin_script.cli:app"
 
 [project.optional-dependencies]
 k = ["kframework"]
+benchmark = ["python-bitcointx>=1.1.5"]
 
 [project.entry-points.kdist]
 bitcoin-script-semantics = "bitcoin_script.k_semantics.kdist.plugin"
@@ -31,11 +33,12 @@ packages = ["src/bitcoin_script"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-addopts = "-m 'not rpc and not k and not mainnet'"
+addopts = "-m 'not rpc and not k and not mainnet and not benchmark'"
 markers = [
     "rpc: tests that require a running Bitcoin Core RPC node",
     "k: tests that require K Framework and a compiled K definition",
     "mainnet: tests that require Bitcoin Core mainnet block files and K Framework",
+    "benchmark: tests that require libbitcoinconsensus and benchmark infrastructure",
 ]
 
 [tool.ruff]

@@ -318,7 +318,7 @@ module SCRIPT-SIG
 
   // OP_HASH256: SHA256(SHA256(data)) — double hash
   rule <k> OP_HASH256 => .K ...</k>
-       <stack> ListItem(V:Bytes) ST => ListItem(Sha256raw(Sha256raw(V))) ST </stack>
+       <stack> ListItem(V:Bytes) ST => ListItem(Hash256raw(V)) ST </stack>
 
   // OP_CODESEPARATOR: forbidden in base (non-witness) phases when CONST_SCRIPTCODE is active
   rule <k> OP_CODESEPARATOR => #fail("CONST_SCRIPTCODE") ...</k>

@@ -45,3 +45,21 @@ test-all *args:
 
 # Fix lint and format issues
 fix: lint format
+
+# Extract benchmark dataset from mainnet blocks
+benchmark-extract *args:
+    uv run bitcoin-script benchmark extract {{ args }}
+
+# Run benchmark (K Framework vs libbitcoinconsensus)
+benchmark-run *args:
+    uv run bitcoin-script benchmark run {{ args }}
+
+# Generate benchmark report
+benchmark-report *args:
+    uv run bitcoin-script benchmark report {{ args }}
+
+# Full benchmark pipeline: extract, run, report
+benchmark *args:
+    just benchmark-extract {{ args }}
+    just benchmark-run {{ args }}
+    just benchmark-report {{ args }}

@@ -120,6 +120,37 @@ uv run pyright src/
 uv run kdist build --force       # rebuild K semantics after .k changes
 ```
 
+## Benchmark
+
+Benchmark comparing K Framework verification against libbitcoinconsensus (Bitcoin Core 27.2) on 225,417 real mainnet inputs spanning all consensus eras (pre-P2SH through SegWit).
+
+| | K Framework | libbitcoinconsensus | Ratio |
+|---|---|---|---|
+| **Overall** (225K inputs) | 145s (1,555 inp/s) | 85s (2,662 inp/s) | **1.7x** |
+| **Stress blocks** (50K) | 30s | 74s | **0.4x (K faster)** |
+| **Representative** (175K) | 115s | 10s | 11x |
+| **Per-input median** | 0.62ms | 0.029ms | 24x |
+
+Zero correctness mismatches across all inputs. K is faster than Core on complex scripts; the 0.62ms floor on simple scripts is Python KORE serialization overhead.
+
+### Running the benchmark
+
+```sh
+# Option 1: Extract dataset from Blockstream esplora API (no node required)
+uv run bitcoin-script benchmark extract --source api --skip-taproot
+
+# Option 2: Extract from local Bitcoin Core block files (requires synced node)
+uv run bitcoin-script benchmark extract --blocks-dir ~/.bitcoin
+
+# Run the benchmark (K Framework + libbitcoinconsensus)
+uv run bitcoin-script benchmark run
+
+# Generate a summary report
+uv run bitcoin-script benchmark report
+```
+
+K verification uses direct FFI to the compiled LLVM interpreter (`interpreter.dylib` from the `llvm-lib` kdist target) via ctypes. Core verification calls `libbitcoinconsensus` via ctypes. K reports median of 10 iterations; Core reports median of 100.
+
 ## Architecture
 
 The K semantics define Bitcoin Script execution as a term-rewriting system:
