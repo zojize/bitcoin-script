@@ -36,13 +36,14 @@ module SCRIPT-FLOW
 
   // --- When currently executing (#allTrue(<exec>) is true) ---
 
-  // MINIMALIF: in witness v0, when flag set, IF/NOTIF top must be empty or 0x01
+  // MINIMALIF: in witness v0/v1, when flag set, IF/NOTIF top must be empty or 0x01
   rule <k> OP_IF => #fail("MINIMALIF") ...</k>
        <stack> ListItem(V:Bytes) ST => ST </stack>
        <exec> EX </exec>
        <flags> F </flags>
-       <phase> witness-v0 </phase>
+       <phase> PH </phase>
     requires #allTrue(EX)
+     andBool (PH ==K witness-v0 orBool PH ==K witness-v1)
      andBool hasFlag(F, FLAG_MINIMALIF)
      andBool lengthBytes(V) >Int 0
      andBool V =/=K Int2Bytes(1, 1, BE)
@@ -51,21 +52,22 @@ module SCRIPT-FLOW
        <stack> ListItem(V:Bytes) ST => ST </stack>
        <exec> EX </exec>
        <flags> F </flags>
-       <phase> witness-v0 </phase>
+       <phase> PH </phase>
     requires #allTrue(EX)
+     andBool (PH ==K witness-v0 orBool PH ==K witness-v1)
      andBool hasFlag(F, FLAG_MINIMALIF)
      andBool lengthBytes(V) >Int 0
      andBool V =/=K Int2Bytes(1, 1, BE)
 
   // OP_IF: pop top, push #isTruthy(top) onto <exec>
-  // Exclude MINIMALIF violation (witness-v0 + flag + non-minimal value)
+  // Exclude MINIMALIF violation (witness-v0/v1 + flag + non-minimal value)
   rule <k> OP_IF => .K ...</k>
        <stack> ListItem(V:Bytes) ST => ST </stack>
        <exec> EX => ListItem(#isTruthy(V)) EX </exec>
        <flags> F </flags>
        <phase> PH </phase>
     requires #allTrue(EX)
-     andBool notBool (PH ==K witness-v0 andBool hasFlag(F, FLAG_MINIMALIF)
+     andBool notBool ((PH ==K witness-v0 orBool PH ==K witness-v1) andBool hasFlag(F, FLAG_MINIMALIF)
                       andBool lengthBytes(V) >Int 0 andBool V =/=K Int2Bytes(1, 1, BE))
 
   // OP_NOTIF: pop top, push negation onto <exec>
@@ -75,7 +77,7 @@ module SCRIPT-FLOW
        <flags> F </flags>
        <phase> PH </phase>
     requires #allTrue(EX)
-     andBool notBool (PH ==K witness-v0 andBool hasFlag(F, FLAG_MINIMALIF)
+     andBool notBool ((PH ==K witness-v0 orBool PH ==K witness-v1) andBool hasFlag(F, FLAG_MINIMALIF)
                       andBool lengthBytes(V) >Int 0 andBool V =/=K Int2Bytes(1, 1, BE))
 
   // --- When NOT currently executing ---
