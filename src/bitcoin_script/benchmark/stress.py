@@ -68,4 +68,9 @@ KNOWN_STRESS_BLOCKS: list[int] = [
     481_829,
     481_947,
     482_897,
+    # Taproot-era blocks with high transaction volume
+    709_632,  # Taproot activation block
+    710_000,  # Early taproot era
+    750_000,  # Mature taproot usage
+    800_000,  # High taproot adoption
 ]

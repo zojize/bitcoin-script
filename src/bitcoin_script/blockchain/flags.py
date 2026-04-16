@@ -1,7 +1,7 @@
 """Map block height/timestamp to active Bitcoin consensus verification flags.
 
 Based on Bitcoin Core's GetBlockScriptFlags() in src/validation.cpp.
-Covers all soft forks from genesis through SegWit activation (block 481,824).
+Covers all soft forks from genesis through Taproot activation (block 709,632).
 """
 
 from __future__ import annotations
@@ -40,6 +40,9 @@ _BIP68_HEIGHT = 419328
 
 # BIP 141/143/147 (SegWit) activation height on mainnet
 _SEGWIT_HEIGHT = 481824
+
+# BIP 341/342 (Taproot) activation height on mainnet
+_TAPROOT_HEIGHT = 709632
 
 
 def flags_for_block(height: int, timestamp: int) -> int:
@@ -85,5 +88,9 @@ def flags_for_block(height: int, timestamp: int) -> int:
             | MINIMALIF
             | WITNESS_PUBKEYTYPE
         )
+
+    # BIP 341/342: Taproot + CONST_SCRIPTCODE
+    if height >= _TAPROOT_HEIGHT:
+        flags |= TAPROOT | CONST_SCRIPTCODE
 
     return flags

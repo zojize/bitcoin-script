@@ -49,6 +49,18 @@ def extract_inputs_from_block(
         txid = tx.GetTxid()
 
         if not is_coinbase:
+            # Collect all prevout data for BIP 341 taproot sighash
+            all_prevout_spks: list[bytes] = []
+            all_prevout_amounts: list[int] = []
+            all_resolved = True
+            for _vin in tx.vin:
+                entry = utxo.get(bytes(_vin.prevout.hash), _vin.prevout.n)
+                if entry is None:
+                    all_resolved = False
+                    break
+                all_prevout_spks.append(entry[0])
+                all_prevout_amounts.append(entry[1])
+
             for input_index, vin in enumerate(tx.vin):
                 prev_txid = bytes(vin.prevout.hash)
                 prev_vout = vin.prevout.n
@@ -74,7 +86,14 @@ def extract_inputs_from_block(
                     witness_items = [bytes(w) for w in stack]
 
                 sighash_blob = _compute_sighash_blob(
-                    tx, input_index, script_pubkey, amount
+                    tx,
+                    input_index,
+                    script_pubkey,
+                    amount,
+                    all_prevout_scriptpubkeys=all_prevout_spks
+                    if all_resolved
+                    else None,
+                    all_prevout_amounts=all_prevout_amounts if all_resolved else None,
                 )
 
                 tx_serialized = tx.serialize()
