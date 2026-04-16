@@ -18,7 +18,7 @@ module SCRIPT-SEMANTICS
   imports BYTES
 
   // --- Phase sort ---
-  syntax Phase ::= "scriptSig" | "scriptPubKey" | "p2sh-redeem" | "witness-v0" | "done"
+  syntax Phase ::= "scriptSig" | "scriptPubKey" | "p2sh-redeem" | "witness-v0" | "witness-v1" | "done"
 
   // --- Configuration ---
   configuration
@@ -62,6 +62,7 @@ module SCRIPT-SEMANTICS
                | "FLAG_NULLFAIL"                     [macro]
                | "FLAG_WITNESS_PUBKEYTYPE"           [macro]
                | "FLAG_CONST_SCRIPTCODE"             [macro]
+               | "FLAG_TAPROOT"                     [macro]
 
   rule FLAG_P2SH                        => 1
   rule FLAG_STRICTENC                   => 2
@@ -80,6 +81,7 @@ module SCRIPT-SEMANTICS
   rule FLAG_NULLFAIL                    => 16384
   rule FLAG_WITNESS_PUBKEYTYPE          => 32768
   rule FLAG_CONST_SCRIPTCODE            => 65536
+  rule FLAG_TAPROOT                    => 131072
 
   syntax Bool ::= hasFlag(Int, Int) [function, total]
   rule hasFlag(FLAGS, BIT) => (FLAGS &Int BIT) =/=Int 0
@@ -441,18 +443,53 @@ module SCRIPT-SEMANTICS
     requires #witnessCount(W) >Int 0
      andBool lengthBytes(PROG) =/=Int 20 andBool lengthBytes(PROG) =/=Int 32
 
-  // --- Version 1+: DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM ---
+  // --- Version 1+ with DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM ---
+  // Version 1 with FLAG_TAPROOT set: do NOT discourage (it's activated)
+  // Version 1 without FLAG_TAPROOT: discourage if flag set
+  // Version 2+: always discourage if flag set
   rule <k> #witnessVerify(V, _) => #fail("DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM") ...</k>
        <flags> F </flags>
     requires V >Int 0
      andBool hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_WITNESS)
+     andBool notBool (V ==Int 1 andBool hasFlag(F, FLAG_TAPROOT))
 
-  // --- Version 1+: future witness versions (anyone-can-spend, no discourage) ---
+  // --- Version 1 with FLAG_TAPROOT: enter Taproot verification ---
+  rule <k> #witnessVerify(1, PROG) => #taprootVerify(PROG) ...</k>
+       <witness> W </witness>
+       <flags> F </flags>
+    requires hasFlag(F, FLAG_TAPROOT)
+     andBool lengthBytes(PROG) ==Int 32
+     andBool #witnessCount(W) >Int 0
+
+  // Version 1 with FLAG_TAPROOT but empty witness
+  rule <k> #witnessVerify(1, _) => #fail("WITNESS_PROGRAM_WITNESS_EMPTY") ...</k>
+       <witness> W </witness>
+       <flags> F </flags>
+    requires hasFlag(F, FLAG_TAPROOT)
+     andBool #witnessCount(W) ==Int 0
+
+  // Version 1 with FLAG_TAPROOT but wrong program length (witness non-empty)
+  rule <k> #witnessVerify(1, PROG) => #fail("WITNESS_PROGRAM_WRONG_LENGTH") ...</k>
+       <witness> W </witness>
+       <flags> F </flags>
+    requires hasFlag(F, FLAG_TAPROOT)
+     andBool #witnessCount(W) >Int 0
+     andBool lengthBytes(PROG) =/=Int 32
+
+  // --- Version 1 without FLAG_TAPROOT: anyone-can-spend ---
+  rule <k> #witnessVerify(1, _) => .K ...</k>
+       <phase> _ => done </phase>
+       <flags> F </flags>
+       <witnessUsed> _ => true </witnessUsed>
+    requires notBool hasFlag(F, FLAG_TAPROOT)
+     andBool notBool hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_WITNESS)
+
+  // --- Version 2+: future witness versions ---
   rule <k> #witnessVerify(V, _) => .K ...</k>
        <phase> _ => done </phase>
        <flags> F </flags>
        <witnessUsed> _ => true </witnessUsed>
-    requires V >Int 0
+    requires V >Int 1
      andBool notBool hasFlag(F, FLAG_DISCOURAGE_UPGRADABLE_WITNESS)
 
   // --- Witness execution complete ---
@@ -474,6 +511,62 @@ module SCRIPT-SEMANTICS
        <exec> .List </exec>
        <stack> ST </stack>
     requires size(ST) =/=Int 1
+
+  // =========================================================================
+  // Taproot verification (BIP 341)
+  // =========================================================================
+  syntax KItem ::= "#taprootVerify" "(" Bytes ")"
+                 | "#taprootKeyPath" "(" Bytes "," Bytes ")"
+                 | "#taprootScriptPath" "(" Bytes "," Bytes "," Bytes ")"
+                 | "#tapscriptComplete"
+
+  // Detect key path vs script path:
+  // If witness has >= 2 items AND last item starts with leaf version byte
+  // that has bit 0 set (control block), it's script path.
+  // Actually: if witness stack size is 1, it's key path (single signature).
+  // If >= 2, last item is control block -> script path.
+  // Special case: if second-to-last item starts with 0x50 (annex marker),
+  // it's an annex -- strip it first.
+
+  // For now, detect key path vs script path by witness stack size.
+  // Key path: exactly 1 witness item (the signature), optionally 2 if annex present
+  // Script path: 2+ items where the last is a control block (>= 33 bytes, first byte has even/odd parity)
+
+  // --- Annex detection ---
+  // The annex is the last witness item if it starts with 0x50.
+  // It must be stripped before key/script path detection.
+  syntax Bool ::= #hasAnnex(Bytes) [function, total]
+  rule #hasAnnex(W) => true
+    requires #witnessCount(W) >=Int 2
+     andBool lengthBytes(#witnessItemAt(W, #witnessCount(W) -Int 1)) >Int 0
+     andBool Bytes2Int(substrBytes(#witnessItemAt(W, #witnessCount(W) -Int 1), 0, 1), BE, Unsigned) ==Int 80
+  rule #hasAnnex(_) => false [owise]
+
+  // Effective witness count (excluding annex)
+  syntax Int ::= #taprootWitnessCount(Bytes) [function]
+  rule #taprootWitnessCount(W) => #witnessCount(W) -Int 1
+    requires #hasAnnex(W)
+  rule #taprootWitnessCount(W) => #witnessCount(W)
+    requires notBool #hasAnnex(W)
+
+  // --- Key path spend ---
+  // Single witness item (after stripping annex): Schnorr signature
+  // Verify signature against the output key (the 32-byte witness program)
+  // TODO: Schnorr verification hook needed
+  rule <k> #taprootVerify(_PROG) => #fail("TAPROOT_NOT_IMPLEMENTED") ...</k>
+       <witness> W </witness>
+    requires #taprootWitnessCount(W) ==Int 1
+
+  // --- Script path spend ---
+  // Last item (before annex) is the control block.
+  // Second-to-last is the tapscript.
+  // Remaining items are the initial stack.
+  // Control block: <1-byte leaf_version|parity> <32-byte internal_key> <32-byte merkle_path>*
+  // Control block must be >= 33 bytes and (len - 33) % 32 == 0
+  // TODO: Merkle path verification, tapscript execution
+  rule <k> #taprootVerify(_PROG) => #fail("TAPROOT_NOT_IMPLEMENTED") ...</k>
+       <witness> W </witness>
+    requires #taprootWitnessCount(W) >Int 1
 
   // =========================================================================
   // P2SH detection and push-only check

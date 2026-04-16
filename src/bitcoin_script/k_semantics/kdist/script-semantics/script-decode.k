@@ -524,6 +524,10 @@ module SCRIPT-DECODE
      andBool #scriptByte(B) >=Int 149 andBool #scriptByte(B) <=Int 153
 
   // Undefined opcodes: 0xba-0xff (186-255) — fail when executed, OK in dead branches
+  // NOTE: In tapscript (witness-v1), opcodes 0x50, 0x62, 0x7e-0x81, 0x83-0x86,
+  // 0x8d-0x8e, 0x95-0x99, 0xbb-0xfe are OP_SUCCESSx (immediately succeed).
+  // OP_CHECKSIGADD (0xba) is a real opcode in tapscript.
+  // This phase-aware behavior will be added when tapscript execution is implemented.
   rule <k> #decode1(B) => #guardExec(OP_RESERVED_OP) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) >=Int 186
 

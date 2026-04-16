@@ -231,6 +231,10 @@ def classify_vector(entry: list) -> str | None:
     flags = parse_flags(flags_str)
 
     # --- Taproot: not implemented ---
+    # Scaffolding is in place (FLAG_TAPROOT, witness-v1 phase, #taprootVerify,
+    # annex detection, key/script path detection, OP_CHECKSIGADD syntax).
+    # Remaining work: Schnorr signature verification hook, tapscript execution,
+    # OP_SUCCESSx handling, and Merkle path validation.
     if "TAPROOT" in flags:
         return "taproot not implemented"
 
