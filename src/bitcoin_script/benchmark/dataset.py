@@ -76,18 +76,63 @@ class Dataset:
 
 
 def save_dataset(dataset: Dataset, path: Path) -> None:
-    """Serialize a dataset to a MessagePack file."""
-    data = {
-        "header": dataset.header,
-        "inputs": [inp.to_dict() for inp in dataset.inputs],
+    """Serialize a dataset to a MessagePack file.
+
+    Deduplicates ``tx_serialized`` by storing each unique transaction once
+    in a separate ``txdata`` table keyed by ``txid``, and replacing each
+    input's ``tx_serialized`` with an empty bytes stub.
+    """
+    # Build txid → tx_serialized mapping (dedup).
+    txdata: dict[bytes, bytes] = {}
+    for inp in dataset.inputs:
+        if inp.txid not in txdata:
+            txdata[inp.txid] = inp.tx_serialized
+
+    data: dict[str, Any] = {
+        "header": {**dataset.header, "version": 2},
+        "txdata": txdata,
+        "inputs": [{**inp.to_dict(), "tx_serialized": b""} for inp in dataset.inputs],
     }
     with path.open("wb") as f:
         msgpack.pack(data, f, use_bin_type=True)
 
 
 def load_dataset(path: Path) -> Dataset:
-    """Deserialize a dataset from a MessagePack file."""
+    """Deserialize a dataset from a MessagePack file.
+
+    Supports both v1 (inline tx_serialized) and v2 (deduplicated txdata).
+    """
     with path.open("rb") as f:
         raw: Any = msgpack.unpack(f, raw=False)
-    inputs = [BenchmarkInput.from_dict(d) for d in raw["inputs"]]
+
+    txdata: dict[bytes, bytes] = {}
+    if "txdata" in raw:
+        txdata = {bytes(k): bytes(v) for k, v in raw["txdata"].items()}
+
+    inputs: list[BenchmarkInput] = []
+    for d in raw["inputs"]:
+        inp = BenchmarkInput.from_dict(d)
+        if not inp.tx_serialized and inp.txid in txdata:
+            inp.tx_serialized = txdata[inp.txid]
+        inputs.append(inp)
+
     return Dataset(inputs=inputs, header=raw["header"])
+
+
+def append_inputs(path: Path, inputs: list[BenchmarkInput]) -> None:
+    """Append inputs to a partial dataset file (one msgpack object per input)."""
+    with path.open("ab") as f:
+        for inp in inputs:
+            msgpack.pack(inp.to_dict(), f, use_bin_type=True)
+
+
+def load_partial_inputs(path: Path) -> list[BenchmarkInput]:
+    """Load inputs from a partial dataset file written by append_inputs()."""
+    inputs: list[BenchmarkInput] = []
+    if not path.exists() or path.stat().st_size == 0:
+        return inputs
+    with path.open("rb") as f:
+        unpacker = msgpack.Unpacker(f, raw=False)
+        for obj in unpacker:
+            inputs.append(BenchmarkInput.from_dict(obj))
+    return inputs

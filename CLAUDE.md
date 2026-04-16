@@ -56,6 +56,27 @@ scripts/
 - **Typer** for CLI
 - **just** as task runner (`justfile`); all tools run via `uv run`
 
+## Benchmark
+
+Benchmark compares K Framework against libbitcoinconsensus (Bitcoin Core 27.2) on 225,417 real mainnet inputs spanning all consensus eras (pre-P2SH through SegWit).
+
+**Methodology**: inputs extracted from mainnet blocks via `benchmark extract`, covering continuous (every-block), representative (sampled), and stress (large/complex) categories. K uses direct FFI to `interpreter.dylib` via ctypes (no subprocess spawn). Core uses ctypes to `libbitcoinconsensus`. K reports median of 10 iterations; Core reports median of 100.
+
+| | K Framework | libbitcoinconsensus | Ratio |
+|---|---|---|---|
+| Overall (225K inputs) | 145s (1,555 inp/s) | 85s (2,662 inp/s) | **1.7x** |
+| Stress blocks (50K) | 30s | 74s | **0.4x (K faster)** |
+| Representative (175K) | 115s | 10s | 11x |
+| Per-input median | 0.62ms | 0.029ms | 24x |
+
+Zero correctness mismatches across all 225,417 inputs. K is faster than Core on stress/complex scripts; the 0.62ms floor on simple scripts is Python KORE text serialization overhead (a native Rust/C caller would eliminate this).
+
+```sh
+uv run bitcoin-script benchmark extract    # Extract inputs from mainnet blocks
+uv run bitcoin-script benchmark run        # Run K + Core benchmark
+uv run bitcoin-script benchmark report     # Generate report from results
+```
+
 ## Key commands
 
 ```sh

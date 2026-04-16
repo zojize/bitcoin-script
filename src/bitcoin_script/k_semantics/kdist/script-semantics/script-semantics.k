@@ -654,7 +654,7 @@ module SCRIPT-SEMANTICS
   // =========================================================================
 
   rule <k> OP_HASH160 => .K ...</k>
-       <stack> ListItem(V:Bytes) ST => ListItem(RipEmd160raw(Sha256raw(V))) ST </stack>
+       <stack> ListItem(V:Bytes) ST => ListItem(Hash160raw(V)) ST </stack>
 
   // =========================================================================
   // OP_EQUAL: pop two byte values, push 1 if equal, 0 if not

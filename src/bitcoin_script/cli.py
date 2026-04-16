@@ -717,6 +717,16 @@ def benchmark_extract(
     stress_count: Annotated[
         int, typer.Option("--stress-count", help="Number of stress blocks.")
     ] = 20,
+    utxo_db: Annotated[
+        Optional[str],
+        typer.Option(
+            "--utxo-db", help="SQLite file for UTXO set (enables resume on crash)."
+        ),
+    ] = None,
+    skip_taproot: Annotated[
+        bool,
+        typer.Option("--skip-taproot", help="Skip Taproot-era representative blocks."),
+    ] = False,
 ) -> None:
     """Extract benchmark inputs from mainnet blocks into a dataset file."""
     logging.basicConfig(
@@ -747,6 +757,8 @@ def benchmark_extract(
             blocks_per_era=representative,
             stress_count=stress_count,
             on_block=_on_block,
+            utxo_db=utxo_db,
+            skip_taproot=skip_taproot,
         )
 
     typer.echo(
@@ -768,8 +780,11 @@ def benchmark_run(
     core_only: Annotated[
         bool, typer.Option("--core-only", help="Only run libbitcoinconsensus.")
     ] = False,
-    iterations: Annotated[
-        int, typer.Option("--iterations", help="Iterations for Core timing.")
+    k_iterations: Annotated[
+        int, typer.Option("--k-iterations", help="Iterations for K timing.")
+    ] = 1,
+    core_iterations: Annotated[
+        int, typer.Option("--core-iterations", help="Iterations for Core timing.")
     ] = 100,
 ) -> None:
     """Run benchmark on a dataset, timing both K Framework and libbitcoinconsensus."""
@@ -798,7 +813,8 @@ def benchmark_run(
             ds,
             run_k=run_k,
             run_core=run_core,
-            core_iterations=iterations,
+            k_iterations=k_iterations,
+            core_iterations=core_iterations,
             on_input=_on_input,
         )
 

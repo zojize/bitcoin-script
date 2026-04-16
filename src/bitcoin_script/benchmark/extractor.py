@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 from bitcoin.core import CBlock
@@ -13,7 +13,13 @@ from bitcoin_script.blockchain.parser import BlockFileParser
 from bitcoin_script.blockchain.utxo import UTXOSet
 from bitcoin_script.blockchain.verifier import _compute_sighash_blob
 
-from .dataset import BenchmarkInput, Dataset, save_dataset
+from .dataset import (
+    BenchmarkInput,
+    Dataset,
+    append_inputs,
+    load_partial_inputs,
+    save_dataset,
+)
 from .stress import (
     KNOWN_STRESS_BLOCKS,
     classify_era,
@@ -125,17 +131,26 @@ def extract_dataset(
     continuous_end: int = 9999,
     blocks_per_era: int = 10,
     stress_count: int = 20,
-    on_block: object | None = None,
+    on_block: Callable[[int, int], None] | None = None,
+    utxo_db: str | None = None,
+    skip_taproot: bool = False,
 ) -> Dataset:
     """Extract a complete benchmark dataset from mainnet .blk files.
 
     Walks the chain from genesis, building UTXO state and extracting inputs
     for three categories: continuous, representative, and stress.
+
+    If *utxo_db* is a file path, the UTXO set is persisted to SQLite on disk
+    and the walk resumes from the last committed height on re-run.  Extracted
+    inputs are saved incrementally to a partial file (``output.partial``) so
+    they survive crashes too.
     """
     parser = BlockFileParser(blocks_dir)
-    utxo = UTXOSet()  # in-memory for extraction
+    utxo = UTXOSet(utxo_db if utxo_db else ":memory:")
 
-    representative_heights = set(select_representative_heights(blocks_per_era))
+    representative_heights = set(
+        select_representative_heights(blocks_per_era, skip_taproot=skip_taproot)
+    )
     stress_heights = set(KNOWN_STRESS_BLOCKS[:stress_count])
 
     max_height = max(
@@ -144,11 +159,26 @@ def extract_dataset(
         max(stress_heights) if stress_heights else 0,
     )
 
+    # Resume: reload inputs saved to the partial file and skip processed blocks.
+    resume_height = utxo.checkpoint_height
+    partial_path = output.with_suffix(output.suffix + ".partial")
     all_inputs: list[BenchmarkInput] = []
+
+    if resume_height >= 0:
+        all_inputs = load_partial_inputs(partial_path)
+        log.info(
+            "Resuming from checkpoint height %d (%d inputs recovered)",
+            resume_height,
+            len(all_inputs),
+        )
 
     log.info("Extracting dataset up to block %d...", max_height)
 
     for height, block in _walk_chain(parser, end=max_height):
+        # Skip blocks whose UTXO state is already committed.
+        if height <= resume_height:
+            continue
+
         category: str | None = None
 
         if height <= continuous_end:
@@ -161,10 +191,17 @@ def extract_dataset(
         if category is not None:
             block_inputs = extract_inputs_from_block(block, height, utxo, category)
             all_inputs.extend(block_inputs)
+            if utxo_db:
+                append_inputs(partial_path, block_inputs)
             if on_block is not None:
-                on_block(height, len(block_inputs))  # type: ignore[operator]
+                on_block(height, len(block_inputs))
         else:
             _update_utxo_only(block, height, utxo)
+
+        # Checkpoint every 1,000 blocks when using on-disk UTXO.
+        if utxo_db and height % 1_000 == 0:
+            utxo.checkpoint_height = height
+            utxo.commit()
 
         if height % 10_000 == 0:
             log.info(
@@ -174,8 +211,18 @@ def extract_dataset(
                 utxo.size(),
             )
 
+    # Final checkpoint.
+    if utxo_db:
+        utxo.checkpoint_height = max_height
+        utxo.commit()
+
     dataset = Dataset(inputs=all_inputs)
     save_dataset(dataset, output)
+
+    # Clean up partial file now that the final dataset is written.
+    if partial_path.exists():
+        partial_path.unlink()
+
     log.info(
         "Dataset saved: %d inputs from %d blocks -> %s",
         len(all_inputs),
