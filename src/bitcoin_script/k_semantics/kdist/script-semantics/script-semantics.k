@@ -516,25 +516,10 @@ module SCRIPT-SEMANTICS
   // Taproot verification (BIP 341)
   // =========================================================================
   syntax KItem ::= "#taprootVerify" "(" Bytes ")"
-                 | "#taprootKeyPath" "(" Bytes "," Bytes ")"
-                 | "#taprootScriptPath" "(" Bytes "," Bytes "," Bytes ")"
                  | "#tapscriptComplete"
 
-  // Detect key path vs script path:
-  // If witness has >= 2 items AND last item starts with leaf version byte
-  // that has bit 0 set (control block), it's script path.
-  // Actually: if witness stack size is 1, it's key path (single signature).
-  // If >= 2, last item is control block -> script path.
-  // Special case: if second-to-last item starts with 0x50 (annex marker),
-  // it's an annex -- strip it first.
-
-  // For now, detect key path vs script path by witness stack size.
-  // Key path: exactly 1 witness item (the signature), optionally 2 if annex present
-  // Script path: 2+ items where the last is a control block (>= 33 bytes, first byte has even/odd parity)
-
   // --- Annex detection ---
-  // The annex is the last witness item if it starts with 0x50.
-  // It must be stripped before key/script path detection.
+  // The annex is the last witness item if it starts with 0x50 and witness has 2+ items.
   syntax Bool ::= #hasAnnex(Bytes) [function, total]
   rule #hasAnnex(W) => true
     requires #witnessCount(W) >=Int 2
@@ -551,22 +536,145 @@ module SCRIPT-SEMANTICS
 
   // --- Key path spend ---
   // Single witness item (after stripping annex): Schnorr signature
-  // Verify signature against the output key (the 32-byte witness program)
-  // TODO: Schnorr verification hook needed
-  rule <k> #taprootVerify(_PROG) => #fail("TAPROOT_NOT_IMPLEMENTED") ...</k>
+  // Verify against the output key (32-byte witness program)
+  // TODO: full Schnorr sighash + verification
+  rule <k> #taprootVerify(_PROG) => #fail("TAPROOT_KEY_PATH_NOT_IMPLEMENTED") ...</k>
        <witness> W </witness>
     requires #taprootWitnessCount(W) ==Int 1
 
   // --- Script path spend ---
-  // Last item (before annex) is the control block.
-  // Second-to-last is the tapscript.
-  // Remaining items are the initial stack.
   // Control block: <1-byte leaf_version|parity> <32-byte internal_key> <32-byte merkle_path>*
-  // Control block must be >= 33 bytes and (len - 33) % 32 == 0
-  // TODO: Merkle path verification, tapscript execution
-  rule <k> #taprootVerify(_PROG) => #fail("TAPROOT_NOT_IMPLEMENTED") ...</k>
+  // Witness layout: [stack_items..., tapscript, control_block, ?annex]
+
+  // Control block length invalid
+  rule <k> #taprootVerify(_PROG) => #fail("TAPROOT_WRONG_CONTROL_SIZE") ...</k>
        <witness> W </witness>
     requires #taprootWitnessCount(W) >Int 1
+     andBool ( lengthBytes(#witnessItemAt(W, #taprootWitnessCount(W) -Int 1)) <Int 33
+        orBool (lengthBytes(#witnessItemAt(W, #taprootWitnessCount(W) -Int 1)) -Int 33) modInt 32 =/=Int 0 )
+
+  // Control block valid: verify output key and enter tapscript execution
+  rule <k> #taprootVerify(PROG)
+        => #pushWitnessStack(W, 0, #taprootWitnessCount(W) -Int 2)
+        ~> #decodeScript(#witnessItemAt(W, #taprootWitnessCount(W) -Int 2))
+        ~> #tapscriptComplete ...</k>
+       <witness> W </witness>
+       <stack> _ => .List </stack>
+       <altstack> _ => .List </altstack>
+       <exec> _ => .List </exec>
+       <opCount> _ => 0 </opCount>
+       <codesepIdx> _ => 0 </codesepIdx>
+       <phase> _ => witness-v1 </phase>
+       <witnessUsed> _ => true </witnessUsed>
+    requires #taprootWitnessCount(W) >Int 1
+     andBool #validControlBlock(W, PROG)
+
+  // Control block valid length but output key mismatch
+  rule <k> #taprootVerify(PROG) => #fail("WITNESS_PROGRAM_MISMATCH") ...</k>
+       <witness> W </witness>
+    requires #taprootWitnessCount(W) >Int 1
+     andBool lengthBytes(#witnessItemAt(W, #taprootWitnessCount(W) -Int 1)) >=Int 33
+     andBool (lengthBytes(#witnessItemAt(W, #taprootWitnessCount(W) -Int 1)) -Int 33) modInt 32 ==Int 0
+     andBool notBool #validControlBlock(W, PROG)
+
+  // --- Witness item helpers for taproot ---
+  syntax Bytes ::= #taprootCB(Bytes) [function]
+  rule #taprootCB(W) => #witnessItemAt(W, #taprootWitnessCount(W) -Int 1)
+
+  syntax Bytes ::= #taprootScript(Bytes) [function]
+  rule #taprootScript(W) => #witnessItemAt(W, #taprootWitnessCount(W) -Int 2)
+
+  // --- Control block validation ---
+  // Extracts internal key, computes merkle root from path, verifies tweaked key == output
+  syntax Bool ::= #validControlBlock(Bytes, Bytes) [function]
+  rule #validControlBlock(W, PROG) =>
+    TaprootCheckOutput(PROG,
+      #cbInternalKey(#taprootCB(W)),
+      #walkMerkle(#taprootCB(W), 33,
+        #leafHash(#taprootCB(W), #taprootScript(W))))
+
+  // Extract internal key (bytes 1-33 of control block)
+  syntax Bytes ::= #cbInternalKey(Bytes) [function]
+  rule #cbInternalKey(CB) => substrBytes(CB, 1, 33)
+
+  // Extract leaf version (first byte, mask off parity bit 0)
+  syntax Int ::= #cbLeafVersion(Bytes) [function]
+  rule #cbLeafVersion(CB) => Bytes2Int(substrBytes(CB, 0, 1), BE, Unsigned) &Int 254
+
+  // --- Leaf hash computation ---
+  // TapLeaf = TaggedHash("TapLeaf", leaf_version || compact_size(script_len) || script)
+  // For scripts <= 252 bytes, compact_size is 1 byte.
+  // For scripts 253-65535 bytes, compact_size is 0xfd + 2 bytes LE.
+  syntax Bytes ::= #leafHash(Bytes, Bytes) [function]
+  rule #leafHash(CB, SCRIPT) =>
+    #taggedHash(#tapLeafTag, Int2Bytes(1, #cbLeafVersion(CB), BE)
+      +Bytes #compactSize(lengthBytes(SCRIPT)) +Bytes SCRIPT)
+
+  // Compact size encoding
+  syntax Bytes ::= #compactSize(Int) [function]
+  rule #compactSize(N) => Int2Bytes(1, N, BE)
+    requires N <=Int 252
+  rule #compactSize(N) => Int2Bytes(1, 253, BE) +Bytes Int2Bytes(2, N, LE)
+    requires N >Int 252 andBool N <=Int 65535
+
+  // --- Merkle path computation ---
+  // Walk the merkle path in the control block to compute the merkle root.
+  // Path nodes are 32-byte chunks starting at offset 33 in the control block.
+  // #walkMerkle(CB, offset, currentHash): offset starts at 33, increments by 32.
+  syntax Bytes ::= #walkMerkle(Bytes, Int, Bytes) [function]
+  // Done: offset reached end of control block
+  rule #walkMerkle(CB, OFF, CURRENT) => CURRENT
+    requires OFF >=Int lengthBytes(CB)
+
+  // Process next node: TapBranch = TaggedHash("TapBranch", min(a,b) || max(a,b))
+  rule #walkMerkle(CB, OFF, CURRENT) =>
+    #walkMerkle(CB, OFF +Int 32,
+      #tapBranchHash(CURRENT, substrBytes(CB, OFF, OFF +Int 32)))
+    requires OFF +Int 32 <=Int lengthBytes(CB)
+
+  // TapBranch: hash the two children in sorted order
+  syntax Bytes ::= #tapBranchHash(Bytes, Bytes) [function]
+  rule #tapBranchHash(A, B) => #taggedHash(#tapBranchTag, A +Bytes B)
+    requires A <=Bytes B
+  rule #tapBranchHash(A, B) => #taggedHash(#tapBranchTag, B +Bytes A)
+    requires notBool (A <=Bytes B)
+
+  // Lexicographic byte comparison
+  syntax Bool ::= Bytes "<=Bytes" Bytes [function]
+  rule A <=Bytes B => Bytes2Int(A, BE, Unsigned) <=Int Bytes2Int(B, BE, Unsigned)
+
+  // --- Tagged hash: SHA256(SHA256(tag) || SHA256(tag) || msg) ---
+  syntax Bytes ::= #taggedHash(Bytes, Bytes) [function]
+  rule #taggedHash(TAG_HASH, MSG) => Sha256raw(TAG_HASH +Bytes TAG_HASH +Bytes MSG)
+
+  // Pre-computed SHA256("TapLeaf") and SHA256("TapBranch") tag hashes
+  // These are passed as already-hashed tags to #taggedHash.
+  syntax Bytes ::= "#tapLeafTag" [function]
+                 | "#tapBranchTag" [function]
+  // SHA256("TapLeaf") = aeea8fdc4208983105734b58081d1e2638d35f1cb54008d4d357ca03be78e9ee
+  rule #tapLeafTag => b"\xae\xea\x8f\xdc\x42\x08\x98\x31\x05\x73\x4b\x58\x08\x1d\x1e\x26\x38\xd3\x5f\x1c\xb5\x40\x08\xd4\xd3\x57\xca\x03\xbe\x78\xe9\xee"
+  // SHA256("TapBranch") = 1941a1f2e56eb95fa2a9f194be5c01f7216f33ed82b091463490d05bf516a015
+  rule #tapBranchTag => b"\x19\x41\xa1\xf2\xe5\x6e\xb9\x5f\xa2\xa9\xf1\x94\xbe\x5c\x01\xf7\x21\x6f\x33\xed\x82\xb0\x91\x46\x34\x90\xd0\x5b\xf5\x16\xa0\x15"
+
+  // --- Tapscript execution complete ---
+  // Same as witness-v0: exactly 1 truthy item on stack
+  rule <k> #tapscriptComplete => .K ...</k>
+       <phase> witness-v1 => done </phase>
+       <exec> .List </exec>
+       <stack> ListItem(V:Bytes) .List </stack>
+    requires #isTruthy(V)
+
+  rule <k> #tapscriptComplete => #fail("EVAL_FALSE") ...</k>
+       <phase> witness-v1 </phase>
+       <exec> .List </exec>
+       <stack> ListItem(V:Bytes) .List </stack>
+    requires notBool #isTruthy(V)
+
+  rule <k> #tapscriptComplete => #fail("CLEANSTACK") ...</k>
+       <phase> witness-v1 </phase>
+       <exec> .List </exec>
+       <stack> ST </stack>
+    requires size(ST) =/=Int 1
 
   // =========================================================================
   // P2SH detection and push-only check

@@ -9,6 +9,7 @@ from .conftest import (
     compute_sighash_blob,
     compute_witness_sighash_blob,
     encode_witness_blob,
+    expand_taproot_witness,
     flags_to_bitmask,
     load_vector,
 )
@@ -99,23 +100,32 @@ def test_witness_vector(k, entry):
     if reason:
         pytest.xfail(reason)
 
-    # Parse witness items (hex strings → bytes)
-    witness_items = [bytes.fromhex(h) for h in witness_hex_list]
+    flags = parse_flags(flags_str)
+
+    # Taproot placeholder expansion (#SCRIPT#, #CONTROLBLOCK#, #TAPROOTOUTPUT#)
+    has_taproot_placeholders = any("#SCRIPT#" in h for h in witness_hex_list)
+    if has_taproot_placeholders:
+        witness_items, pubkey_asm = expand_taproot_witness(witness_hex_list, pubkey_asm)
+    else:
+        witness_items = [bytes.fromhex(h) for h in witness_hex_list]
     witness_blob = encode_witness_blob(witness_items)
 
     sig_bytes = parse_bitcoin_core_asm(sig_asm)
     pubkey_bytes = parse_bitcoin_core_asm(pubkey_asm)
-    flags = parse_flags(flags_str)
     flags_mask = flags_to_bitmask(flags)
 
     amount_satoshis = int(amount_btc * 1e8 + 0.5)
 
-    sighash = compute_witness_sighash_blob(
-        pubkey_bytes,
-        sig_bytes,
-        witness_items,
-        amount_satoshis,
-    )
+    # Taproot vectors don't need legacy sighash (no ECDSA signatures)
+    if "TAPROOT" in flags:
+        sighash = b""
+    else:
+        sighash = compute_witness_sighash_blob(
+            pubkey_bytes,
+            sig_bytes,
+            witness_items,
+            amount_satoshis,
+        )
 
     result = k.verify_script(
         script_sig=sig_bytes,
