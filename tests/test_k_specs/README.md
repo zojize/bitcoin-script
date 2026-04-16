@@ -57,11 +57,19 @@ K claims mechanically verified by `kprove` (Haskell backend).
 - DISCOURAGE_UPGRADABLE_NOPS: NOP1 accepted/rejected
 - (1 claim needs booster for `#isMinimalNum` byte evaluation)
 
-## Blocked on booster integration
+## LLVM-verified claims (booster_prove.py)
 
-HTLC hash path, P2PKH end-to-end, and MINIMALDATA rejection need
-concrete evaluation of KRYPTO hooks / byte operations via
-kore-rpc-booster with `--llvm-backend-library`.
+HTLC hash path claims need SHA256 hook evaluation, which the Haskell
+backend can't provide. These are proved via LLVM execution instead:
+extract the initial config, run through `llvm_interpret`, verify the
+final state matches the expected output.
+
+## Remaining exclusions
+
+- **MINIMALDATA rejection**: K semantics gets stuck (no error rule) when
+  `validNumFlags` guard fails — needs explicit `#fail("MINIMALDATA")` rules.
+- **abs-negative**: symbolic `intToScriptNum(0 -Int N)` — Haskell prover
+  can't determine sign for function branch selection.
 
 ## Running proofs
 
