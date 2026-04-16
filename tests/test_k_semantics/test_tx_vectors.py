@@ -154,9 +154,13 @@ def _verify_tx(k, entry: list, expect_valid: bool, *, vec_index: int = -1) -> No
 
     # Known sighash computation issues (CODESEP / unusual P2SH structures)
     if expect_valid and vec_index in _SIGHASH_XFAIL_VALID:
-        pytest.xfail("sighash mismatch: CODESEP/unusual P2SH with CONST_SCRIPTCODE excluded")
+        pytest.xfail(
+            "sighash mismatch: CODESEP/unusual P2SH with CONST_SCRIPTCODE excluded"
+        )
     if not expect_valid and vec_index in _SIGHASH_XFAIL_INVALID:
-        pytest.xfail("sighash mismatch: CODESEP/unusual P2SH with CONST_SCRIPTCODE excluded")
+        pytest.xfail(
+            "sighash mismatch: CODESEP/unusual P2SH with CONST_SCRIPTCODE excluded"
+        )
 
     # Compute active flags = ALL - excluded
     excluded = parse_flags(flags_str)
