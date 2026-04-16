@@ -127,7 +127,7 @@ module SCRIPT-SIG
   // Tapscript OP_CHECKSIG (BIP 342 — Schnorr verification, witness-v1 only)
   // =========================================================================
 
-  // Empty sig in tapscript: push 0 (no error, no NULLFAIL)
+  // Empty sig in tapscript: push 0 (no error, no NULLFAIL, no weight cost)
   rule <k> OP_CHECKSIG => .K ...</k>
        <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST
             => ListItem(intToScriptNum(0)) ST </stack>
@@ -135,22 +135,35 @@ module SCRIPT-SIG
     requires lengthBytes(PK) >Int 0
      andBool lengthBytes(SIG) ==Int 0
 
+  // Budget exhausted: non-empty sig in tapscript with insufficient budget (BIP 342)
+  rule <k> OP_CHECKSIG => #fail("TAPSCRIPT_VALIDATION_WEIGHT") ...</k>
+       <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
+       <sigopsWeight> W </sigopsWeight>
+       <phase> witness-v1 </phase>
+    requires lengthBytes(PK) >Int 0
+     andBool lengthBytes(SIG) >Int 0
+     andBool W <Int 50
+
   // 32-byte pubkey: invalid Schnorr sig length (not 64 or 65)
   rule <k> OP_CHECKSIG => #fail("SCHNORR_SIG_SIZE") ...</k>
        <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
+       <sigopsWeight> W => W -Int 50 </sigopsWeight>
        <phase> witness-v1 </phase>
     requires lengthBytes(PK) ==Int 32
      andBool lengthBytes(SIG) >Int 0
      andBool lengthBytes(SIG) =/=Int 64
      andBool lengthBytes(SIG) =/=Int 65
+     andBool W >=Int 50
 
   // 32-byte pubkey: 65-byte sig with hash type 0x00 is invalid
   rule <k> OP_CHECKSIG => #fail("SCHNORR_SIG_HASHTYPE") ...</k>
        <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
+       <sigopsWeight> W => W -Int 50 </sigopsWeight>
        <phase> witness-v1 </phase>
     requires lengthBytes(PK) ==Int 32
      andBool lengthBytes(SIG) ==Int 65
      andBool Bytes2Int(substrBytes(SIG, 64, 65), BE, Unsigned) ==Int 0
+     andBool W >=Int 50
 
   // 32-byte pubkey: Schnorr verify succeeds → push 1
   rule <k> OP_CHECKSIG => .K ...</k>
@@ -158,6 +171,7 @@ module SCRIPT-SIG
             => ListItem(intToScriptNum(1)) ST </stack>
        <sighash> SIGHASHBLOB </sighash>
        <codesepIdx> CSI </codesepIdx>
+       <sigopsWeight> W => W -Int 50 </sigopsWeight>
        <phase> witness-v1 </phase>
     requires lengthBytes(PK) ==Int 32
      andBool (lengthBytes(SIG) ==Int 64
@@ -167,12 +181,14 @@ module SCRIPT-SIG
                PK,
                lookupSighash(SIGHASHBLOB, #tapSigHashType(SIG), CSI),
                #tapSigBody(SIG))
+     andBool W >=Int 50
 
   // 32-byte pubkey: Schnorr verify fails → error (mandatory, no push-0 fallback)
   rule <k> OP_CHECKSIG => #fail("SCHNORR_SIG") ...</k>
        <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
        <sighash> SIGHASHBLOB </sighash>
        <codesepIdx> CSI </codesepIdx>
+       <sigopsWeight> W => W -Int 50 </sigopsWeight>
        <phase> witness-v1 </phase>
     requires lengthBytes(PK) ==Int 32
      andBool (lengthBytes(SIG) ==Int 64
@@ -182,16 +198,19 @@ module SCRIPT-SIG
                PK,
                lookupSighash(SIGHASHBLOB, #tapSigHashType(SIG), CSI),
                #tapSigBody(SIG))
+     andBool W >=Int 50
 
   // Non-32-byte non-empty pubkey in tapscript: unknown key type → push 1
   // (future softfork compatibility, BIP 342)
   rule <k> OP_CHECKSIG => .K ...</k>
        <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST
             => ListItem(intToScriptNum(1)) ST </stack>
+       <sigopsWeight> W => W -Int 50 </sigopsWeight>
        <phase> witness-v1 </phase>
     requires lengthBytes(PK) >Int 0
      andBool lengthBytes(PK) =/=Int 32
      andBool lengthBytes(SIG) >Int 0
+     andBool W >=Int 50
 
   // =========================================================================
   // OP_CHECKSIGADD (BIP 342 — tapscript multisig, witness-v1 only)
@@ -204,7 +223,7 @@ module SCRIPT-SIG
        <phase> witness-v1 </phase>
     requires lengthBytes(PK) ==Int 0
 
-  // Empty sig → push N (no verification, no error)
+  // Empty sig → push N (no verification, no error, no weight cost)
   rule <k> OP_CHECKSIGADD => .K ...</k>
        <stack> ListItem(PK:Bytes) ListItem(N:Bytes) ListItem(SIG:Bytes) ST
             => ListItem(N) ST </stack>
@@ -212,22 +231,35 @@ module SCRIPT-SIG
     requires lengthBytes(PK) >Int 0
      andBool lengthBytes(SIG) ==Int 0
 
+  // Budget exhausted: non-empty sig in tapscript with insufficient budget (BIP 342)
+  rule <k> OP_CHECKSIGADD => #fail("TAPSCRIPT_VALIDATION_WEIGHT") ...</k>
+       <stack> ListItem(PK:Bytes) ListItem(_N:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
+       <sigopsWeight> W </sigopsWeight>
+       <phase> witness-v1 </phase>
+    requires lengthBytes(PK) >Int 0
+     andBool lengthBytes(SIG) >Int 0
+     andBool W <Int 50
+
   // 32-byte pubkey: invalid Schnorr sig length (not 64 or 65)
   rule <k> OP_CHECKSIGADD => #fail("SCHNORR_SIG_SIZE") ...</k>
        <stack> ListItem(PK:Bytes) ListItem(_N:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
+       <sigopsWeight> W => W -Int 50 </sigopsWeight>
        <phase> witness-v1 </phase>
     requires lengthBytes(PK) ==Int 32
      andBool lengthBytes(SIG) >Int 0
      andBool lengthBytes(SIG) =/=Int 64
      andBool lengthBytes(SIG) =/=Int 65
+     andBool W >=Int 50
 
   // 32-byte pubkey: 65-byte sig with hash type 0x00 is invalid
   rule <k> OP_CHECKSIGADD => #fail("SCHNORR_SIG_HASHTYPE") ...</k>
        <stack> ListItem(PK:Bytes) ListItem(_N:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
+       <sigopsWeight> W => W -Int 50 </sigopsWeight>
        <phase> witness-v1 </phase>
     requires lengthBytes(PK) ==Int 32
      andBool lengthBytes(SIG) ==Int 65
      andBool Bytes2Int(substrBytes(SIG, 64, 65), BE, Unsigned) ==Int 0
+     andBool W >=Int 50
 
   // 32-byte pubkey: Schnorr verify succeeds → push N+1
   rule <k> OP_CHECKSIGADD => .K ...</k>
@@ -235,6 +267,7 @@ module SCRIPT-SIG
             => ListItem(intToScriptNum(scriptNumToInt(N) +Int 1)) ST </stack>
        <sighash> SIGHASHBLOB </sighash>
        <codesepIdx> CSI </codesepIdx>
+       <sigopsWeight> W => W -Int 50 </sigopsWeight>
        <phase> witness-v1 </phase>
     requires lengthBytes(PK) ==Int 32
      andBool (lengthBytes(SIG) ==Int 64
@@ -244,12 +277,14 @@ module SCRIPT-SIG
                PK,
                lookupSighash(SIGHASHBLOB, #tapSigHashType(SIG), CSI),
                #tapSigBody(SIG))
+     andBool W >=Int 50
 
   // 32-byte pubkey: Schnorr verify fails → error
   rule <k> OP_CHECKSIGADD => #fail("SCHNORR_SIG") ...</k>
        <stack> ListItem(PK:Bytes) ListItem(_N:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
        <sighash> SIGHASHBLOB </sighash>
        <codesepIdx> CSI </codesepIdx>
+       <sigopsWeight> W => W -Int 50 </sigopsWeight>
        <phase> witness-v1 </phase>
     requires lengthBytes(PK) ==Int 32
      andBool (lengthBytes(SIG) ==Int 64
@@ -259,16 +294,19 @@ module SCRIPT-SIG
                PK,
                lookupSighash(SIGHASHBLOB, #tapSigHashType(SIG), CSI),
                #tapSigBody(SIG))
+     andBool W >=Int 50
 
   // Non-32-byte non-empty pubkey in tapscript: unknown key type → push N+1
   // (future softfork compatibility, BIP 342)
   rule <k> OP_CHECKSIGADD => .K ...</k>
        <stack> ListItem(PK:Bytes) ListItem(N:Bytes) ListItem(SIG:Bytes) ST
             => ListItem(intToScriptNum(scriptNumToInt(N) +Int 1)) ST </stack>
+       <sigopsWeight> W => W -Int 50 </sigopsWeight>
        <phase> witness-v1 </phase>
     requires lengthBytes(PK) >Int 0
      andBool lengthBytes(PK) =/=Int 32
      andBool lengthBytes(SIG) >Int 0
+     andBool W >=Int 50
 
   // =========================================================================
   // OP_CHECKMULTISIG / OP_CHECKMULTISIGVERIFY — disabled in tapscript (BIP 342)
