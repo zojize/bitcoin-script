@@ -99,11 +99,143 @@ class ChainResult:
         return len(self.errors) == 0
 
 
+def _compact_size(n: int) -> bytes:
+    """Bitcoin compact size encoding."""
+    if n <= 252:
+        return n.to_bytes(1, "little")
+    if n <= 0xFFFF:
+        return b"\xfd" + n.to_bytes(2, "little")
+    if n <= 0xFFFFFFFF:
+        return b"\xfe" + n.to_bytes(4, "little")
+    return b"\xff" + n.to_bytes(8, "little")
+
+
+def _tagged_hash(tag: str, msg: bytes) -> bytes:
+    """BIP 340 tagged hash: SHA256(SHA256(tag) || SHA256(tag) || msg)."""
+    import hashlib
+
+    tag_hash = hashlib.sha256(tag.encode()).digest()
+    return hashlib.sha256(tag_hash + tag_hash + msg).digest()
+
+
+def _taproot_sighash(
+    tx: CTransaction,
+    input_index: int,
+    hash_type: int,
+    ext_flag: int,
+    all_prevout_scriptpubkeys: list[bytes],
+    all_prevout_amounts: list[int],
+    annex: bytes | None = None,
+    tapleaf_hash: bytes | None = None,
+    codesep_pos: int = 0xFFFFFFFF,
+) -> bytes:
+    """Compute BIP 341 taproot sighash.
+
+    Args:
+        tx: The spending transaction.
+        input_index: Index of the input being signed.
+        hash_type: Sighash type (0x00=DEFAULT, 0x01=ALL, ...).
+        ext_flag: 0 for key-path, 1 for script-path (tapscript).
+        all_prevout_scriptpubkeys: scriptPubKey of each input's prevout.
+        all_prevout_amounts: Amount (satoshis) of each input's prevout.
+        annex: Annex data if present (raw bytes including 0x50 prefix).
+        tapleaf_hash: Tapleaf hash for script-path (ext_flag=1).
+        codesep_pos: Last executed OP_CODESEPARATOR position, or 0xFFFFFFFF.
+    """
+    import hashlib
+    import struct
+
+    # Effective hash type for computing which fields to include
+    if hash_type == 0:
+        base_type = 1  # DEFAULT behaves like ALL
+    else:
+        base_type = hash_type & 0x1F
+    anyone_can_pay = (hash_type & 0x80) != 0
+
+    msg = b"\x00"  # epoch
+    msg += struct.pack("<B", hash_type)
+    msg += struct.pack("<i", tx.nVersion)
+    msg += struct.pack("<I", tx.nLockTime)
+
+    if not anyone_can_pay:
+        # sha256(outpoints)
+        prevouts = b""
+        for vin in tx.vin:
+            prevouts += bytes(vin.prevout.hash) + struct.pack("<I", vin.prevout.n)
+        msg += hashlib.sha256(prevouts).digest()
+
+        # sha256(amounts)
+        amounts = b""
+        for amt in all_prevout_amounts:
+            amounts += struct.pack("<q", amt)
+        msg += hashlib.sha256(amounts).digest()
+
+        # sha256(scriptpubkeys)
+        spks = b""
+        for spk in all_prevout_scriptpubkeys:
+            spks += _compact_size(len(spk)) + spk
+        msg += hashlib.sha256(spks).digest()
+
+        # sha256(sequences)
+        sequences = b""
+        for vin in tx.vin:
+            sequences += struct.pack("<I", vin.nSequence)
+        msg += hashlib.sha256(sequences).digest()
+
+    if base_type != 2 and base_type != 3:  # not NONE and not SINGLE
+        # sha256(outputs)
+        outputs = b""
+        for vout in tx.vout:
+            outputs += struct.pack("<q", vout.nValue)
+            outputs += _compact_size(len(vout.scriptPubKey)) + bytes(vout.scriptPubKey)
+        msg += hashlib.sha256(outputs).digest()
+
+    # spend_type
+    has_annex = annex is not None
+    spend_type = (ext_flag << 1) | (1 if has_annex else 0)
+    msg += struct.pack("<B", spend_type)
+
+    if anyone_can_pay:
+        vin = tx.vin[input_index]
+        msg += bytes(vin.prevout.hash) + struct.pack("<I", vin.prevout.n)
+        msg += struct.pack("<q", all_prevout_amounts[input_index])
+        spk = all_prevout_scriptpubkeys[input_index]
+        msg += _compact_size(len(spk)) + spk
+        msg += struct.pack("<I", vin.nSequence)
+    else:
+        msg += struct.pack("<I", input_index)
+
+    if has_annex:
+        assert annex is not None
+        msg += hashlib.sha256(_compact_size(len(annex)) + annex).digest()
+
+    if base_type == 3:  # SINGLE
+        if input_index < len(tx.vout):
+            vout = tx.vout[input_index]
+            out_data = struct.pack("<q", vout.nValue)
+            out_data += _compact_size(len(vout.scriptPubKey)) + bytes(vout.scriptPubKey)
+            msg += hashlib.sha256(out_data).digest()
+        else:
+            # SIGHASH_SINGLE with no matching output
+            msg += b"\x00" * 32
+
+    if ext_flag == 1:
+        assert tapleaf_hash is not None
+        msg += tapleaf_hash
+        msg += b"\x00"  # key_version
+        msg += struct.pack("<I", codesep_pos)
+
+    return _tagged_hash("TapSighash", msg)
+
+
 def _compute_sighash_blob(
     tx: CTransaction,
     input_index: int,
     script_pubkey: bytes,
     amount: int,
+    *,
+    all_prevout_scriptpubkeys: list[bytes] | None = None,
+    all_prevout_amounts: list[int] | None = None,
 ) -> bytes:
     """Compute sighash blob for a transaction input.
 
@@ -185,6 +317,86 @@ def _compute_sighash_blob(
                     parts.append(bytes([ht]) + csi.to_bytes(2, "big") + bytes(sh))
                 except AssertionError, ValueError:
                     continue
+
+    # BIP-341 taproot sighash (witness v1)
+    if (
+        wp is not None
+        and wp[0] == 1
+        and all_prevout_scriptpubkeys is not None
+        and all_prevout_amounts is not None
+    ):
+        _version, program = wp
+
+        # Taproot hashtypes: 0x00 (DEFAULT) + standard ALL/NONE/SINGLE/ANYONECANPAY
+        taproot_hashtypes = [0x00, 0x01, 0x02, 0x03, 0x81, 0x82, 0x83]
+        # Also extract hashtypes from Schnorr sigs (64 or 65 bytes) in witness
+        for item in witness_items:
+            if len(item) == 65:
+                taproot_hashtypes.append(item[64])
+        taproot_ht_set = sorted(set(taproot_hashtypes))
+
+        # Detect annex (last witness item starting with 0x50, if 2+ items)
+        annex: bytes | None = None
+        effective_witness = list(witness_items)
+        if len(effective_witness) >= 2 and effective_witness[-1][:1] == b"\x50":
+            annex = effective_witness.pop()
+
+        if len(effective_witness) == 1:
+            # Key-path spend: ext_flag=0
+            for ht in taproot_ht_set:
+                try:
+                    sh = _taproot_sighash(
+                        tx,
+                        input_index,
+                        ht,
+                        0,
+                        all_prevout_scriptpubkeys,
+                        all_prevout_amounts,
+                        annex,
+                    )
+                    parts.append(bytes([ht]) + (0).to_bytes(2, "big") + sh)
+                except Exception:
+                    continue
+        elif len(effective_witness) >= 2:
+            # Script-path spend: ext_flag=1
+            control_block = effective_witness[-1]
+            tapscript = effective_witness[-2]
+            leaf_version = control_block[0] & 0xFE
+
+            tapleaf_hash = _tagged_hash(
+                "TapLeaf",
+                bytes([leaf_version]) + _compact_size(len(tapscript)) + tapscript,
+            )
+
+            # Compute sighash for each CODESEPARATOR position
+            codesep_positions_tap = find_codesep_positions(tapscript)
+            # codesepIdx 0 = no CODESEP executed → codesep_pos = 0xFFFFFFFF
+            tap_subscripts: list[tuple[int, int]] = [(0, 0xFFFFFFFF)]
+            for idx, bp in enumerate(codesep_positions_tap):
+                # bp is byte position right AFTER the CODESEP opcode
+                # BIP 341 codesep_pos is the position of the opcode itself = bp - 1
+                tap_subscripts.append((idx + 1, bp - 1))
+
+            for csi, cspos in tap_subscripts:
+                for ht in taproot_ht_set:
+                    try:
+                        sh = _taproot_sighash(
+                            tx,
+                            input_index,
+                            ht,
+                            1,
+                            all_prevout_scriptpubkeys,
+                            all_prevout_amounts,
+                            annex,
+                            tapleaf_hash,
+                            cspos,
+                        )
+                        parts.append(bytes([ht]) + csi.to_bytes(2, "big") + sh)
+                    except Exception:
+                        continue
+
+        # For taproot, don't compute legacy sighash — return early
+        return b"".join(parts)
 
     # Legacy sighash
     legacy_subscript = script_pubkey

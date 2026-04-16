@@ -129,6 +129,18 @@ def _extract_inputs_from_api_block(
         tx = CTransaction.deserialize(raw_tx)
         txid = tx.GetTxid()
 
+        # Collect all prevout data for BIP 341 taproot sighash
+        all_prevout_spks: list[bytes] = []
+        all_prevout_amounts: list[int] = []
+        all_resolved = True
+        for vin_data in api_tx["vin"]:
+            pv = vin_data.get("prevout")
+            if pv is None:
+                all_resolved = False
+                break
+            all_prevout_spks.append(bytes.fromhex(pv["scriptpubkey"]))
+            all_prevout_amounts.append(pv["value"])
+
         for input_index, api_vin in enumerate(api_tx["vin"]):
             prevout = api_vin.get("prevout")
             if prevout is None:
@@ -148,7 +160,14 @@ def _extract_inputs_from_api_block(
                 bytes.fromhex(w) for w in api_vin.get("witness", [])
             ]
 
-            sighash_blob = _compute_sighash_blob(tx, input_index, script_pubkey, amount)
+            sighash_blob = _compute_sighash_blob(
+                tx,
+                input_index,
+                script_pubkey,
+                amount,
+                all_prevout_scriptpubkeys=all_prevout_spks if all_resolved else None,
+                all_prevout_amounts=all_prevout_amounts if all_resolved else None,
+            )
 
             inputs.append(
                 BenchmarkInput(

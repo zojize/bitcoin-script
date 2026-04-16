@@ -534,13 +534,63 @@ module SCRIPT-SEMANTICS
   rule #taprootWitnessCount(W) => #witnessCount(W)
     requires notBool #hasAnnex(W)
 
-  // --- Key path spend ---
-  // Single witness item (after stripping annex): Schnorr signature
-  // Verify against the output key (32-byte witness program)
-  // TODO: full Schnorr sighash + verification
-  rule <k> #taprootVerify(_PROG) => #fail("TAPROOT_KEY_PATH_NOT_IMPLEMENTED") ...</k>
+  // --- Key path spend (BIP 341) ---
+  // Single witness item (after stripping annex): Schnorr signature.
+  // Verify against the output key (32-byte witness program).
+
+  // Helper: extract sighash type from a Schnorr signature
+  syntax Int ::= #tapSigHashType(Bytes) [function]
+  rule #tapSigHashType(SIG) => 0
+    requires lengthBytes(SIG) ==Int 64
+  rule #tapSigHashType(SIG) => Bytes2Int(substrBytes(SIG, 64, 65), BE, Unsigned)
+    requires lengthBytes(SIG) ==Int 65
+
+  // Helper: extract 64-byte signature body
+  syntax Bytes ::= #tapSigBody(Bytes) [function]
+  rule #tapSigBody(SIG) => SIG
+    requires lengthBytes(SIG) ==Int 64
+  rule #tapSigBody(SIG) => substrBytes(SIG, 0, 64)
+    requires lengthBytes(SIG) ==Int 65
+
+  // Key-path: invalid signature length (not 64 or 65)
+  rule <k> #taprootVerify(_PROG) => #fail("SCHNORR_SIG_SIZE") ...</k>
        <witness> W </witness>
     requires #taprootWitnessCount(W) ==Int 1
+     andBool lengthBytes(#witnessItemAt(W, 0)) =/=Int 64
+     andBool lengthBytes(#witnessItemAt(W, 0)) =/=Int 65
+
+  // Key-path: 65-byte sig with hash type 0x00 is invalid (BIP 341)
+  rule <k> #taprootVerify(_PROG) => #fail("SCHNORR_SIG_HASHTYPE") ...</k>
+       <witness> W </witness>
+    requires #taprootWitnessCount(W) ==Int 1
+     andBool lengthBytes(#witnessItemAt(W, 0)) ==Int 65
+     andBool Bytes2Int(substrBytes(#witnessItemAt(W, 0), 64, 65), BE, Unsigned) ==Int 0
+
+  // Key-path: valid sig, Schnorr verification succeeds → script passes
+  rule <k> #taprootVerify(PROG) => .K ...</k>
+       <witness> W </witness>
+       <sighash> SIGHASHBLOB </sighash>
+    requires #taprootWitnessCount(W) ==Int 1
+     andBool (lengthBytes(#witnessItemAt(W, 0)) ==Int 64
+       orBool (lengthBytes(#witnessItemAt(W, 0)) ==Int 65
+         andBool Bytes2Int(substrBytes(#witnessItemAt(W, 0), 64, 65), BE, Unsigned) =/=Int 0))
+     andBool SchnorrVerify(
+               PROG,
+               lookupSighash(SIGHASHBLOB, #tapSigHashType(#witnessItemAt(W, 0)), 0),
+               #tapSigBody(#witnessItemAt(W, 0)))
+
+  // Key-path: valid sig, Schnorr verification fails → error
+  rule <k> #taprootVerify(PROG) => #fail("SCHNORR_SIG") ...</k>
+       <witness> W </witness>
+       <sighash> SIGHASHBLOB </sighash>
+    requires #taprootWitnessCount(W) ==Int 1
+     andBool (lengthBytes(#witnessItemAt(W, 0)) ==Int 64
+       orBool (lengthBytes(#witnessItemAt(W, 0)) ==Int 65
+         andBool Bytes2Int(substrBytes(#witnessItemAt(W, 0), 64, 65), BE, Unsigned) =/=Int 0))
+     andBool notBool SchnorrVerify(
+               PROG,
+               lookupSighash(SIGHASHBLOB, #tapSigHashType(#witnessItemAt(W, 0)), 0),
+               #tapSigBody(#witnessItemAt(W, 0)))
 
   // --- Script path spend ---
   // Control block: <1-byte leaf_version|parity> <32-byte internal_key> <32-byte merkle_path>*

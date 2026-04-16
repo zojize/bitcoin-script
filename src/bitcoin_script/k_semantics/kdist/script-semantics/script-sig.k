@@ -16,11 +16,17 @@ module SCRIPT-SIG
        <phase> witness-v1 </phase>
     requires lengthBytes(PK) ==Int 0
 
+  // =========================================================================
+  // ECDSA OP_CHECKSIG (legacy + witness-v0 only, NOT tapscript/witness-v1)
+  // =========================================================================
+
   // DERSIG/STRICTENC/LOW_S: invalid DER signature → SIG_DER error
   rule <k> OP_CHECKSIG => #fail("SIG_DER") ...</k>
        <stack> ListItem(_PK:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
        <flags> F </flags>
-    requires lengthBytes(SIG) >Int 0
+       <phase> PH </phase>
+    requires PH =/=K witness-v1
+     andBool lengthBytes(SIG) >Int 0
      andBool (hasFlag(F, FLAG_DERSIG) orBool hasFlag(F, FLAG_STRICTENC) orBool hasFlag(F, FLAG_LOW_S))
      andBool notBool isValidDER(SIG)
 
@@ -28,7 +34,9 @@ module SCRIPT-SIG
   rule <k> OP_CHECKSIG => #fail("SIG_HIGH_S") ...</k>
        <stack> ListItem(_PK:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
        <flags> F </flags>
-    requires lengthBytes(SIG) >Int 0
+       <phase> PH </phase>
+    requires PH =/=K witness-v1
+     andBool lengthBytes(SIG) >Int 0
      andBool hasFlag(F, FLAG_LOW_S)
      andBool isValidDER(SIG)
      andBool notBool isLowDerS(SIG)
@@ -37,7 +45,9 @@ module SCRIPT-SIG
   rule <k> OP_CHECKSIG => #fail("SIG_HASHTYPE") ...</k>
        <stack> ListItem(_PK:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
        <flags> F </flags>
-    requires lengthBytes(SIG) >Int 0
+       <phase> PH </phase>
+    requires PH =/=K witness-v1
+     andBool lengthBytes(SIG) >Int 0
      andBool hasFlag(F, FLAG_STRICTENC)
      andBool isValidDER(SIG)
      andBool (notBool hasFlag(F, FLAG_LOW_S) orBool isLowDerS(SIG))
@@ -47,7 +57,9 @@ module SCRIPT-SIG
   rule <k> OP_CHECKSIG => #fail("PUBKEYTYPE") ...</k>
        <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
        <flags> F </flags>
-    requires lengthBytes(SIG) >Int 0
+       <phase> PH </phase>
+    requires PH =/=K witness-v1
+     andBool lengthBytes(SIG) >Int 0
      andBool hasFlag(F, FLAG_STRICTENC)
      andBool isValidDER(SIG)
      andBool (notBool hasFlag(F, FLAG_LOW_S) orBool isLowDerS(SIG))
@@ -63,13 +75,15 @@ module SCRIPT-SIG
      andBool hasFlag(F, FLAG_WITNESS_PUBKEYTYPE)
      andBool notBool #isCompressedPubKey(PK)
 
-  // Empty signature: always pushes false (no sighash lookup needed)
+  // Empty signature in non-tapscript: pushes false
   rule <k> OP_CHECKSIG => .K ...</k>
        <stack> ListItem(_PK:Bytes) ListItem(SIG:Bytes) ST
             => ListItem(intToScriptNum(0)) ST </stack>
-    requires lengthBytes(SIG) ==Int 0
+       <phase> PH </phase>
+    requires PH =/=K witness-v1
+     andBool lengthBytes(SIG) ==Int 0
 
-  // Non-empty signature: extract hashtype, look up sighash, verify
+  // Non-empty signature: extract hashtype, look up sighash, verify (ECDSA)
   rule <k> OP_CHECKSIG => .K ...</k>
        <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST
             => ListItem(intToScriptNum(1)) ST </stack>
@@ -77,7 +91,8 @@ module SCRIPT-SIG
        <codesepIdx> CSI </codesepIdx>
        <flags> F </flags>
        <phase> PH </phase>
-    requires lengthBytes(SIG) >Int 0
+    requires PH =/=K witness-v1
+     andBool lengthBytes(SIG) >Int 0
      andBool notBool (PH ==K witness-v0 andBool hasFlag(F, FLAG_WITNESS_PUBKEYTYPE) andBool notBool #isCompressedPubKey(PK))
      andBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG), CSI))
 
@@ -89,7 +104,8 @@ module SCRIPT-SIG
        <codesepIdx> CSI </codesepIdx>
        <flags> F </flags>
        <phase> PH </phase>
-    requires lengthBytes(SIG) >Int 0
+    requires PH =/=K witness-v1
+     andBool lengthBytes(SIG) >Int 0
      andBool notBool (PH ==K witness-v0 andBool hasFlag(F, FLAG_WITNESS_PUBKEYTYPE) andBool notBool #isCompressedPubKey(PK))
      andBool notBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG), CSI))
      andBool notBool hasFlag(F, FLAG_NULLFAIL)
@@ -101,10 +117,81 @@ module SCRIPT-SIG
        <codesepIdx> CSI </codesepIdx>
        <flags> F </flags>
        <phase> PH </phase>
-    requires lengthBytes(SIG) >Int 0
+    requires PH =/=K witness-v1
+     andBool lengthBytes(SIG) >Int 0
      andBool notBool (PH ==K witness-v0 andBool hasFlag(F, FLAG_WITNESS_PUBKEYTYPE) andBool notBool #isCompressedPubKey(PK))
      andBool notBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG), CSI))
      andBool hasFlag(F, FLAG_NULLFAIL)
+
+  // =========================================================================
+  // Tapscript OP_CHECKSIG (BIP 342 — Schnorr verification, witness-v1 only)
+  // =========================================================================
+
+  // Empty sig in tapscript: push 0 (no error, no NULLFAIL)
+  rule <k> OP_CHECKSIG => .K ...</k>
+       <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST
+            => ListItem(intToScriptNum(0)) ST </stack>
+       <phase> witness-v1 </phase>
+    requires lengthBytes(PK) >Int 0
+     andBool lengthBytes(SIG) ==Int 0
+
+  // 32-byte pubkey: invalid Schnorr sig length (not 64 or 65)
+  rule <k> OP_CHECKSIG => #fail("SCHNORR_SIG_SIZE") ...</k>
+       <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
+       <phase> witness-v1 </phase>
+    requires lengthBytes(PK) ==Int 32
+     andBool lengthBytes(SIG) >Int 0
+     andBool lengthBytes(SIG) =/=Int 64
+     andBool lengthBytes(SIG) =/=Int 65
+
+  // 32-byte pubkey: 65-byte sig with hash type 0x00 is invalid
+  rule <k> OP_CHECKSIG => #fail("SCHNORR_SIG_HASHTYPE") ...</k>
+       <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
+       <phase> witness-v1 </phase>
+    requires lengthBytes(PK) ==Int 32
+     andBool lengthBytes(SIG) ==Int 65
+     andBool Bytes2Int(substrBytes(SIG, 64, 65), BE, Unsigned) ==Int 0
+
+  // 32-byte pubkey: Schnorr verify succeeds → push 1
+  rule <k> OP_CHECKSIG => .K ...</k>
+       <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST
+            => ListItem(intToScriptNum(1)) ST </stack>
+       <sighash> SIGHASHBLOB </sighash>
+       <codesepIdx> CSI </codesepIdx>
+       <phase> witness-v1 </phase>
+    requires lengthBytes(PK) ==Int 32
+     andBool (lengthBytes(SIG) ==Int 64
+       orBool (lengthBytes(SIG) ==Int 65
+         andBool Bytes2Int(substrBytes(SIG, 64, 65), BE, Unsigned) =/=Int 0))
+     andBool SchnorrVerify(
+               PK,
+               lookupSighash(SIGHASHBLOB, #tapSigHashType(SIG), CSI),
+               #tapSigBody(SIG))
+
+  // 32-byte pubkey: Schnorr verify fails → error (mandatory, no push-0 fallback)
+  rule <k> OP_CHECKSIG => #fail("SCHNORR_SIG") ...</k>
+       <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
+       <sighash> SIGHASHBLOB </sighash>
+       <codesepIdx> CSI </codesepIdx>
+       <phase> witness-v1 </phase>
+    requires lengthBytes(PK) ==Int 32
+     andBool (lengthBytes(SIG) ==Int 64
+       orBool (lengthBytes(SIG) ==Int 65
+         andBool Bytes2Int(substrBytes(SIG, 64, 65), BE, Unsigned) =/=Int 0))
+     andBool notBool SchnorrVerify(
+               PK,
+               lookupSighash(SIGHASHBLOB, #tapSigHashType(SIG), CSI),
+               #tapSigBody(SIG))
+
+  // Non-32-byte non-empty pubkey in tapscript: unknown key type → push 1
+  // (future softfork compatibility, BIP 342)
+  rule <k> OP_CHECKSIG => .K ...</k>
+       <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST
+            => ListItem(intToScriptNum(1)) ST </stack>
+       <phase> witness-v1 </phase>
+    requires lengthBytes(PK) >Int 0
+     andBool lengthBytes(PK) =/=Int 32
+     andBool lengthBytes(SIG) >Int 0
 
   // =========================================================================
   // OP_CHECKMULTISIG
@@ -327,17 +414,20 @@ module SCRIPT-SIG
        <stack> ListItem(V:Bytes) ST => ListItem(Hash256raw(V)) ST </stack>
 
   // OP_CODESEPARATOR: forbidden in base (non-witness) phases when CONST_SCRIPTCODE is active
+  // Allowed in witness-v0 (BIP 143) and witness-v1 (BIP 342 tapscript)
   rule <k> OP_CODESEPARATOR => #fail("CONST_SCRIPTCODE") ...</k>
        <phase> P </phase>
        <flags> F </flags>
-    requires P =/=K witness-v0 andBool hasFlag(F, FLAG_CONST_SCRIPTCODE)
+    requires P =/=K witness-v0 andBool P =/=K witness-v1
+     andBool hasFlag(F, FLAG_CONST_SCRIPTCODE)
 
   // OP_CODESEPARATOR: increment codesep counter for sighash subscript selection
   rule <k> OP_CODESEPARATOR => .K ...</k>
        <codesepIdx> N => N +Int 1 </codesepIdx>
        <phase> P </phase>
        <flags> F </flags>
-    requires notBool (P =/=K witness-v0 andBool hasFlag(F, FLAG_CONST_SCRIPTCODE))
+    requires notBool (P =/=K witness-v0 andBool P =/=K witness-v1
+              andBool hasFlag(F, FLAG_CONST_SCRIPTCODE))
 
   // =========================================================================
   // OP_CHECKSIGVERIFY: CHECKSIG then VERIFY
