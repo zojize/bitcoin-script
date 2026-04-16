@@ -285,9 +285,7 @@ def _find_libsecp256k1() -> ctypes.CDLL:
     raise RuntimeError("libsecp256k1 not found")
 
 
-def _taproot_tweak_pubkey(
-    internal_key: bytes, tweak: bytes
-) -> tuple[bytes, int]:
+def _taproot_tweak_pubkey(internal_key: bytes, tweak: bytes) -> tuple[bytes, int]:
     """Compute taproot tweaked pubkey: Q = P + t*G.
 
     Returns (x_only_output_key, parity).
