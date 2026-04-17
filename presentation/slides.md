@@ -221,25 +221,28 @@ configuration
       </div>
     </div>
     <div>
-      <div class="font-mono text-sm op-50 mb-4 uppercase tracking-wider">By Era</div>
-      <div class="space-y-2 font-mono text-sm">
-        <div v-click class="flex justify-between p-2 bg-white/5 rounded">
-          <span>pre-P2SH</span><span class="text-amber">911 inputs</span><span class="op-50">0.62ms</span>
+      <div class="font-mono text-sm op-50 mb-4 uppercase tracking-wider">By Consensus Era</div>
+      <div class="font-mono text-xs">
+        <div class="grid grid-cols-5 gap-x-3 px-2 py-1 op-40 uppercase tracking-wider">
+          <span>Era</span><span class="text-right">Inputs</span><span class="text-right">K</span><span class="text-right">Core</span><span class="text-right">Ratio</span>
         </div>
-        <div v-click class="flex justify-between p-2 bg-white/5 rounded">
-          <span>DERSIG</span><span class="text-amber">59,509</span><span class="op-50">0.59ms</span>
+        <div v-click class="grid grid-cols-5 gap-x-3 p-2 bg-white/5 rounded mt-1 items-baseline">
+          <span>pre-P2SH</span><span class="text-right text-amber">911</span><span class="text-right">0.62ms</span><span class="text-right op-50">0.02ms</span><span class="text-right op-50">31×</span>
         </div>
-        <div v-click class="flex justify-between p-2 bg-white/5 rounded">
-          <span>P2SH</span><span class="text-amber">8,840</span><span class="op-50">0.61ms</span>
+        <div v-click class="grid grid-cols-5 gap-x-3 p-2 bg-white/5 rounded mt-1 items-baseline">
+          <span>P2SH</span><span class="text-right text-amber">8,840</span><span class="text-right">0.61ms</span><span class="text-right op-50">0.03ms</span><span class="text-right op-50">20×</span>
         </div>
-        <div v-click class="flex justify-between p-2 bg-white/5 rounded">
-          <span>CLTV</span><span class="text-amber">42,192</span><span class="op-50">0.66ms</span>
+        <div v-click class="grid grid-cols-5 gap-x-3 p-2 bg-white/5 rounded mt-1 items-baseline">
+          <span>DERSIG</span><span class="text-right text-amber">59,509</span><span class="text-right">0.59ms</span><span class="text-right op-50">1.25ms</span><span class="text-right text-green-400">0.5×</span>
         </div>
-        <div v-click class="flex justify-between p-2 bg-white/5 rounded">
-          <span>CSV</span><span class="text-amber">43,833</span><span class="op-50">0.66ms</span>
+        <div v-click class="grid grid-cols-5 gap-x-3 p-2 bg-white/5 rounded mt-1 items-baseline">
+          <span>CLTV</span><span class="text-right text-amber">42,192</span><span class="text-right">0.66ms</span><span class="text-right op-50">0.05ms</span><span class="text-right op-50">12×</span>
         </div>
-        <div v-click class="flex justify-between p-2 bg-white/5 rounded">
-          <span>SegWit</span><span class="text-amber">70,132</span><span class="op-50">0.67ms</span>
+        <div v-click class="grid grid-cols-5 gap-x-3 p-2 bg-white/5 rounded mt-1 items-baseline">
+          <span>CSV</span><span class="text-right text-amber">43,833</span><span class="text-right">0.66ms</span><span class="text-right op-50">0.06ms</span><span class="text-right op-50">11×</span>
+        </div>
+        <div v-click class="grid grid-cols-5 gap-x-3 p-2 bg-white/5 rounded mt-1 items-baseline">
+          <span>SegWit</span><span class="text-right text-amber">70,132</span><span class="text-right">0.67ms</span><span class="text-right op-50">0.07ms</span><span class="text-right op-50">9×</span>
         </div>
       </div>
     </div>
