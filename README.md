@@ -1,6 +1,6 @@
 # Bitcoin Script
 
-Bitcoin Script interpreter and formal verification toolkit. The K Framework semantics pass **all 1,217 of Bitcoin Core's `script_tests.json` vectors** (including full SegWit), plus **174 of 214 transaction vectors** (including OP_CODESEPARATOR), and have been used to **formally verify 129,000+ mainnet blocks** with zero errors.
+Bitcoin Script interpreter and formal verification toolkit. The K Framework semantics implement **full BIP 341/342 Taproot/Tapscript support** including Schnorr signatures, key-path and script-path spending, OP_CHECKSIGADD, OP_SUCCESS opcodes, and signature validation weight budgets. The semantics pass **all 1,222 of Bitcoin Core's `script_tests.json` vectors** (including SegWit and Taproot), plus **174 of 214 transaction vectors**, and have been **benchmarked on 300,000+ real mainnet inputs** across all consensus eras — including 80,000+ taproot transactions — with zero errors.
 
 ## What this does
 
@@ -23,10 +23,13 @@ Requires a synced Bitcoin Core node (for local `.blk` files). See [Setup](#setup
 | Test suite | Passing | Total | Notes |
 |-----------|---------|-------|-------|
 | script_tests.json (standard) | 1,109 | 1,109 | All opcodes, flags, edge cases |
-| script_tests.json (witness) | 108 | 113 | SegWit P2WSH/P2WPKH/P2SH-wrapped (5 taproot xfailed) |
+| script_tests.json (witness) | 113 | 113 | SegWit + Taproot (P2WSH/P2WPKH/P2TR) |
 | tx_valid.json | 115 | 121 | Real transaction verification |
-| tx_invalid.json | 59 | 93 | Invalid transaction rejection (9 BADTX, 25 CONST_SCRIPTCODE xfailed) |
-| Mainnet blocks 0-129,379 | 581,000+ inputs | 581,000+ inputs | Zero errors |
+| tx_invalid.json | 59 | 93 | Invalid transaction rejection (9 BADTX, 25 xfailed) |
+| Tapscript opcodes | 9 | 9 | CHECKSIGADD, disabled CHECKMULTISIG, OP_SUCCESS |
+| Taproot coverage | 26 | 26 | Key-path sigs, control blocks, annex, Schnorr verify |
+| Sigops weight budget | 7 | 7 | BIP 342 resource accounting |
+| Mainnet benchmark | 300,836 inputs | 300,836 | All eras including taproot — zero errors |
 
 ## Project structure
 
@@ -122,34 +125,37 @@ uv run kdist build --force       # rebuild K semantics after .k changes
 
 ## Benchmark
 
-Benchmark comparing K Framework verification against libbitcoinconsensus (Bitcoin Core 27.2) on 225,417 real mainnet inputs spanning all consensus eras (pre-P2SH through SegWit).
+K Framework verification benchmarked on **300,836 real mainnet inputs** spanning all consensus eras from genesis through Taproot.
 
-| | K Framework | libbitcoinconsensus | Ratio |
-|---|---|---|---|
-| **Overall** (225K inputs) | 145s (1,555 inp/s) | 85s (2,662 inp/s) | **1.7x** |
-| **Stress blocks** (50K) | 30s | 74s | **0.4x (K faster)** |
-| **Representative** (175K) | 115s | 10s | 11x |
-| **Per-input median** | 0.62ms | 0.029ms | 24x |
+| Era | Inputs | K median | K P95 |
+|-----|--------|----------|-------|
+| pre-P2SH | 286 | 0.69ms | 1.81ms |
+| P2SH | 8,840 | 0.70ms | 1.14ms |
+| DERSIG | 59,509 | 0.68ms | 1.21ms |
+| CLTV | 42,192 | 0.75ms | 1.52ms |
+| CSV | 39,381 | 0.76ms | 1.43ms |
+| SegWit | 70,132 | 0.82ms | 1.37ms |
+| **Taproot** | **80,496** | **0.79ms** | **1.34ms** |
 
-Zero correctness mismatches across all inputs. K is faster than Core on complex scripts; the 0.62ms floor on simple scripts is Python KORE serialization overhead.
+Zero errors across all 300,836 inputs including 80,496 taproot transactions (key-path + script-path). Throughput: ~1,300 inputs/sec single-core via FFI.
 
 ### Running the benchmark
 
 ```sh
-# Option 1: Extract dataset from Blockstream esplora API (no node required)
-uv run bitcoin-script benchmark extract --source api --skip-taproot
+# Extract dataset from esplora API (no node required, includes taproot)
+uv run bitcoin-script benchmark extract --source api
 
-# Option 2: Extract from local Bitcoin Core block files (requires synced node)
+# Or from local Bitcoin Core block files (requires synced node)
 uv run bitcoin-script benchmark extract --blocks-dir ~/.bitcoin
 
-# Run the benchmark (K Framework + libbitcoinconsensus)
-uv run bitcoin-script benchmark run
+# Run the benchmark
+uv run bitcoin-script benchmark run --k-only
 
 # Generate a summary report
 uv run bitcoin-script benchmark report
 ```
 
-K verification uses direct FFI to the compiled LLVM interpreter (`interpreter.dylib` from the `llvm-lib` kdist target) via ctypes. Core verification calls `libbitcoinconsensus` via ctypes. K reports median of 10 iterations; Core reports median of 100.
+K verification uses direct FFI to the compiled LLVM interpreter (`interpreter.dylib` from the `llvm-lib` kdist target) via ctypes.
 
 ## Architecture
 
@@ -157,8 +163,9 @@ The K semantics define Bitcoin Script execution as a term-rewriting system:
 
 1. **Decoder** (`script-decode.k`): reads raw script bytes into K opcode terms
 2. **Execution**: each opcode has rewriting rules that modify the configuration (stack, altstack, exec-guard stack, flags, phase)
-3. **Phases**: scriptSig → scriptPubKey → P2SH redeem → witness-v0
-4. **Verification**: sighash computed in Python, passed to K; ECDSA verification via blockchain-k-plugin C++ hooks
+3. **Phases**: scriptSig → scriptPubKey → P2SH redeem → witness-v0 → witness-v1 (tapscript)
+4. **Verification**: sighash computed in Python, passed to K; ECDSA/Schnorr verification via blockchain-k-plugin C++ hooks
+5. **Resource accounting**: `<sigopsWeight>` cell tracks BIP 342 signature validation budget (analogous to KEVM's gas model)
 
 The `ChainVerifier` orchestrates block-by-block verification:
 1. Load blocks from `.blk` files, order by prev-hash chain linkage

@@ -25,29 +25,46 @@ from .stress import (
 
 log = logging.getLogger(__name__)
 
-ESPLORA_BASE = "https://blockstream.info/api"
-REQUEST_DELAY = 0.1  # seconds between requests (rate-limit politeness)
+ESPLORA_BASE = "https://mempool.space/api"
+REQUEST_DELAY = 0.5  # seconds between requests (rate-limit politeness)
+MAX_RETRIES = 7  # retry on 429 with exponential backoff
+
+
+def _fetch_with_retry(url: str, *, as_json: bool = True) -> Any:
+    """Fetch URL with retry on 429 Too Many Requests."""
+    import json
+    import urllib.error
+    import urllib.request
+
+    for attempt in range(MAX_RETRIES):
+        time.sleep(REQUEST_DELAY)
+        try:
+            with urllib.request.urlopen(url, timeout=30) as resp:
+                data = resp.read()
+                return json.loads(data) if as_json else data.decode("utf-8").strip()
+        except urllib.error.HTTPError as e:
+            if e.code in (429, 503) and attempt < MAX_RETRIES - 1:
+                backoff = 2 ** (attempt + 1)
+                log.warning(
+                    "%d from API, backing off %ds (attempt %d)",
+                    e.code,
+                    backoff,
+                    attempt + 1,
+                )
+                time.sleep(backoff)
+                continue
+            raise
+    raise RuntimeError(f"Failed after {MAX_RETRIES} retries: {url}")
 
 
 def _get_json(path: str) -> Any:
     """GET JSON from esplora API."""
-    import json
-    import urllib.request
-
-    url = f"{ESPLORA_BASE}{path}"
-    time.sleep(REQUEST_DELAY)
-    with urllib.request.urlopen(url, timeout=30) as resp:
-        return json.loads(resp.read())
+    return _fetch_with_retry(f"{ESPLORA_BASE}{path}", as_json=True)
 
 
 def _get_text(path: str) -> str:
     """GET text from esplora API."""
-    import urllib.request
-
-    url = f"{ESPLORA_BASE}{path}"
-    time.sleep(REQUEST_DELAY)
-    with urllib.request.urlopen(url, timeout=30) as resp:
-        return resp.read().decode("utf-8").strip()
+    return _fetch_with_retry(f"{ESPLORA_BASE}{path}", as_json=False)
 
 
 def _fetch_block_txs(block_hash: str) -> list[dict]:
@@ -244,10 +261,21 @@ def extract_dataset_api(
     for i, height in enumerate(sorted_heights):
         category = target_blocks[height]
 
-        block_hash = _get_text(f"/block-height/{height}")
-        block_info = _get_json(f"/block/{block_hash}")
-        block_timestamp = block_info["timestamp"]
-        txs = _fetch_block_txs(block_hash)
+        try:
+            block_hash = _get_text(f"/block-height/{height}")
+            block_info = _get_json(f"/block/{block_hash}")
+            block_timestamp = block_info["timestamp"]
+            txs = _fetch_block_txs(block_hash)
+        except Exception as e:
+            log.warning(
+                "[%d/%d] block %d (%s): skipped — %s",
+                i + 1,
+                len(sorted_heights),
+                height,
+                category,
+                e,
+            )
+            continue
 
         block_inputs = _extract_inputs_from_api_block(
             height, block_timestamp, txs, category
