@@ -4,19 +4,39 @@
 #
 # Usage: ./presentation/download-k-artifacts.sh
 #
-# No authentication required (public repo release asset).
+# For private repos, set GITHUB_TOKEN env var.
 
 set -euo pipefail
 
-RELEASE_URL="https://github.com/zojize/bitcoin-script/releases/download/k-artifacts/k-linux-x86_64.tar.gz"
+REPO="zojize/bitcoin-script"
+TAG="k-artifacts"
+ASSET="k-linux-x86_64.tar.gz"
 
-echo "==> Downloading K artifacts from release..."
+echo "==> Downloading K artifacts..."
 TMPDIR=$(mktemp -d)
-curl -fsSL "$RELEASE_URL" -o "$TMPDIR/k-linux-x86_64.tar.gz"
+
+if [ -n "${GITHUB_TOKEN:-}" ]; then
+  # Private repo: use API to get the asset download URL
+  ASSET_URL=$(curl -fsSL \
+    -H "Authorization: token $GITHUB_TOKEN" \
+    -H "Accept: application/vnd.github.v3+json" \
+    "https://api.github.com/repos/$REPO/releases/tags/$TAG" \
+    | python3 -c "import json,sys; assets=json.load(sys.stdin)['assets']; print(next(a['url'] for a in assets if a['name']=='$ASSET'))")
+
+  curl -fsSL \
+    -H "Authorization: token $GITHUB_TOKEN" \
+    -H "Accept: application/octet-stream" \
+    "$ASSET_URL" \
+    -o "$TMPDIR/$ASSET"
+else
+  # Public repo: direct download
+  curl -fsSL \
+    "https://github.com/$REPO/releases/download/$TAG/$ASSET" \
+    -o "$TMPDIR/$ASSET"
+fi
 
 echo "==> Finding kdist cache dir..."
 CACHE_DIR=$(python3 -c "
-from pyk.kdist._kdist import KDist
 from pyk.kdist import kdist
 tid = kdist._resolve('bitcoin-script-semantics.llvm')
 print(kdist._target_dir(tid).parent)
@@ -29,14 +49,13 @@ if [ -z "$CACHE_DIR" ]; then
     CACHE_DIR="$CACHE_DIR/bitcoin-script-semantics"
   else
     echo "Error: Cannot find kdist cache directory"
-    echo "Make sure pyk is installed: uv sync"
     exit 1
   fi
 fi
 
 echo "==> Installing to $CACHE_DIR"
 mkdir -p "$CACHE_DIR"
-tar xzf "$TMPDIR/k-linux-x86_64.tar.gz" -C "$CACHE_DIR"
+tar xzf "$TMPDIR/$ASSET" -C "$CACHE_DIR"
 rm -rf "$TMPDIR"
 
 echo "==> Verifying..."
