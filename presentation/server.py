@@ -28,12 +28,32 @@ _STATIC_DIR: Path | None = None  # Set to presentation/dist/ if it exists
 
 
 def _get_k() -> object:
-    """Lazy-load KBitcoinScript. Raises on failure."""
+    """Lazy-load KBitcoinScript. Raises on failure.
+
+    Constructs ScriptDist directly from KDIST_DIR to avoid the
+    _rebuild_if_stale() check which tries to run kdist build.
+    """
     global _k_instance
     if _k_instance is None:
-        from bitcoin_script.k_semantics import KBitcoinScript
+        from bitcoin_script.k_semantics.semantics import KBitcoinScript, ScriptDist
 
-        _k_instance = KBitcoinScript()
+        kdist_dir = os.environ.get("KDIST_DIR")
+        if kdist_dir:
+            base = Path(kdist_dir) / "bitcoin-script-semantics"
+            # source_dir points to the repo checkout (not the artifact)
+            source_dir = Path(__file__).resolve().parent.parent / "src" / "bitcoin_script" / "k_semantics" / "kdist" / "script-semantics"
+            if not source_dir.is_dir():
+                # Fallback: create a dummy source dir so ScriptDist doesn't fail
+                source_dir = base / "source"
+                source_dir.mkdir(parents=True, exist_ok=True)
+            dist = ScriptDist(
+                source_dir=source_dir,
+                llvm_dir=base / "llvm",
+                llvm_lib_dir=base / "llvm-lib",
+            )
+            _k_instance = KBitcoinScript(dist=dist)
+        else:
+            _k_instance = KBitcoinScript()
     return _k_instance
 
 
