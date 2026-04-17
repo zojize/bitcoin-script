@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import mimetypes
 import os
 import sys
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -23,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 # Global state: active backend and K instance (lazy-loaded)
 _active_backend: str = "python"
 _k_instance: object | None = None  # KBitcoinScript, lazily loaded
+_STATIC_DIR: Path | None = None  # Set to presentation/dist/ if it exists
 
 
 def _get_k() -> object:
@@ -67,8 +69,43 @@ class ReplHandler(BaseHTTPRequestHandler):
                     "backends": _available_backends(),
                 },
             )
+        elif _STATIC_DIR is not None:
+            self._serve_static()
         else:
             self._json_response(404, {"error": "not found"})
+
+    def _serve_static(self) -> None:
+        """Serve static files from the Slidev build directory."""
+        assert _STATIC_DIR is not None
+        # Strip query string
+        path = self.path.split("?")[0]
+
+        # Map URL path to file
+        if path == "/":
+            path = "/index.html"
+
+        file_path = _STATIC_DIR / path.lstrip("/")
+
+        # SPA fallback: if the file doesn't exist, serve index.html
+        # (Slidev uses client-side routing for /1, /2, etc.)
+        if not file_path.is_file():
+            file_path = _STATIC_DIR / "index.html"
+
+        if not file_path.is_file():
+            self._json_response(404, {"error": "not found"})
+            return
+
+        content_type, _ = mimetypes.guess_type(str(file_path))
+        if content_type is None:
+            content_type = "application/octet-stream"
+
+        body = file_path.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self._cors_headers()
+        self.end_headers()
+        self.wfile.write(body)
 
     def do_POST(self) -> None:  # noqa: N802
         global _active_backend
@@ -419,8 +456,16 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    global _active_backend
+    global _active_backend, _STATIC_DIR
     _active_backend = args.backend
+
+    # Serve static slides if dist/ exists
+    dist_dir = Path(__file__).resolve().parent / "dist"
+    if dist_dir.is_dir() and (dist_dir / "index.html").exists():
+        _STATIC_DIR = dist_dir
+        print(f"Serving static slides from {dist_dir}")
+    else:
+        print("No dist/ found — API-only mode (run 'npx slidev build' to enable)")
 
     if args.backend == "k":
         if not _k_available():

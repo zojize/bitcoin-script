@@ -1,9 +1,7 @@
 <script setup lang="ts">
 import { ref, nextTick, computed } from 'vue'
 
-const API_BASE = import.meta.env.DEV
-  ? 'http://localhost:8787'
-  : 'https://bitcoin-script-repl.onrender.com'
+const API_BASE = import.meta.env.DEV ? 'http://localhost:8787' : ''
 
 interface HistoryEntry {
   type: 'input' | 'output' | 'error' | 'info'
