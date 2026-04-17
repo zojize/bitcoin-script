@@ -42,6 +42,16 @@ fi
 echo "==> Installing to $CACHE_DIR"
 mkdir -p "$CACHE_DIR"
 tar xzf "$TMPDIR/$ASSET" -C "$CACHE_DIR"
+
+# Install bundled shared libraries if present
+SYSLIBS_DIR="$CACHE_DIR/k-syslibs"
+if [ -d "$SYSLIBS_DIR" ]; then
+  LIB_INSTALL="$KDIST_DIR/lib"
+  mkdir -p "$LIB_INSTALL"
+  cp "$SYSLIBS_DIR"/* "$LIB_INSTALL/"
+  echo "==> Installed shared libraries to $LIB_INSTALL"
+  ls -lh "$LIB_INSTALL/"
+fi
 rm -rf "$TMPDIR"
 
 # --- Verify ---
@@ -50,8 +60,11 @@ if [ -f "$CACHE_DIR/llvm/compiled.json" ]; then
   echo "    KDIST_DIR=$KDIST_DIR"
   echo "    llvm:     $CACHE_DIR/llvm/"
   echo "    llvm-lib: $CACHE_DIR/llvm-lib/"
-  echo ""
-  echo "    Set KDIST_DIR=$KDIST_DIR as an env var on Render."
+  if [ -d "$LIB_INSTALL" ]; then
+    echo "    libs:     $LIB_INSTALL/"
+    echo ""
+    echo "    Add to Render env: LD_LIBRARY_PATH=$LIB_INSTALL"
+  fi
 else
   echo "Error: compiled.json not found after extraction"
   ls -laR "$CACHE_DIR/" 2>/dev/null

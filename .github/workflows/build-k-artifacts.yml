@@ -56,12 +56,26 @@ jobs:
         run: |
           LLVM_DIR=$(uv run python -c "from pyk.kdist import kdist; print(kdist.get('bitcoin-script-semantics.llvm'))")
           LIB_DIR=$(uv run python -c "from pyk.kdist import kdist; print(kdist.get('bitcoin-script-semantics.llvm-lib'))")
+
+          # Bundle required shared libraries that may not exist on the target
+          mkdir -p /tmp/k-syslibs
+          for lib in libsecp256k1.so.0 libcryptopp.so libff.so libcrypto.so.3; do
+            found=$(find /usr/lib /usr/local/lib -name "$lib*" -type f 2>/dev/null | head -1)
+            if [ -n "$found" ]; then
+              cp -L "$found" /tmp/k-syslibs/
+              echo "Bundled: $found"
+            fi
+          done
+          ls -lh /tmp/k-syslibs/
+
           mkdir -p /tmp/k-artifacts
           tar czf /tmp/k-artifacts/k-linux-x86_64.tar.gz \
             -C "$(dirname "$LLVM_DIR")" \
             "$(basename "$LLVM_DIR")" \
             -C "$(dirname "$LIB_DIR")" \
-            "$(basename "$LIB_DIR")"
+            "$(basename "$LIB_DIR")" \
+            -C /tmp \
+            k-syslibs
           ls -lh /tmp/k-artifacts/
 
       - name: Upload as release asset

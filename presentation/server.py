@@ -39,6 +39,11 @@ def _get_k() -> object:
 
         kdist_dir = os.environ.get("KDIST_DIR")
         if kdist_dir:
+            # Add bundled shared libs to LD_LIBRARY_PATH
+            lib_dir = str(Path(kdist_dir) / "lib")
+            if Path(lib_dir).is_dir():
+                existing = os.environ.get("LD_LIBRARY_PATH", "")
+                os.environ["LD_LIBRARY_PATH"] = f"{lib_dir}:{existing}" if existing else lib_dir
             base = Path(kdist_dir) / "bitcoin-script-semantics"
             # source_dir points to the repo checkout (not the artifact)
             source_dir = Path(__file__).resolve().parent.parent / "src" / "bitcoin_script" / "k_semantics" / "kdist" / "script-semantics"
