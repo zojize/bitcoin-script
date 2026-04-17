@@ -36,20 +36,39 @@ else
 fi
 
 echo "==> Finding kdist cache dir..."
-CACHE_DIR=$(python3 -c "
+# Use uv run so pyk resolves within the project venv
+CACHE_DIR=$(uv run python3 -c "
 from pyk.kdist import kdist
 tid = kdist._resolve('bitcoin-script-semantics.llvm')
 print(kdist._target_dir(tid).parent)
 " 2>/dev/null || echo "")
 
 if [ -z "$CACHE_DIR" ]; then
+  # Fallback: compute from kdist hash
+  CACHE_DIR=$(uv run python3 -c "
+from pyk.kdist._kdist import KDist
+kd = KDist()
+tid = kd._resolve('bitcoin-script-semantics.llvm')
+print(kd._target_dir(tid).parent)
+" 2>/dev/null || echo "")
+fi
+
+if [ -z "$CACHE_DIR" ]; then
+  # Last resort: find or create the kdist dir
   XDG_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}"
-  CACHE_DIR=$(find "$XDG_CACHE" -maxdepth 1 -name "kdist-*" -type d 2>/dev/null | head -1)
-  if [ -n "$CACHE_DIR" ]; then
-    CACHE_DIR="$CACHE_DIR/bitcoin-script-semantics"
+  EXISTING=$(find "$XDG_CACHE" -maxdepth 1 -name "kdist-*" -type d 2>/dev/null | head -1)
+  if [ -n "$EXISTING" ]; then
+    CACHE_DIR="$EXISTING/bitcoin-script-semantics"
   else
-    echo "Error: Cannot find kdist cache directory"
-    exit 1
+    # Trigger kdist to create its cache dir by querying it
+    uv run python3 -c "from pyk.kdist import kdist; kdist.get_or_none('bitcoin-script-semantics.source')" 2>/dev/null || true
+    EXISTING=$(find "$XDG_CACHE" -maxdepth 1 -name "kdist-*" -type d 2>/dev/null | head -1)
+    if [ -n "$EXISTING" ]; then
+      CACHE_DIR="$EXISTING/bitcoin-script-semantics"
+    else
+      echo "Error: Cannot find or create kdist cache directory"
+      exit 1
+    fi
   fi
 fi
 
