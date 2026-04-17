@@ -49,6 +49,16 @@ if [ -d "$SYSLIBS_DIR" ]; then
   LIB_INSTALL="$KDIST_DIR/lib"
   mkdir -p "$LIB_INSTALL"
   cp "$SYSLIBS_DIR"/* "$LIB_INSTALL/"
+  # Create soname symlinks (e.g. libsecp256k1.so.0.0.0 -> libsecp256k1.so.0)
+  cd "$LIB_INSTALL"
+  for f in *.so.*.*.*; do
+    [ -f "$f" ] || continue
+    soname=$(echo "$f" | sed 's/\.\([0-9]*\)\.\([0-9]*\)$//')
+    [ "$soname" != "$f" ] && ln -sf "$f" "$soname"
+    base=$(echo "$f" | sed 's/\.so\..*/\.so/')
+    [ "$base" != "$f" ] && ln -sf "$f" "$base"
+  done
+  cd - >/dev/null
   echo "==> Installed shared libraries to $LIB_INSTALL"
   ls -lh "$LIB_INSTALL/"
 fi
