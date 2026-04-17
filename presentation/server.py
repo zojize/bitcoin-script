@@ -160,12 +160,16 @@ class ReplHandler(BaseHTTPRequestHandler):
 
 
 def _k_available() -> bool:
-    """Check if K Framework semantics are built."""
-    try:
-        from bitcoin_script.k_semantics.semantics import ScriptDist
+    """Check if K Framework semantics are built.
 
-        dist = ScriptDist.load()
-        return (dist.llvm_dir / "compiled.json").exists()
+    Avoids ScriptDist.load() which triggers a rebuild attempt.
+    Uses kdist.get() which only checks the filesystem — no build trigger.
+    """
+    try:
+        from pyk.kdist import kdist  # pyright: ignore[reportPrivateImportUsage]
+
+        llvm_dir = kdist.get_or_none("bitcoin-script-semantics.llvm")
+        return llvm_dir is not None and (llvm_dir / "compiled.json").exists()
     except Exception:
         return False
 
