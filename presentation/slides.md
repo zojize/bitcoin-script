@@ -20,7 +20,7 @@ drawings:
     <div>225,417 mainnet inputs verified</div>
     <div>1,217 / 1,222 Bitcoin Core vectors passing</div>
   </div>
-  <div class="mt-12 text-xs op-30 font-mono">Jeff Zou · April 2026</div>
+  <div class="mt-12 text-xs op-30 font-mono">Jeff Zou · Lawrence Wang · April 2026</div>
 </div>
 
 <style>
@@ -401,10 +401,13 @@ Result: PASS
 ---
 
 <div class="h-full flex flex-col items-center justify-center">
-  <div class="font-mono text-6xl font-bold text-amber mb-6">₿</div>
-  <h2 class="!text-3xl font-mono !mb-4">Thank You</h2>
-  <div class="font-mono text-sm op-40 space-y-2 text-center">
-    <div>github.com/zojize/bitcoin-script</div>
+  <h2 class="!text-3xl font-mono !mb-8">Thank You</h2>
+  <div class="flex items-center gap-12">
+    <img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=https://bitcoin-script.onrender.com/&bgcolor=0a0a0a&color=f59e0b&format=svg" alt="QR code" class="w-36 h-36" />
+    <div class="font-mono text-sm op-50 space-y-3 text-left">
+      <div><span class="text-amber">slides</span> bitcoin-script.onrender.com</div>
+      <div><span class="text-amber">source</span> github.com/zojize/bitcoin-script</div>
+    </div>
   </div>
 </div>
 

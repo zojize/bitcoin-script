@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Download pre-built K artifacts from GitHub Releases and install them
-# into the kdist cache so the server can use the K backend.
+# into a fixed kdist directory. Set KDIST_DIR env var to the same path
+# at runtime so pyk finds them.
 #
 # Usage: ./presentation/download-k-artifacts.sh
 # For private repos, set GITHUB_TOKEN env var.
@@ -10,6 +11,10 @@ set -euo pipefail
 REPO="zojize/bitcoin-script"
 TAG="k-artifacts"
 ASSET="k-linux-x86_64.tar.gz"
+
+# Fixed path — must match KDIST_DIR env var at runtime
+KDIST_DIR="${KDIST_DIR:-/opt/render/project/src/.kdist}"
+CACHE_DIR="$KDIST_DIR/bitcoin-script-semantics"
 
 # --- Download ---
 echo "==> Downloading K artifacts..."
@@ -33,18 +38,7 @@ else
     -o "$TMPDIR/$ASSET"
 fi
 
-# --- Compute kdist cache path ---
-# pyk computes: XDG_CACHE_HOME / "kdist-{sha256(str({'module-dir': pyk_dir}))[:7]}"
-# We replicate that exactly.
-echo "==> Computing kdist cache path..."
-CACHE_DIR=$(uv run python3 -c "
-import hashlib, pathlib, pyk
-module_dir = str(pathlib.Path(pyk.__file__).parent)
-digest = hashlib.sha256(str({'module-dir': module_dir}).encode('utf-8')).hexdigest()[:7]
-from xdg_base_dirs import xdg_cache_home
-print(xdg_cache_home() / f'kdist-{digest}' / 'bitcoin-script-semantics')
-")
-
+# --- Install ---
 echo "==> Installing to $CACHE_DIR"
 mkdir -p "$CACHE_DIR"
 tar xzf "$TMPDIR/$ASSET" -C "$CACHE_DIR"
@@ -53,8 +47,11 @@ rm -rf "$TMPDIR"
 # --- Verify ---
 if [ -f "$CACHE_DIR/llvm/compiled.json" ]; then
   echo "==> K artifacts installed successfully!"
+  echo "    KDIST_DIR=$KDIST_DIR"
   echo "    llvm:     $CACHE_DIR/llvm/"
   echo "    llvm-lib: $CACHE_DIR/llvm-lib/"
+  echo ""
+  echo "    Set KDIST_DIR=$KDIST_DIR as an env var on Render."
 else
   echo "Error: compiled.json not found after extraction"
   ls -laR "$CACHE_DIR/" 2>/dev/null
