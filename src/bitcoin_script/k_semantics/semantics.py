@@ -269,13 +269,18 @@ class KBitcoinScript:
         n_locktime: int = 0,
         n_sequence: int = 0xFFFFFFFF,
         sigops_budget: int | None = None,
+        tx: bytes = b"",
+        prevouts: bytes = b"",
+        input_index: int = 0,
     ) -> Pattern:
         """Build and run a full script verification.
 
         Args:
             script_pubkey: The scriptPubKey bytes.
             script_sig: The scriptSig bytes (empty for scriptPubKey-only execution).
-            sighash: 32-byte transaction digest for signature verification.
+            sighash: Precomputed sighash blob (legacy interface). Kept during the
+                migration to K-side sighash; pass ``tx``/``prevouts``/``input_index``
+                instead once fully migrated.
             witness: Witness data (encoded witness stack blob).
             flags: Verification flags bitmask (Bitcoin Core SCRIPT_VERIFY_* values).
             tx_version: Spending transaction version (for BIP-68 CSV: must be >= 2).
@@ -284,6 +289,13 @@ class KBitcoinScript:
             sigops_budget: BIP 342 signature validation weight budget.
                 If None (default), uses a large value (effectively unlimited for
                 non-tapscript, or should be computed from witness size for tapscript).
+            tx: Raw serialized spending transaction (for K-side sighash). Empty
+                bytes when only the blob interface is used.
+            prevouts: Concatenated per-input prevout records for K-side sighash
+                (layout: for each vin, 8-byte LE amount + 1-byte scriptPubKey
+                length prefix + scriptPubKey bytes). Empty when not provided.
+            input_index: Zero-based index of the input being verified. Defaults to
+                0; must match the input whose scriptSig is being executed.
 
         Returns:
             The final KORE pattern after execution.
@@ -298,6 +310,9 @@ class KBitcoinScript:
             n_locktime=n_locktime,
             n_sequence=n_sequence,
             sigops_budget=sigops_budget,
+            tx=tx,
+            prevouts=prevouts,
+            input_index=input_index,
         )
         return self.run(pat)
 
@@ -313,23 +328,13 @@ class KBitcoinScript:
         n_locktime: int = 0,
         n_sequence: int = 0xFFFFFFFF,
         sigops_budget: int | None = None,
+        tx: bytes = b"",
+        prevouts: bytes = b"",
+        input_index: int = 0,
     ) -> Pattern:
         """Build an initial KORE configuration.
 
-        Args:
-            script_sig: The scriptSig bytes (empty for scriptPubKey-only execution).
-            script_pubkey: The scriptPubKey bytes.
-            sighash: 32-byte transaction digest for signature verification.
-            witness: Witness data (encoded witness stack blob).
-            flags: Verification flags bitmask (Bitcoin Core SCRIPT_VERIFY_* values).
-            tx_version: Spending transaction version (for BIP-68 CSV: must be >= 2).
-            n_locktime: Spending transaction nLockTime (for BIP-65 CLTV).
-            n_sequence: Spending input nSequence (for BIP-65 CLTV / BIP-68 CSV).
-            sigops_budget: BIP 342 signature validation weight budget.
-                If None (default), uses a large value (effectively unlimited).
-
-        Returns:
-            The initial KORE pattern.
+        See :meth:`verify_script` for argument semantics.
         """
         from pyk.kore.prelude import SORT_K_ITEM, inj, top_cell_initializer
         from pyk.kore.syntax import DV, SortApp, String
@@ -361,6 +366,9 @@ class KBitcoinScript:
                 "$NLOCKTIME": _int_var(n_locktime),
                 "$NSEQUENCE": _int_var(n_sequence),
                 "$SIGOPSBUDGET": _int_var(budget),
+                "$TX": _bytes_var(tx),
+                "$PREVOUTS": _bytes_var(prevouts),
+                "$INPUTINDEX": _int_var(input_index),
             }
         )
 

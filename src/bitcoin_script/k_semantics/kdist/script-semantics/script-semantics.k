@@ -21,6 +21,11 @@ module SCRIPT-SEMANTICS
   syntax Phase ::= "scriptSig" | "scriptPubKey" | "p2sh-redeem" | "witness-v0" | "witness-v1" | "done"
 
   // --- Configuration ---
+  // `<sighash>` holds the legacy precomputed-blob interface (see script-crypto.k
+  // `lookupSighash`). `<tx>`, `<prevouts>`, `<inputIndex>` carry the raw tx
+  // material needed for the K-side sighash formalization (see script-sighash.k).
+  // Both paths coexist during the migration; once every CHECKSIG rule uses the
+  // K-side sighash, `<sighash>` and `$SIGHASH` will be dropped.
   configuration
     <T>
       <k> #init </k>
@@ -43,6 +48,9 @@ module SCRIPT-SEMANTICS
       <p2shRedeemBytes> .Bytes </p2shRedeemBytes>
       <codesepIdx> 0 </codesepIdx>
       <sigopsWeight> $SIGOPSBUDGET:Int </sigopsWeight>
+      <tx> $TX:Bytes </tx>
+      <prevouts> $PREVOUTS:Bytes </prevouts>
+      <inputIndex> $INPUTINDEX:Int </inputIndex>
     </T>
 
   // --- Flag checking (Bitcoin Core verification flags as bitmask) ---
