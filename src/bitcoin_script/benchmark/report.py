@@ -11,6 +11,21 @@ from collections import defaultdict
 from .runner import BenchmarkResult
 
 
+def _percentile(values: list[int], pct: float) -> float:
+    """Compute a percentile using linear interpolation (closest to numpy default)."""
+    if not values:
+        return 0.0
+    s = sorted(values)
+    if len(s) == 1:
+        return float(s[0])
+    k = (len(s) - 1) * (pct / 100)
+    f = int(k)
+    c = min(f + 1, len(s) - 1)
+    if f == c:
+        return float(s[f])
+    return s[f] + (s[c] - s[f]) * (k - f)
+
+
 def aggregate_overall(results: BenchmarkResult) -> dict:
     """Compute overall aggregate statistics."""
     k_times = [
@@ -61,9 +76,7 @@ def _aggregate_group(results: BenchmarkResult, key_fn: object) -> dict[str, dict
             "count": len(items),
             "k_total_ns": k_total,
             "k_median_ns": statistics.median(k_times) if k_times else None,
-            "k_p95_ns": (
-                sorted(k_times)[int(len(k_times) * 0.95)] if k_times else None
-            ),
+            "k_p95_ns": _percentile(k_times, 95) if k_times else None,
             "core_total_ns": core_total,
             "core_median_ns": statistics.median(core_times) if core_times else None,
             "ratio": k_total / core_total if core_total > 0 else None,

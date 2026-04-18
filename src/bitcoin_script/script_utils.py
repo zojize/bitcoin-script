@@ -50,6 +50,71 @@ def is_p2sh(script: bytes) -> bool:
     )
 
 
+def classify_script(
+    script_pubkey: bytes,
+    script_sig: bytes,
+    witness: list[bytes],
+) -> str:
+    """Classify an input by its actual spending path.
+
+    Returns one of: P2PKH, P2PK, P2PK-uncompressed, P2SH, P2SH-P2WPKH,
+    P2SH-P2WSH, P2WPKH, P2WSH, P2TR-keypath, P2TR-scriptpath, or other.
+    """
+    wp = is_witness_program(script_pubkey)
+    if wp is not None:
+        version, program = wp
+        if version == 0 and len(program) == 20:
+            return "P2WPKH"
+        if version == 0 and len(program) == 32:
+            return "P2WSH"
+        if version == 1 and len(program) == 32:
+            w = list(witness)
+            if len(w) >= 2 and w[-1][:1] == b"\x50":
+                w = w[:-1]  # strip annex
+            if len(w) == 1:
+                return "P2TR-keypath"
+            if len(w) >= 2:
+                return "P2TR-scriptpath"
+            return "P2TR-empty"
+        return f"witness-v{version}"
+    if is_p2sh(script_pubkey):
+        if script_sig:
+            redeem = extract_last_push(script_sig)
+            if redeem is not None:
+                wp2 = is_witness_program(redeem)
+                if wp2 is not None:
+                    if wp2[0] == 0 and len(wp2[1]) == 20:
+                        return "P2SH-P2WPKH"
+                    if wp2[0] == 0 and len(wp2[1]) == 32:
+                        return "P2SH-P2WSH"
+        return "P2SH"
+    # P2PKH: OP_DUP OP_HASH160 <push20> <20 bytes> OP_EQUALVERIFY OP_CHECKSIG
+    if (
+        len(script_pubkey) == 25
+        and script_pubkey[0] == 0x76
+        and script_pubkey[1] == 0xA9
+        and script_pubkey[2] == 0x14
+        and script_pubkey[23] == 0x88
+        and script_pubkey[24] == 0xAC
+    ):
+        return "P2PKH"
+    # P2PK compressed: <push33> <33 bytes> OP_CHECKSIG
+    if (
+        len(script_pubkey) == 35
+        and script_pubkey[0] == 0x21
+        and script_pubkey[34] == 0xAC
+    ):
+        return "P2PK"
+    # P2PK uncompressed: <push65> <65 bytes> OP_CHECKSIG
+    if (
+        len(script_pubkey) == 67
+        and script_pubkey[0] == 0x41
+        and script_pubkey[66] == 0xAC
+    ):
+        return "P2PK-uncompressed"
+    return "other"
+
+
 def extract_last_push(script: bytes) -> bytes | None:
     """Extract the last push data from a script."""
     pos = 0

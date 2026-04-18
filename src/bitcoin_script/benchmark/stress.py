@@ -60,6 +60,8 @@ def select_representative_heights(
 
 
 KNOWN_STRESS_BLOCKS: list[int] = [
+    # Pre-SegWit stress blocks: large blocks with many sigops
+    # 367,891 alone contributes 20K+ inputs in a single 2015 stress-test tx
     364_422,
     367_891,
     364_292,
@@ -68,9 +70,9 @@ KNOWN_STRESS_BLOCKS: list[int] = [
     481_829,
     481_947,
     482_897,
-    # Taproot-era blocks with high transaction volume
-    709_632,  # Taproot activation block
-    710_000,  # Early taproot era
-    750_000,  # Mature taproot usage
-    800_000,  # High taproot adoption
+    # Taproot-era blocks. NOTE: these are heuristic selections; for serious
+    # analysis of taproot/tapscript performance, select blocks by P2TR count
+    # from the current chain rather than these fixed heights.
+    709_632,  # Taproot activation
+    800_000,
 ]
