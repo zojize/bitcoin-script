@@ -174,9 +174,7 @@ module SCRIPT-SIG
        <sigopsWeight> W => W -Int 50 </sigopsWeight>
        <phase> witness-v1 </phase>
     requires lengthBytes(PK) ==Int 32
-     andBool (lengthBytes(SIG) ==Int 64
-       orBool (lengthBytes(SIG) ==Int 65
-         andBool Bytes2Int(substrBytes(SIG, 64, 65), BE, Unsigned) =/=Int 0))
+     andBool #isSchnorrShape(SIG)
      andBool SchnorrVerify(
                PK,
                lookupSighash(SIGHASHBLOB, #tapSigHashType(SIG), CSI),
@@ -191,9 +189,7 @@ module SCRIPT-SIG
        <sigopsWeight> W => W -Int 50 </sigopsWeight>
        <phase> witness-v1 </phase>
     requires lengthBytes(PK) ==Int 32
-     andBool (lengthBytes(SIG) ==Int 64
-       orBool (lengthBytes(SIG) ==Int 65
-         andBool Bytes2Int(substrBytes(SIG, 64, 65), BE, Unsigned) =/=Int 0))
+     andBool #isSchnorrShape(SIG)
      andBool notBool SchnorrVerify(
                PK,
                lookupSighash(SIGHASHBLOB, #tapSigHashType(SIG), CSI),
@@ -270,9 +266,7 @@ module SCRIPT-SIG
        <sigopsWeight> W => W -Int 50 </sigopsWeight>
        <phase> witness-v1 </phase>
     requires lengthBytes(PK) ==Int 32
-     andBool (lengthBytes(SIG) ==Int 64
-       orBool (lengthBytes(SIG) ==Int 65
-         andBool Bytes2Int(substrBytes(SIG, 64, 65), BE, Unsigned) =/=Int 0))
+     andBool #isSchnorrShape(SIG)
      andBool SchnorrVerify(
                PK,
                lookupSighash(SIGHASHBLOB, #tapSigHashType(SIG), CSI),
@@ -287,9 +281,7 @@ module SCRIPT-SIG
        <sigopsWeight> W => W -Int 50 </sigopsWeight>
        <phase> witness-v1 </phase>
     requires lengthBytes(PK) ==Int 32
-     andBool (lengthBytes(SIG) ==Int 64
-       orBool (lengthBytes(SIG) ==Int 65
-         andBool Bytes2Int(substrBytes(SIG, 64, 65), BE, Unsigned) =/=Int 0))
+     andBool #isSchnorrShape(SIG)
      andBool notBool SchnorrVerify(
                PK,
                lookupSighash(SIGHASHBLOB, #tapSigHashType(SIG), CSI),

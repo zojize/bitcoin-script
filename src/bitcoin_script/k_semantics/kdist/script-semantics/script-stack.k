@@ -155,12 +155,8 @@ module SCRIPT-STACK
   // OP_DEPTH: push stack depth as CScriptNum
   // =========================================================================
 
-  syntax Int ::= #listSize(List) [function]
-  rule #listSize(.List) => 0
-  rule #listSize(ListItem(_) REST) => 1 +Int #listSize(REST)
-
   rule <k> OP_DEPTH => .K ...</k>
-       <stack> ST => ListItem(intToScriptNum(#listSize(ST))) ST </stack>
+       <stack> ST => ListItem(intToScriptNum(size(ST))) ST </stack>
 
   // =========================================================================
   // OP_SIZE: push length of top element (without removing it)
