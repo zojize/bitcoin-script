@@ -77,6 +77,9 @@ def _verify_with_k(
             tx_version=inp.tx_version,
             n_locktime=inp.n_locktime,
             n_sequence=inp.n_sequence,
+            tx=inp.tx_serialized,
+            input_index=inp.input_index,
+            amount=inp.amount,
         )
         elapsed = time.perf_counter_ns() - t0
         timings.append(elapsed)
