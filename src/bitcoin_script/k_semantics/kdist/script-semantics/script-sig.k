@@ -8,25 +8,20 @@ module SCRIPT-SIG
 
   // ECDSA sighash dispatch used by CHECKSIG / CHECKMULTISIG (BIP-143 K path).
   //
-  //   phase == witness-v0, <tx> populated, codesep not yet executed:
+  //   phase == witness-v0, <tx> populated:
   //     -> #bip143Sighash(tx, inputIdx, scriptCode, amount, hashtype)
-  //   phase == witness-v0, codesep executed OR <tx> empty:
-  //     -> lookupSighash(blob, hashtype, codesepIdx)   [fallback]
-  //   any other phase:
+  //   phase == witness-v0, <tx> empty (legacy crediting-tx test fixtures):
+  //     -> lookupSighash(blob, hashtype, codesepIdx)
+  //   any other phase (legacy / p2sh-redeem / witness-v1):
   //     -> lookupSighash(blob, hashtype, codesepIdx)
   //
-  // The codesepIdx > 0 fallback is a temporary compatibility shim: once the
-  // <scriptCode> cell tracks the OP_CODESEPARATOR byte-position update at
-  // exec time, we can drop it. Fallback to the blob when <tx> is empty lets
-  // the legacy crediting-tx test fixtures keep passing while the mainnet
-  // verifier is migrated to thread the real tx through.
+  // <scriptCode> is kept up-to-date across OP_CODESEPARATOR by the
+  // decoder+exec cooperation (see <pendingCodesepTail>), so no separate
+  // CSI>0 fallback is needed for witness-v0.
   syntax Bytes ::= #ecdsaSighash(Phase, Bytes, Int, Bytes, Int, Bytes, Int, Int) [function]
-  rule #ecdsaSighash(witness-v0, TX, IDX, SC, AMT, _BLOB, HT, CSI) =>
+  rule #ecdsaSighash(witness-v0, TX, IDX, SC, AMT, _BLOB, HT, _CSI) =>
          #bip143Sighash(TX, IDX, SC, AMT, HT)
-    requires lengthBytes(TX) >Int 0 andBool CSI ==Int 0
-  rule #ecdsaSighash(witness-v0, TX, _IDX, _SC, _AMT, BLOB, HT, CSI) =>
-         lookupSighash(BLOB, HT, CSI)
-    requires lengthBytes(TX) >Int 0 andBool CSI >Int 0
+    requires lengthBytes(TX) >Int 0
   rule #ecdsaSighash(witness-v0, TX, _IDX, _SC, _AMT, BLOB, HT, CSI) =>
          lookupSighash(BLOB, HT, CSI)
     requires lengthBytes(TX) ==Int 0
@@ -597,12 +592,26 @@ module SCRIPT-SIG
     requires P =/=K witness-v0 andBool P =/=K witness-v1
      andBool hasFlag(F, FLAG_CONST_SCRIPTCODE)
 
-  // OP_CODESEPARATOR: increment codesep counter for sighash subscript selection
+  // OP_CODESEPARATOR in witness-v0: bump the codesep counter AND promote
+  // the decoder-stashed tail into <scriptCode>. BIP-143 says scriptCode for
+  // sighash starts from the byte AFTER the most recent executed CODESEP,
+  // which is exactly what <pendingCodesepTail> holds.
+  rule <k> OP_CODESEPARATOR => .K ...</k>
+       <codesepIdx> N => N +Int 1 </codesepIdx>
+       <pendingCodesepTail> T </pendingCodesepTail>
+       <scriptCode> _ => T </scriptCode>
+       <phase> witness-v0 </phase>
+
+  // OP_CODESEPARATOR in other phases (witness-v1 tapscript, or legacy
+  // without CONST_SCRIPTCODE): just increment the counter. Tapscript uses
+  // <codesepIdx> as the BIP-342 codesep_pos input to TapSighash; legacy
+  // phases (when allowed) use it to index into the blob.
   rule <k> OP_CODESEPARATOR => .K ...</k>
        <codesepIdx> N => N +Int 1 </codesepIdx>
        <phase> P </phase>
        <flags> F </flags>
-    requires notBool (P =/=K witness-v0 andBool P =/=K witness-v1
+    requires P =/=K witness-v0
+     andBool notBool (P =/=K witness-v0 andBool P =/=K witness-v1
               andBool hasFlag(F, FLAG_CONST_SCRIPTCODE))
 
   // =========================================================================
