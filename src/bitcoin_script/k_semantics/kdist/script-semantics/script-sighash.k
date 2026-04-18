@@ -135,6 +135,63 @@ module SCRIPT-SIGHASH
       andBool (HT &Int 31) =/=Int 3
 
   // =========================================================================
+  // BIP-143 sigmsg assembly (SegWit v0).
+  //
+  //   preimage =
+  //     nVersion            (4 LE)
+  //     hashPrevouts        (32)
+  //     hashSequence        (32)
+  //     outpoint_i          (32 + 4 LE)  -- the input being signed
+  //     scriptCode          (compactSize len + bytes)
+  //     amount_i            (8 LE)
+  //     nSequence_i         (4 LE)
+  //     hashOutputs         (32)
+  //     nLockTime           (4 LE)
+  //     hashType            (4 LE, *zero-extended* hashtype byte)
+  //
+  //   sighash = dSHA256(preimage)
+  //
+  // hashType is encoded as a 4-byte LE unsigned int where only the low byte
+  // carries the actual hashtype. compactSize for scriptCode is 1 byte when
+  // len <= 252 (the vast majority of P2WPKH/P2WSH cases) and 3 bytes for
+  // len in [253, 65535]. Longer scriptCodes don't occur in practice (BIP-143
+  // permits them but Core's script-size cap makes them unreachable here).
+  // =========================================================================
+
+  // compactSize encoding of the scriptCode length prefix.
+  // Mirrors #compactSize in SCRIPT-SEMANTICS but we redefine locally to
+  // avoid a module cycle (SCRIPT-SIGHASH is imported by SCRIPT-SEMANTICS).
+  syntax Bytes ::= #bip143CompactSize(Int) [function]
+  rule #bip143CompactSize(N) => Int2Bytes(1, N, BE)
+    requires N <=Int 252
+  rule #bip143CompactSize(N) =>
+           Int2Bytes(1, 253, BE) +Bytes Int2Bytes(2, N, LE)
+    requires N >Int 252 andBool N <=Int 65535
+  rule #bip143CompactSize(N) =>
+           Int2Bytes(1, 254, BE) +Bytes Int2Bytes(4, N, LE)
+    requires N >Int 65535 andBool N <=Int 4294967295
+
+  // Full BIP-143 sighash. All byte-level composition happens here; the only
+  // external primitive is #doubleSha256 (Sha256raw hook). Matches Bitcoin
+  // Core's SignatureHash(sigversion=WITNESS_V0) when CODESEPARATOR is not
+  // involved; CODESEP support is via the <scriptCode> cell being updated
+  // at exec time (see script-sig.k OP_CODESEPARATOR rule).
+  syntax Bytes ::= #bip143Sighash(Bytes, Int, Bytes, Int, Int) [function]
+  rule #bip143Sighash(TX, IDX, SC, AMOUNT, HT) =>
+           #doubleSha256(
+               Int2Bytes(4, #txVersion(TX), LE)
+             +Bytes #bip143HashPrevouts(TX, HT)
+             +Bytes #bip143HashSequence(TX, HT)
+             +Bytes #txVinOutpoint(TX, IDX)
+             +Bytes #bip143CompactSize(lengthBytes(SC)) +Bytes SC
+             +Bytes Int2Bytes(8, AMOUNT, LE)
+             +Bytes Int2Bytes(4, #txVinSequence(TX, IDX), LE)
+             +Bytes #bip143HashOutputs(TX, IDX, HT)
+             +Bytes Int2Bytes(4, #txLocktime(TX), LE)
+             +Bytes Int2Bytes(4, HT, LE)
+           )
+
+  // =========================================================================
   // Delegation stub.
   //
   // Returns the 32-byte sighash, or .Bytes on lookup failure (matches

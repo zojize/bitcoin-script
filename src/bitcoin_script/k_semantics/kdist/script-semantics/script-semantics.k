@@ -55,6 +55,8 @@ module SCRIPT-SEMANTICS
       <tx> $TX:Bytes </tx>
       <prevouts> $PREVOUTS:Bytes </prevouts>
       <inputIndex> $INPUTINDEX:Int </inputIndex>
+      <amount> $AMOUNT:Int </amount>
+      <scriptCode> .Bytes </scriptCode>
     </T>
 
   // --- Flag checking (Bitcoin Core verification flags as bitmask) ---
@@ -409,6 +411,11 @@ module SCRIPT-SEMANTICS
   // --- Version 0, 32-byte program (P2WSH) ---
   // Witness script is the last item. SHA256(script) must equal program.
   // Remaining items become the initial stack.
+  //
+  // BIP-143 scriptCode for P2WSH is the witness script itself; stash it in
+  // the <scriptCode> cell so CHECKSIG rules can reach it without re-parsing
+  // the witness. OP_CODESEPARATOR updates it to scriptCode[pos+1:] at
+  // execution time (decoder + exec-rule cooperate; see OP_CODESEPARATOR).
   rule <k> #witnessVerify(0, PROG)
         => #pushWitnessStack(W, 0, #witnessCount(W) -Int 1)
         ~> #decodeScript(#witnessItemAt(W, #witnessCount(W) -Int 1))
@@ -421,6 +428,7 @@ module SCRIPT-SEMANTICS
        <codesepIdx> _ => 0 </codesepIdx>
        <phase> _ => witness-v0 </phase>
        <witnessUsed> _ => true </witnessUsed>
+       <scriptCode> _ => #witnessItemAt(W, #witnessCount(W) -Int 1) </scriptCode>
     requires #witnessCount(W) >Int 0
      andBool lengthBytes(PROG) ==Int 32
      andBool Sha256raw(#witnessItemAt(W, #witnessCount(W) -Int 1)) ==K PROG
@@ -435,6 +443,12 @@ module SCRIPT-SEMANTICS
   // --- Version 0, 20-byte program (P2WPKH) ---
   // Witness must have exactly 2 items (sig, pubkey).
   // Synthesize P2PKH: OP_DUP OP_HASH160 <20-byte-program> OP_EQUALVERIFY OP_CHECKSIG
+  //
+  // BIP-143 scriptCode for P2WPKH is the canonical P2PKH template
+  // 0x1976a914{20-byte-pubkey-hash}88ac (without the 0x19 cs-prefix; the
+  // prefix is added by #bip143Sighash at sigmsg-assembly time). The template
+  // we synthesize here and stash into <scriptCode> are byte-identical
+  // on the 25-byte script payload.
   rule <k> #witnessVerify(0, PROG)
         => #pushWitnessStack(W, 0, 2)
         ~> #decodeScript(Int2Bytes(1, 118, BE) +Bytes Int2Bytes(1, 169, BE)
@@ -449,6 +463,10 @@ module SCRIPT-SEMANTICS
        <codesepIdx> _ => 0 </codesepIdx>
        <phase> _ => witness-v0 </phase>
        <witnessUsed> _ => true </witnessUsed>
+       <scriptCode> _ =>
+           Int2Bytes(1, 118, BE) +Bytes Int2Bytes(1, 169, BE)
+           +Bytes Int2Bytes(1, 20, BE) +Bytes PROG
+           +Bytes Int2Bytes(1, 136, BE) +Bytes Int2Bytes(1, 172, BE) </scriptCode>
     requires #witnessCount(W) ==Int 2
      andBool lengthBytes(PROG) ==Int 20
 
