@@ -205,6 +205,10 @@ def _extract_inputs_from_api_block(
                     tx_version=tx.nVersion,
                     n_locktime=tx.nLockTime,
                     n_sequence=tx.vin[input_index].nSequence,
+                    all_prevout_scriptpubkeys=all_prevout_spks
+                    if all_resolved
+                    else None,
+                    all_prevout_amounts=all_prevout_amounts if all_resolved else None,
                 )
             )
 
