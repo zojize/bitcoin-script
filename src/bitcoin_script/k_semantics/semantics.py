@@ -272,6 +272,7 @@ class KBitcoinScript:
         tx: bytes = b"",
         prevouts: bytes = b"",
         input_index: int = 0,
+        amount: int = 0,
     ) -> Pattern:
         """Build and run a full script verification.
 
@@ -296,6 +297,8 @@ class KBitcoinScript:
                 length prefix + scriptPubKey bytes). Empty when not provided.
             input_index: Zero-based index of the input being verified. Defaults to
                 0; must match the input whose scriptSig is being executed.
+            amount: Spent-output amount in satoshis of the input being verified.
+                Required for BIP-143 (SegWit v0) sighash; ignored for legacy paths.
 
         Returns:
             The final KORE pattern after execution.
@@ -313,6 +316,7 @@ class KBitcoinScript:
             tx=tx,
             prevouts=prevouts,
             input_index=input_index,
+            amount=amount,
         )
         return self.run(pat)
 
@@ -331,6 +335,7 @@ class KBitcoinScript:
         tx: bytes = b"",
         prevouts: bytes = b"",
         input_index: int = 0,
+        amount: int = 0,
     ) -> Pattern:
         """Build an initial KORE configuration.
 
@@ -369,6 +374,7 @@ class KBitcoinScript:
                 "$TX": _bytes_var(tx),
                 "$PREVOUTS": _bytes_var(prevouts),
                 "$INPUTINDEX": _int_var(input_index),
+                "$AMOUNT": _int_var(amount),
             }
         )
 
