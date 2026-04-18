@@ -418,8 +418,13 @@ module SCRIPT-DECODE
   rule <k> #decode1(B) => #guardExec(OP_HASH256) ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 170
 
-  // OP_CODESEPARATOR (0xab = 171)
-  rule <k> #decode1(B) => #guardExec(OP_CODESEPARATOR) ~> #decodeScript(#scriptTail(B)) ...</k>
+  // OP_CODESEPARATOR (0xab = 171). The decoder stashes the byte-level tail
+  // (everything AFTER this CODESEP opcode) in <pendingCodesepTail> before
+  // firing the opcode. The witness-v0 OP_CODESEPARATOR exec rule consults
+  // that cell to update <scriptCode> per BIP-143.
+  rule <k> #decode1(B) => #setCodesepTail(#scriptTail(B))
+        ~> #guardExec(OP_CODESEPARATOR)
+        ~> #decodeScript(#scriptTail(B)) ...</k>
     requires lengthBytes(B) >Int 0 andBool #scriptByte(B) ==Int 171
 
   // OP_CHECKSIG (0xac = 172)

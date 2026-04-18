@@ -57,6 +57,13 @@ module SCRIPT-SEMANTICS
       <inputIndex> $INPUTINDEX:Int </inputIndex>
       <amount> $AMOUNT:Int </amount>
       <scriptCode> .Bytes </scriptCode>
+      // Post-CODESEP tail bytes stashed by the decoder (see
+      // script-decode.k) and read by the OP_CODESEPARATOR exec rule in
+      // witness-v0 phase to slice <scriptCode> at the byte AFTER the
+      // just-executed CODESEP. Writes are unconditional; only the
+      // witness-v0 exec rule promotes the value into <scriptCode>, so
+      // inactive-branch CODESEPs cannot corrupt the active scriptCode.
+      <pendingCodesepTail> .Bytes </pendingCodesepTail>
     </T>
 
   // --- Flag checking (Bitcoin Core verification flags as bitmask) ---
@@ -106,6 +113,17 @@ module SCRIPT-SEMANTICS
   syntax KItem ::= "#fail" "(" String ")"
   rule <k> #fail(ERR) ~> _:K => .K </k>
        <error> _ => ERR </error>
+
+  // --- Pending CODESEP tail marker ---
+  // Emitted by the decoder just before #guardExec(OP_CODESEPARATOR); fires
+  // unconditionally (even when the following CODESEP is in a skipped branch)
+  // but only the witness-v0 OP_CODESEPARATOR exec rule promotes the value
+  // into <scriptCode>. Safe because each CODESEP has its own preceding
+  // #setCodesepTail; the most-recent-writer-wins ordering matches the
+  // BIP-143 scriptCode = scriptCode[byte_pos+1:] semantics.
+  syntax KItem ::= "#setCodesepTail" "(" Bytes ")"
+  rule <k> #setCodesepTail(T) => .K ...</k>
+       <pendingCodesepTail> _ => T </pendingCodesepTail>
 
   // --- OP_SUCCESS mechanism (BIP 342 tapscript) ---
   // #opSuccess causes unconditional script success during decoding.
