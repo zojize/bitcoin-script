@@ -30,13 +30,20 @@ SPEC_FILES = sorted(SPEC_DIR.glob("*-spec.k"))
 
 
 def _get_haskell_def() -> Path:
+    from bitcoin_script.k_semantics.semantics import ScriptDist
+
+    try:
+        ScriptDist.rebuild_if_stale(("haskell",))
+    except subprocess.CalledProcessError as e:
+        pytest.skip(f"Haskell backend build failed: {e}")
+
     result = subprocess.run(
         ["kdist", "which", "bitcoin-script-semantics.haskell"],
         capture_output=True,
         text=True,
     )
     if result.returncode != 0:
-        pytest.skip("Haskell backend not built")
+        pytest.skip("Haskell backend not available")
     return Path(result.stdout.strip())
 
 

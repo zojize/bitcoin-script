@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import ctypes
 import logging
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
-from collections.abc import Callable
-from typing import final, Final
+from typing import final, ClassVar, Final
 
 from pyk.kast.outer import KDefinition
 from pyk.kore.syntax import DV, App, Pattern, String
@@ -87,16 +87,32 @@ class ScriptDist:
 
     @staticmethod
     def load() -> ScriptDist:
-        ScriptDist._rebuild_if_stale()
+        ScriptDist.rebuild_if_stale(("llvm", "llvm-lib"))
         return ScriptDist(
             source_dir=ScriptDist._find("source"),
             llvm_dir=ScriptDist._find("llvm"),
             llvm_lib_dir=ScriptDist._find("llvm-lib"),
         )
 
+    # Per-target "built" marker: the first existing file signals a successful build.
+    # Checked against .k source mtimes to decide whether to rebuild.
+    # ClassVar so this isn't treated as a dataclass field with a mutable default.
+    _STAMP_FILES: ClassVar[dict[str, tuple[str, ...]]] = {
+        "llvm": ("compiled.bin",),
+        "llvm-lib": ("interpreter.dylib", "interpreter.so"),
+        "haskell": ("definition.kore",),
+        "source": ("script.k", "script-semantics/script.k"),
+    }
+
     @staticmethod
-    def _rebuild_if_stale() -> None:
-        """Rebuild K artifacts if .k source files are newer than the compiled output."""
+    def rebuild_if_stale(targets: Iterable[str] = ("llvm", "llvm-lib")) -> None:
+        """Rebuild K artifacts for the given targets if .k sources are newer.
+
+        Per-target staleness is determined by the target's canonical stamp file
+        (e.g. ``compiled.bin`` for llvm, ``interpreter.dylib`` for llvm-lib,
+        ``definition.kore`` for haskell). Targets that have no built output
+        or whose stamp is older than any .k source file get rebuilt.
+        """
         import subprocess
 
         src_dir = Path(__file__).parent / "kdist" / "script-semantics"
@@ -104,34 +120,50 @@ class ScriptDist:
         if not k_sources:
             return
 
-        needs_rebuild = False
-        try:
-            from pyk.kdist import kdist  # pyright: ignore[reportPrivateImportUsage]
+        newest_source = max(f.stat().st_mtime for f in k_sources)
+        stale: list[str] = []
 
-            llvm_dir = kdist.get("bitcoin-script-semantics.llvm")
-            compiled = llvm_dir / "compiled.bin"
-            if not compiled.exists():
-                needs_rebuild = True
-            else:
-                newest_source = max(f.stat().st_mtime for f in k_sources)
-                needs_rebuild = newest_source > compiled.stat().st_mtime
-        except Exception:
-            needs_rebuild = True
+        for target in targets:
+            if ScriptDist._target_is_stale(target, newest_source):
+                stale.append(target)
 
-        if not needs_rebuild:
+        if not stale:
             return
 
-        _LOGGER.info("K source files changed, rebuilding...")
+        _LOGGER.info("Rebuilding K targets: %s", ", ".join(stale))
         subprocess.run(
             [
                 "kdist",
                 "build",
                 "--force",
-                "bitcoin-script-semantics.source",
-                "bitcoin-script-semantics.llvm",
+                *(f"bitcoin-script-semantics.{t}" for t in stale),
             ],
             check=True,
         )
+
+    @staticmethod
+    def _target_is_stale(target: str, newest_source_mtime: float) -> bool:
+        """Return True if the target needs rebuilding.
+
+        True when: (a) kdist can't resolve the target (never built), or
+        (b) no stamp file exists, or (c) the stamp file is older than any
+        .k source. Defaults to True on any unexpected error — better a
+        spurious rebuild than a silent stale artifact.
+        """
+        try:
+            from pyk.kdist import kdist  # pyright: ignore[reportPrivateImportUsage]
+
+            target_dir = kdist.get(f"bitcoin-script-semantics.{target}")
+        except Exception:
+            return True
+
+        for candidate in ScriptDist._STAMP_FILES.get(target, ()):
+            stamp = target_dir / candidate
+            if stamp.exists():
+                return newest_source_mtime > stamp.stat().st_mtime
+
+        # No known stamp file present → treat as unbuilt.
+        return True
 
     @staticmethod
     def _find(target: str) -> Path:
