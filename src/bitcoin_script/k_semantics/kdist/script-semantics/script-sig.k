@@ -6,6 +6,34 @@ module SCRIPT-SIG
   imports SCRIPT-SEMANTICS
   imports KRYPTO
 
+  // ECDSA sighash dispatch used by CHECKSIG / CHECKMULTISIG (BIP-143 K path).
+  //
+  //   phase == witness-v0, <tx> populated, codesep not yet executed:
+  //     -> #bip143Sighash(tx, inputIdx, scriptCode, amount, hashtype)
+  //   phase == witness-v0, codesep executed OR <tx> empty:
+  //     -> lookupSighash(blob, hashtype, codesepIdx)   [fallback]
+  //   any other phase:
+  //     -> lookupSighash(blob, hashtype, codesepIdx)
+  //
+  // The codesepIdx > 0 fallback is a temporary compatibility shim: once the
+  // <scriptCode> cell tracks the OP_CODESEPARATOR byte-position update at
+  // exec time, we can drop it. Fallback to the blob when <tx> is empty lets
+  // the legacy crediting-tx test fixtures keep passing while the mainnet
+  // verifier is migrated to thread the real tx through.
+  syntax Bytes ::= #ecdsaSighash(Phase, Bytes, Int, Bytes, Int, Bytes, Int, Int) [function]
+  rule #ecdsaSighash(witness-v0, TX, IDX, SC, AMT, _BLOB, HT, CSI) =>
+         #bip143Sighash(TX, IDX, SC, AMT, HT)
+    requires lengthBytes(TX) >Int 0 andBool CSI ==Int 0
+  rule #ecdsaSighash(witness-v0, TX, _IDX, _SC, _AMT, BLOB, HT, CSI) =>
+         lookupSighash(BLOB, HT, CSI)
+    requires lengthBytes(TX) >Int 0 andBool CSI >Int 0
+  rule #ecdsaSighash(witness-v0, TX, _IDX, _SC, _AMT, BLOB, HT, CSI) =>
+         lookupSighash(BLOB, HT, CSI)
+    requires lengthBytes(TX) ==Int 0
+  rule #ecdsaSighash(PH, _TX, _IDX, _SC, _AMT, BLOB, HT, CSI) =>
+         lookupSighash(BLOB, HT, CSI)
+    requires PH =/=K witness-v0
+
   // =========================================================================
   // OP_CHECKSIG (extracts hashtype from sig, looks up sighash in blob)
   // =========================================================================
@@ -83,7 +111,9 @@ module SCRIPT-SIG
     requires PH =/=K witness-v1
      andBool lengthBytes(SIG) ==Int 0
 
-  // Non-empty signature: extract hashtype, look up sighash, verify (ECDSA)
+  // Non-empty signature: extract hashtype, compute sighash, verify (ECDSA).
+  // In witness-v0 phase with a populated <tx> cell, #ecdsaSighash routes to
+  // the K-side BIP-143 sighash; otherwise it falls back to the blob lookup.
   rule <k> OP_CHECKSIG => .K ...</k>
        <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST
             => ListItem(intToScriptNum(1)) ST </stack>
@@ -91,10 +121,15 @@ module SCRIPT-SIG
        <codesepIdx> CSI </codesepIdx>
        <flags> F </flags>
        <phase> PH </phase>
+       <tx> TX </tx>
+       <inputIndex> IDX </inputIndex>
+       <scriptCode> SC </scriptCode>
+       <amount> AMT </amount>
     requires PH =/=K witness-v1
      andBool lengthBytes(SIG) >Int 0
      andBool notBool (PH ==K witness-v0 andBool hasFlag(F, FLAG_WITNESS_PUBKEYTYPE) andBool notBool #isCompressedPubKey(PK))
-     andBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG), CSI))
+     andBool ecdsaVerify(PK, SIG,
+               #ecdsaSighash(PH, TX, IDX, SC, AMT, SIGHASHBLOB, sigHashType(SIG), CSI))
 
   // Non-empty sig fails verification, no NULLFAIL: push 0
   rule <k> OP_CHECKSIG => .K ...</k>
@@ -104,10 +139,15 @@ module SCRIPT-SIG
        <codesepIdx> CSI </codesepIdx>
        <flags> F </flags>
        <phase> PH </phase>
+       <tx> TX </tx>
+       <inputIndex> IDX </inputIndex>
+       <scriptCode> SC </scriptCode>
+       <amount> AMT </amount>
     requires PH =/=K witness-v1
      andBool lengthBytes(SIG) >Int 0
      andBool notBool (PH ==K witness-v0 andBool hasFlag(F, FLAG_WITNESS_PUBKEYTYPE) andBool notBool #isCompressedPubKey(PK))
-     andBool notBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG), CSI))
+     andBool notBool ecdsaVerify(PK, SIG,
+               #ecdsaSighash(PH, TX, IDX, SC, AMT, SIGHASHBLOB, sigHashType(SIG), CSI))
      andBool notBool hasFlag(F, FLAG_NULLFAIL)
 
   // Non-empty sig fails verification, NULLFAIL set: script error
@@ -117,10 +157,15 @@ module SCRIPT-SIG
        <codesepIdx> CSI </codesepIdx>
        <flags> F </flags>
        <phase> PH </phase>
+       <tx> TX </tx>
+       <inputIndex> IDX </inputIndex>
+       <scriptCode> SC </scriptCode>
+       <amount> AMT </amount>
     requires PH =/=K witness-v1
      andBool lengthBytes(SIG) >Int 0
      andBool notBool (PH ==K witness-v0 andBool hasFlag(F, FLAG_WITNESS_PUBKEYTYPE) andBool notBool #isCompressedPubKey(PK))
-     andBool notBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG), CSI))
+     andBool notBool ecdsaVerify(PK, SIG,
+               #ecdsaSighash(PH, TX, IDX, SC, AMT, SIGHASHBLOB, sigHashType(SIG), CSI))
      andBool hasFlag(F, FLAG_NULLFAIL)
 
   // =========================================================================
@@ -495,11 +540,16 @@ module SCRIPT-SIG
        <codesepIdx> CSI </codesepIdx>
        <flags> F </flags>
        <phase> PH </phase>
+       <tx> TX </tx>
+       <inputIndex> IDX </inputIndex>
+       <scriptCode> SC </scriptCode>
+       <amount> AMT </amount>
     requires size(Sigs) <=Int size(PKs)
      andBool lengthBytes(SIG) >Int 0
      andBool #msEncOK(SIG, PK, F)
      andBool notBool (PH ==K witness-v0 andBool hasFlag(F, FLAG_WITNESS_PUBKEYTYPE) andBool notBool #isCompressedPubKey(PK))
-     andBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG), CSI))
+     andBool ecdsaVerify(PK, SIG,
+               #ecdsaSighash(PH, TX, IDX, SC, AMT, SIGHASHBLOB, sigHashType(SIG), CSI))
 
   // Step 4f: Encoding OK, sig does not match — advance pubkey only
   rule <k> #verifyMultisig(ListItem(PK:Bytes) PKs, ListItem(SIG:Bytes) Sigs)
@@ -508,11 +558,16 @@ module SCRIPT-SIG
        <codesepIdx> CSI </codesepIdx>
        <flags> F </flags>
        <phase> PH </phase>
+       <tx> TX </tx>
+       <inputIndex> IDX </inputIndex>
+       <scriptCode> SC </scriptCode>
+       <amount> AMT </amount>
     requires size(Sigs) <=Int size(PKs)
      andBool lengthBytes(SIG) >Int 0
      andBool #msEncOK(SIG, PK, F)
      andBool notBool (PH ==K witness-v0 andBool hasFlag(F, FLAG_WITNESS_PUBKEYTYPE) andBool notBool #isCompressedPubKey(PK))
-     andBool notBool ecdsaVerify(PK, SIG, lookupSighash(SIGHASHBLOB, sigHashType(SIG), CSI))
+     andBool notBool ecdsaVerify(PK, SIG,
+               #ecdsaSighash(PH, TX, IDX, SC, AMT, SIGHASHBLOB, sigHashType(SIG), CSI))
 
   // =========================================================================
   // Additional hash opcodes

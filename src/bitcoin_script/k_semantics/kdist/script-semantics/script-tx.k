@@ -138,10 +138,13 @@ module SCRIPT-TX
   rule #txVinOutpoint(TX, I) =>
          substrBytes(TX, #txVinAt(TX, I), #txVinAt(TX, I) +Int 36)
 
-  // 4-byte LE sequence value of vin[I].
+  // 4-byte LE sequence value of vin[I]. The sequence is the last 4 bytes
+  // of the vin record, so offset = vin_start + vin_len - 4. Pass the
+  // vin-start offset (not the vin index) as #vinLen's second arg.
   syntax Int ::= #txVinSequence(Bytes, Int) [function]
   rule #txVinSequence(TX, I) =>
-         #readUInt32LE(TX, #txVinAt(TX, I) +Int #vinLen(TX, I) -Int 4)
+         #readUInt32LE(TX,
+           #txVinAt(TX, I) +Int #vinLen(TX, #txVinAt(TX, I)) -Int 4)
 
   // Offset of the nVout compactSize (right after the last vin).
   syntax Int ::= #txVoutOffset(Bytes) [function]
@@ -182,16 +185,20 @@ module SCRIPT-TX
   syntax Int ::= #txVoutAmount(Bytes, Int) [function]
   rule #txVoutAmount(TX, I) => #readUInt64LE(TX, #txVoutAt(TX, I))
 
-  // scriptPubKey bytes of vout[I].
+  // scriptPubKey bytes of vout[I]. Pass the resolved vout-start offset as
+  // #voutLen's second arg (not the vout index).
   syntax Bytes ::= #txVoutScript(Bytes, Int) [function]
   rule #txVoutScript(TX, I) =>
          substrBytes(TX,
            #txVoutAt(TX, I) +Int 8 +Int #compactSizeBytes(TX, #txVoutAt(TX, I) +Int 8),
-           #txVoutAt(TX, I) +Int #voutLen(TX, I))
+           #txVoutAt(TX, I) +Int #voutLen(TX, #txVoutAt(TX, I)))
 
   // Full serialized vout[I] (amount || script_len || script) — for hashOutputs.
+  // #voutLen's second arg is a byte offset, so pass #txVoutAt(TX, I).
   syntax Bytes ::= #txVoutSerialized(Bytes, Int) [function]
   rule #txVoutSerialized(TX, I) =>
-         substrBytes(TX, #txVoutAt(TX, I), #txVoutAt(TX, I) +Int #voutLen(TX, I))
+         substrBytes(TX,
+           #txVoutAt(TX, I),
+           #txVoutAt(TX, I) +Int #voutLen(TX, #txVoutAt(TX, I)))
 
 endmodule
