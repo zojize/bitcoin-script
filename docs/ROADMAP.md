@@ -22,19 +22,30 @@ Three commits on `feat/tapscript`:
 
 All 1,649 K tests + 9 prover specs still pass. No observable behavior change yet — the CHECKSIG rules still use `lookupSighash` against the precomputed blob.
 
-### Tasks (per-BIP sighash landing)
+### BIP-143 (SegWit v0) — DONE
 
-- [x] **Extend K config** — `<tx>$TX:Bytes</tx>`, `<prevouts>$PREVOUTS:Bytes</prevouts>`, `<inputIndex>$INPUTINDEX:Int</inputIndex>` cells added.
+Five more commits landed the full K-side sighash for witness-v0 CHECKSIG / CHECKMULTISIG, with CODESEPARATOR tracking:
+
+- [8de68cc](https://github.com/zojize/bitcoin-script/commit/8de68cc) — `#bip143HashPrevouts` / `#bip143HashSequence` / `#bip143HashOutputs` + three concat walkers.
+- [54b48f7](https://github.com/zojize/bitcoin-script/commit/54b48f7) — `<scriptCode>` + `<amount>` config cells, witness-v0 phase-entry initialization, `#bip143Sighash` full sigmsg assembly.
+- [202da8c](https://github.com/zojize/bitcoin-script/commit/202da8c) — `#ecdsaSighash` dispatcher + CHECKSIG / multisig rule updates; fixed a latent `#vinLen`/`#voutLen` offset bug in SCRIPT-TX; threaded tx/amount/input_index through `test_script_vectors.py::test_witness_vector` + `ChainVerifier`.
+- [7947d48](https://github.com/zojize/bitcoin-script/commit/7947d48) — CODESEP scriptCode tracking via `<pendingCodesepTail>` + decoder `#setCodesepTail` emission.
+- [2d25a63](https://github.com/zojize/bitcoin-script/commit/2d25a63) — retired witness-v0 entries from `_compute_sighash_blob` and threaded tx/amount/input_index through the benchmark runner.
+
+### BIP-143 task checklist
+
+- [x] **Extend K config** — `<tx>$TX:Bytes</tx>`, `<prevouts>$PREVOUTS:Bytes</prevouts>`, `<inputIndex>$INPUTINDEX:Int</inputIndex>`, plus `<amount>`, `<scriptCode>`, `<pendingCodesepTail>`.
 - [x] **Tx wire-format primitives in K** — `SCRIPT-TX` module with compactSize + fixed-width LE readers and per-vin / per-vout accessors.
 - [x] **Tagged hash primitive** — `#taggedHash(Tag, Message)` in `SCRIPT-SIGHASH` using the existing `Sha256raw` hook.
-- [ ] **BIP-143 sighash** (SegWit v0 — start here, simplest non-trivial variant)
-    - [ ] `#bip143HashPrevouts(tx, hashtype)` — concat all vin outpoints, double-SHA-256 when not ANYONECANPAY, 32-byte zeros otherwise.
-    - [ ] `#bip143HashSequence(tx, hashtype)` — zeros when ANYONECANPAY / SINGLE / NONE, else concat all sequences + double-SHA-256.
-    - [ ] `#bip143HashOutputs(tx, inputIdx, hashtype)` — full tx outputs hash for ALL; single matching output for SINGLE; zeros for NONE / SINGLE-out-of-bounds.
-    - [ ] `#bip143ScriptCode(spk, witnessItems)` — derive scriptCode for P2WPKH (canonical pkh template) vs P2WSH (last witness item).
-    - [ ] `#bip143Sighash(tx, prevouts, inputIdx, spk, witness, hashtype)` — full sigmsg assembly + double-SHA-256.
-    - [ ] Switch the witness-v0 CHECKSIG rules in `script-sig.k` to use `#bip143Sighash` instead of `lookupSighash`.
-    - [ ] Drop `witness-v0` entries from the precomputed blob in `verifier.py::_compute_sighash_blob` and update extractor callers.
+- [x] **BIP-143 sighash** (SegWit v0)
+    - [x] `#bip143HashPrevouts(tx, hashtype)` — concat all vin outpoints, double-SHA-256 when not ANYONECANPAY, 32-byte zeros otherwise.
+    - [x] `#bip143HashSequence(tx, hashtype)` — zeros when ANYONECANPAY / SINGLE / NONE, else concat all sequences + double-SHA-256.
+    - [x] `#bip143HashOutputs(tx, inputIdx, hashtype)` — full tx outputs hash for ALL; single matching output for SINGLE; zeros for NONE / SINGLE-out-of-bounds.
+    - [x] `#bip143ScriptCode` derivation — materialized as the `<scriptCode>` cell populated at witness-v0 phase entry (P2WPKH canonical template / P2WSH witness script) and updated on OP_CODESEPARATOR.
+    - [x] `#bip143Sighash(tx, inputIdx, scriptCode, amount, hashtype)` — full sigmsg assembly + double-SHA-256.
+    - [x] Switch the witness-v0 CHECKSIG / CHECKMULTISIG rules in `script-sig.k` to use `#bip143Sighash` (via `#ecdsaSighash` dispatcher) instead of `lookupSighash`.
+    - [x] Drop `witness-v0` entries from the precomputed blob in `verifier.py::_compute_sighash_blob` and thread tx/amount through benchmark + test callers.
+    - Mainnet smoke: 1,000/1,000 random witness-v0 inputs from benchmark-dataset-v3.msgpack verified via K-side BIP-143 with zero failures.
 - [ ] **BIP-341 key-path sighash** (Taproot)
     - [ ] Five precomputed hashes: `#sha_prevouts`, `#sha_amounts`, `#sha_scriptpubkeys`, `#sha_sequences`, `#sha_outputs` (single SHA-256, not double).
     - [ ] `#bip341Sighash(tx, prevouts, inputIdx, annex, hashtype)` — BIP-341 sigmsg with spend type (0 / 1 for annex), wrapped with `#taggedHash("TapSighash", ...)`.
@@ -45,31 +56,13 @@ All 1,649 K tests + 9 prover specs still pass. No observable behavior change yet
     - [ ] Switch tapscript CHECKSIG / CHECKSIGADD rules in `script-sig.k` to use `#bip342Sighash`.
 - [ ] **Legacy sighash** (pre-SegWit)
     - [ ] Hashtype dispatch: `SIGHASH_ALL`, `SIGHASH_NONE`, `SIGHASH_SINGLE`, each × `SIGHASH_ANYONECANPAY`.
-    - [ ] `OP_CODESEPARATOR` subscript slicing (drop bytes before the most recent codesep).
+    - [ ] `OP_CODESEPARATOR` subscript slicing (legacy semantics: drop all bytes up to and including the last executed codesep — different from BIP-143).
     - [ ] Special cases: `SIGHASH_SINGLE` with `vin > vout` returns `0x01` hash.
     - [ ] Double-SHA-256 over the serialized modified tx.
-- [ ] **BIP-143 sighash** (SegWit v0)
-    - [ ] Precomputed field hashes: `hashPrevouts`, `hashSequence`, `hashOutputs` (per-tx cache in config).
-    - [ ] Per-input sigmsg assembly: `nVersion || hashPrevouts || hashSequence || outpoint || scriptCode || amount || nSequence || hashOutputs || nLockTime || hashType`.
-    - [ ] Double-SHA-256.
-- [ ] **BIP-341 sighash** (Taproot key-path)
-    - [ ] Six precomputed hashes: `sha_prevouts`, `sha_amounts`, `sha_scriptpubkeys`, `sha_sequences`, `sha_outputs` (single SHA-256, not double).
-    - [ ] Per-input sigmsg assembly including spend type (0 or 1 for annex), key version, codesep position.
-    - [ ] Tagged hash: `SHA256(SHA256("TapSighash") || SHA256("TapSighash") || sigmsg)`.
-    - [ ] Annex handling (strip and include hash if present).
-- [ ] **BIP-342 script-path sighash** (Tapscript)
-    - [ ] Extends BIP-341 with `tapleaf_hash`, `key_version`, `codesep_pos`.
-    - [ ] `tapleaf_hash` = tagged hash `TapLeaf` over `leaf_version || compact_size(script) || script`.
-- [ ] **Tagged-hash primitive** — either:
-    - K rule: `#taggedHash(Tag, Message) => SHA256(SHA256(Tag) || SHA256(Tag) || Message)`, using the existing `SHA256` hook, OR
-    - C hook for taggedHash if SHA-256 call overhead is too high in rewriting.
-- [ ] **Update CHECKSIG/CHECKSIGVERIFY/CHECKMULTISIG rules** — replace sighash-blob lookup with calls to the new sighash rules.
-- [ ] **Update CHECKSIGADD** (BIP-342) similarly.
-- [ ] **Drop `sighash_blob` precomputation** from `blockchain/verifier.py::_compute_sighash_blob` and both extractors. Pass raw tx + prevouts instead.
 - [ ] **Test vectors**
     - [ ] Cross-check every K sighash rule against Bitcoin Core's `script_tests.json` + `tx_valid.json` + BIP-341 test vectors at `bip-0341/wallet-test-vectors.json`.
     - [ ] Add a standalone `sighash_test.py` fixture that computes K sighash and compares byte-for-byte to `python-bitcointx`'s reference.
-- [ ] **Rerun benchmark** — once sighash is in K, the K timing naturally includes it; drop the separate "k_sighash" timing from the audit fix plan.
+- [ ] **Rerun benchmark** — once BIP-341 + BIP-342 + legacy all land, re-run the full mainnet benchmark to quantify the K/Core ratio shift. BIP-143 alone didn't regress the 113 script_tests witness vectors; 1,000 mainnet witness-v0 smoke test is clean.
 
 ### Expected performance impact
 
