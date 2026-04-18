@@ -1,6 +1,6 @@
 # Bitcoin Script
 
-Bitcoin Script interpreter and formal verification toolkit. The K Framework semantics implement **full BIP 341/342 Taproot/Tapscript support** including Schnorr signatures, key-path and script-path spending, OP_CHECKSIGADD, OP_SUCCESS opcodes, and signature validation weight budgets. The semantics pass **all 1,222 of Bitcoin Core's `script_tests.json` vectors** (including SegWit and Taproot), plus **174 of 214 transaction vectors**, and have been **benchmarked on 300,000+ real mainnet inputs** across all consensus eras — including 80,000+ taproot transactions — with zero errors.
+Bitcoin Script interpreter and formal verification toolkit. The K Framework semantics implement **full BIP 341/342 Taproot/Tapscript support** including Schnorr signatures, key-path and script-path spending, OP_CHECKSIGADD, OP_SUCCESS opcodes, and signature validation weight budgets. The semantics pass **all 1,222 of Bitcoin Core's `script_tests.json` vectors** (including SegWit and Taproot), plus **174 of 214 transaction vectors**, and have been **benchmarked on 300,836 real mainnet inputs** from genesis through Taproot — including 14,058 actual P2TR spends — with zero errors.
 
 ## What this does
 
@@ -125,7 +125,9 @@ uv run kdist build --force       # rebuild K semantics after .k changes
 
 ## Benchmark
 
-K Framework verification benchmarked on **300,836 real mainnet inputs** spanning all consensus eras from genesis through Taproot.
+K Framework verification benchmarked on **300,836 real mainnet inputs** (74 blocks) spanning all consensus eras from genesis through Taproot.
+
+### By consensus era
 
 | Era | Inputs | K median | K P95 |
 |-----|--------|----------|-------|
@@ -135,9 +137,31 @@ K Framework verification benchmarked on **300,836 real mainnet inputs** spanning
 | CLTV | 42,192 | 0.75ms | 1.52ms |
 | CSV | 39,381 | 0.76ms | 1.43ms |
 | SegWit | 70,132 | 0.82ms | 1.37ms |
-| **Taproot** | **80,496** | **0.79ms** | **1.34ms** |
+| Taproot-era | 80,496 | 0.79ms | 1.34ms |
 
-Zero errors across all 300,836 inputs including 80,496 taproot transactions (key-path + script-path). Throughput: ~1,300 inputs/sec single-core via FFI.
+Note: "Taproot-era" counts all inputs in post-activation blocks (709,632+), most of which are still P2WPKH/P2PKH. Actual P2TR spends are broken down below.
+
+### By actual script type (taproot-era inputs only)
+
+| Script type | Inputs | K median | K P95 |
+|-------------|--------|----------|-------|
+| P2WPKH | 33,078 | 0.78ms | 1.29ms |
+| P2PKH | 18,609 | 0.77ms | 1.22ms |
+| P2SH-P2WPKH | 9,269 | 0.86ms | 1.37ms |
+| **P2TR key-path** | **8,483** | **0.72ms** | **1.34ms** |
+| **P2TR script-path** | **5,575** | **0.83ms** | **1.39ms** |
+| P2SH-P2WSH | 2,830 | 1.00ms | 1.72ms |
+| P2WSH | 2,319 | 0.96ms | 1.68ms |
+| P2SH | 333 | 1.15ms | 1.76ms |
+
+Zero errors across all 300,836 inputs. The **14,058 actual P2TR spends** (8,483 key-path + 5,575 script-path) verify at the same speed as other script types. Throughput: ~1,167 inputs/sec single-core via FFI.
+
+### Methodology caveats
+
+- **K-only**: Current numbers are K Framework only; `libbitcoinconsensus` comparison pending (requires building Bitcoin Core v27.2 from source — v28+ removed the C API).
+- **Single iteration**: K median is over 1 iteration per input (default). For statistically robust per-input timings, use `--k-iterations 30+`.
+- **Outlier**: one input at 349ms (block 766,740, simple P2WPKH). Likely GC pause or system noise in the single-shot measurement — not a script complexity issue.
+- **Representative sampling**: 70 representative blocks (10 per era) + 8 stress blocks. Results reflect that sample, not a uniform sampling of mainnet.
 
 ### Running the benchmark
 
@@ -148,8 +172,12 @@ uv run bitcoin-script benchmark extract --source api
 # Or from local Bitcoin Core block files (requires synced node)
 uv run bitcoin-script benchmark extract --blocks-dir ~/.bitcoin
 
-# Run the benchmark
+# Run the benchmark (K only, fast)
 uv run bitcoin-script benchmark run --k-only
+
+# With libbitcoinconsensus comparison (requires Bitcoin Core v27.2 built)
+BITCOINCONSENSUS_LIB_PATH=/path/to/libbitcoinconsensus.0.dylib \
+    uv run bitcoin-script benchmark run --k-iterations 30 --core-iterations 30
 
 # Generate a summary report
 uv run bitcoin-script benchmark report

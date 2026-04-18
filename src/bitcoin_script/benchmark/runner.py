@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import statistics
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -83,8 +84,7 @@ def _verify_with_k(
             success = False
             error = k.error(result)  # type: ignore[union-attr]
 
-    timings.sort()
-    median_ns = timings[len(timings) // 2]
+    median_ns = int(statistics.median(timings))
     return (median_ns, success, error)
 
 
@@ -130,6 +130,7 @@ _K_TO_CONSENSUS_BITS: list[tuple[int, int]] = [
     (512, 1 << 9),  # FLAG_CHECKLOCKTIMEVERIFY -> bit 9
     (1024, 1 << 10),  # FLAG_CHECKSEQUENCEVERIFY -> bit 10
     (2048, 1 << 11),  # FLAG_WITNESS -> bit 11
+    (131072, 1 << 17),  # FLAG_TAPROOT -> bit 17
 ]
 
 
@@ -184,8 +185,7 @@ def _verify_with_core(
             success = False
             error = f"consensus error code {err.value}"
 
-    timings.sort()
-    median_ns = timings[len(timings) // 2]
+    median_ns = int(statistics.median(timings))
     return (median_ns, success, error)
 
 
