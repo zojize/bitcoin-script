@@ -1,6 +1,7 @@
 requires "plugin/krypto.md"
 requires "script-syntax.k"
 requires "script-num.k"
+requires "script-tx.k"
 requires "script-crypto.k"
 
 // Core Bitcoin Script semantics: configuration + all opcode rules.
@@ -8,6 +9,7 @@ requires "script-crypto.k"
 module SCRIPT-SEMANTICS
   imports SCRIPT-SYNTAX
   imports SCRIPT-NUM
+  imports SCRIPT-TX
   imports SCRIPT-CRYPTO
   imports KRYPTO
   imports INT
