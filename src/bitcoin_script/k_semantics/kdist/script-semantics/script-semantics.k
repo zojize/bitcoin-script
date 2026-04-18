@@ -3,6 +3,7 @@ requires "script-syntax.k"
 requires "script-num.k"
 requires "script-tx.k"
 requires "script-crypto.k"
+requires "script-sighash.k"
 
 // Core Bitcoin Script semantics: configuration + all opcode rules.
 // All input is hex-based via config variables $SCRIPTSIG and $SCRIPTPUBKEY.
@@ -11,6 +12,7 @@ module SCRIPT-SEMANTICS
   imports SCRIPT-NUM
   imports SCRIPT-TX
   imports SCRIPT-CRYPTO
+  imports SCRIPT-SIGHASH
   imports KRYPTO
   imports INT
   imports STRING
