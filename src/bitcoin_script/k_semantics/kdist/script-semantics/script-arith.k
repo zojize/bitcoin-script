@@ -45,27 +45,15 @@ module SCRIPT-ARITH
   rule <k> OP_NOT => .K ...</k>
        <flags> F </flags>
        <stack> ListItem(V:Bytes) ST
-            => ListItem(intToScriptNum(1)) ST </stack>
-    requires validNumFlags(V, F) andBool scriptNumToInt(V) ==Int 0
-
-  rule <k> OP_NOT => .K ...</k>
-       <flags> F </flags>
-       <stack> ListItem(V:Bytes) ST
-            => ListItem(intToScriptNum(0)) ST </stack>
-    requires validNumFlags(V, F) andBool scriptNumToInt(V) =/=Int 0
+            => ListItem(#boolToBytes(scriptNumToInt(V) ==Int 0)) ST </stack>
+    requires validNumFlags(V, F)
 
   // OP_0NOTEQUAL: (0 -> 0, nonzero -> 1)
   rule <k> OP_0NOTEQUAL => .K ...</k>
        <flags> F </flags>
        <stack> ListItem(V:Bytes) ST
-            => ListItem(intToScriptNum(0)) ST </stack>
-    requires validNumFlags(V, F) andBool scriptNumToInt(V) ==Int 0
-
-  rule <k> OP_0NOTEQUAL => .K ...</k>
-       <flags> F </flags>
-       <stack> ListItem(V:Bytes) ST
-            => ListItem(intToScriptNum(1)) ST </stack>
-    requires validNumFlags(V, F) andBool scriptNumToInt(V) =/=Int 0
+            => ListItem(#boolToBytes(scriptNumToInt(V) =/=Int 0)) ST </stack>
+    requires validNumFlags(V, F)
 
   // =========================================================================
   // Binary arithmetic opcodes (pop 2, push 1)
@@ -82,121 +70,61 @@ module SCRIPT-ARITH
   rule <k> OP_BOOLAND => .K ...</k>
        <flags> F </flags>
        <stack> ListItem(B:Bytes) ListItem(A:Bytes) ST
-            => ListItem(intToScriptNum(1)) ST </stack>
+            => ListItem(#boolToBytes(
+                 scriptNumToInt(A) =/=Int 0 andBool scriptNumToInt(B) =/=Int 0
+               )) ST </stack>
     requires validNumFlags(A, F) andBool validNumFlags(B, F)
-     andBool scriptNumToInt(A) =/=Int 0 andBool scriptNumToInt(B) =/=Int 0
-
-  rule <k> OP_BOOLAND => .K ...</k>
-       <flags> F </flags>
-       <stack> ListItem(B:Bytes) ListItem(A:Bytes) ST
-            => ListItem(intToScriptNum(0)) ST </stack>
-    requires validNumFlags(A, F) andBool validNumFlags(B, F)
-     andBool (scriptNumToInt(A) ==Int 0 orBool scriptNumToInt(B) ==Int 0)
 
   // OP_BOOLOR: either nonzero -> 1, both zero -> 0
   rule <k> OP_BOOLOR => .K ...</k>
        <flags> F </flags>
        <stack> ListItem(B:Bytes) ListItem(A:Bytes) ST
-            => ListItem(intToScriptNum(1)) ST </stack>
+            => ListItem(#boolToBytes(
+                 scriptNumToInt(A) =/=Int 0 orBool scriptNumToInt(B) =/=Int 0
+               )) ST </stack>
     requires validNumFlags(A, F) andBool validNumFlags(B, F)
-     andBool (scriptNumToInt(A) =/=Int 0 orBool scriptNumToInt(B) =/=Int 0)
-
-  rule <k> OP_BOOLOR => .K ...</k>
-       <flags> F </flags>
-       <stack> ListItem(B:Bytes) ListItem(A:Bytes) ST
-            => ListItem(intToScriptNum(0)) ST </stack>
-    requires validNumFlags(A, F) andBool validNumFlags(B, F)
-     andBool scriptNumToInt(A) ==Int 0 andBool scriptNumToInt(B) ==Int 0
 
   // OP_NUMEQUAL: push 1 if numerically equal, 0 otherwise
   rule <k> OP_NUMEQUAL => .K ...</k>
        <flags> F </flags>
        <stack> ListItem(B:Bytes) ListItem(A:Bytes) ST
-            => ListItem(intToScriptNum(1)) ST </stack>
+            => ListItem(#boolToBytes(scriptNumToInt(A) ==Int scriptNumToInt(B))) ST </stack>
     requires validNumFlags(A, F) andBool validNumFlags(B, F)
-     andBool scriptNumToInt(A) ==Int scriptNumToInt(B)
-
-  rule <k> OP_NUMEQUAL => .K ...</k>
-       <flags> F </flags>
-       <stack> ListItem(B:Bytes) ListItem(A:Bytes) ST
-            => ListItem(intToScriptNum(0)) ST </stack>
-    requires validNumFlags(A, F) andBool validNumFlags(B, F)
-     andBool scriptNumToInt(A) =/=Int scriptNumToInt(B)
 
   // OP_NUMNOTEQUAL: push 1 if not equal, 0 if equal
   rule <k> OP_NUMNOTEQUAL => .K ...</k>
        <flags> F </flags>
        <stack> ListItem(B:Bytes) ListItem(A:Bytes) ST
-            => ListItem(intToScriptNum(1)) ST </stack>
+            => ListItem(#boolToBytes(scriptNumToInt(A) =/=Int scriptNumToInt(B))) ST </stack>
     requires validNumFlags(A, F) andBool validNumFlags(B, F)
-     andBool scriptNumToInt(A) =/=Int scriptNumToInt(B)
-
-  rule <k> OP_NUMNOTEQUAL => .K ...</k>
-       <flags> F </flags>
-       <stack> ListItem(B:Bytes) ListItem(A:Bytes) ST
-            => ListItem(intToScriptNum(0)) ST </stack>
-    requires validNumFlags(A, F) andBool validNumFlags(B, F)
-     andBool scriptNumToInt(A) ==Int scriptNumToInt(B)
 
   // OP_LESSTHAN: push 1 if a < b, 0 otherwise
   rule <k> OP_LESSTHAN => .K ...</k>
        <flags> F </flags>
        <stack> ListItem(B:Bytes) ListItem(A:Bytes) ST
-            => ListItem(intToScriptNum(1)) ST </stack>
+            => ListItem(#boolToBytes(scriptNumToInt(A) <Int scriptNumToInt(B))) ST </stack>
     requires validNumFlags(A, F) andBool validNumFlags(B, F)
-     andBool scriptNumToInt(A) <Int scriptNumToInt(B)
-
-  rule <k> OP_LESSTHAN => .K ...</k>
-       <flags> F </flags>
-       <stack> ListItem(B:Bytes) ListItem(A:Bytes) ST
-            => ListItem(intToScriptNum(0)) ST </stack>
-    requires validNumFlags(A, F) andBool validNumFlags(B, F)
-     andBool scriptNumToInt(A) >=Int scriptNumToInt(B)
 
   // OP_GREATERTHAN: push 1 if a > b, 0 otherwise
   rule <k> OP_GREATERTHAN => .K ...</k>
        <flags> F </flags>
        <stack> ListItem(B:Bytes) ListItem(A:Bytes) ST
-            => ListItem(intToScriptNum(1)) ST </stack>
+            => ListItem(#boolToBytes(scriptNumToInt(A) >Int scriptNumToInt(B))) ST </stack>
     requires validNumFlags(A, F) andBool validNumFlags(B, F)
-     andBool scriptNumToInt(A) >Int scriptNumToInt(B)
-
-  rule <k> OP_GREATERTHAN => .K ...</k>
-       <flags> F </flags>
-       <stack> ListItem(B:Bytes) ListItem(A:Bytes) ST
-            => ListItem(intToScriptNum(0)) ST </stack>
-    requires validNumFlags(A, F) andBool validNumFlags(B, F)
-     andBool scriptNumToInt(A) <=Int scriptNumToInt(B)
 
   // OP_LESSTHANOREQUAL: push 1 if a <= b, 0 otherwise
   rule <k> OP_LESSTHANOREQUAL => .K ...</k>
        <flags> F </flags>
        <stack> ListItem(B:Bytes) ListItem(A:Bytes) ST
-            => ListItem(intToScriptNum(1)) ST </stack>
+            => ListItem(#boolToBytes(scriptNumToInt(A) <=Int scriptNumToInt(B))) ST </stack>
     requires validNumFlags(A, F) andBool validNumFlags(B, F)
-     andBool scriptNumToInt(A) <=Int scriptNumToInt(B)
-
-  rule <k> OP_LESSTHANOREQUAL => .K ...</k>
-       <flags> F </flags>
-       <stack> ListItem(B:Bytes) ListItem(A:Bytes) ST
-            => ListItem(intToScriptNum(0)) ST </stack>
-    requires validNumFlags(A, F) andBool validNumFlags(B, F)
-     andBool scriptNumToInt(A) >Int scriptNumToInt(B)
 
   // OP_GREATERTHANOREQUAL: push 1 if a >= b, 0 otherwise
   rule <k> OP_GREATERTHANOREQUAL => .K ...</k>
        <flags> F </flags>
        <stack> ListItem(B:Bytes) ListItem(A:Bytes) ST
-            => ListItem(intToScriptNum(1)) ST </stack>
+            => ListItem(#boolToBytes(scriptNumToInt(A) >=Int scriptNumToInt(B))) ST </stack>
     requires validNumFlags(A, F) andBool validNumFlags(B, F)
-     andBool scriptNumToInt(A) >=Int scriptNumToInt(B)
-
-  rule <k> OP_GREATERTHANOREQUAL => .K ...</k>
-       <flags> F </flags>
-       <stack> ListItem(B:Bytes) ListItem(A:Bytes) ST
-            => ListItem(intToScriptNum(0)) ST </stack>
-    requires validNumFlags(A, F) andBool validNumFlags(B, F)
-     andBool scriptNumToInt(A) <Int scriptNumToInt(B)
 
   // OP_MIN: push the smaller of two values
   rule <k> OP_MIN => .K ...</k>
@@ -235,17 +163,10 @@ module SCRIPT-ARITH
   rule <k> OP_WITHIN => .K ...</k>
        <flags> F </flags>
        <stack> ListItem(MAX:Bytes) ListItem(MIN:Bytes) ListItem(X:Bytes) ST
-            => ListItem(intToScriptNum(1)) ST </stack>
+            => ListItem(#boolToBytes(
+                 scriptNumToInt(X) >=Int scriptNumToInt(MIN)
+                   andBool scriptNumToInt(X) <Int scriptNumToInt(MAX)
+               )) ST </stack>
     requires validNumFlags(X, F) andBool validNumFlags(MIN, F) andBool validNumFlags(MAX, F)
-     andBool scriptNumToInt(X) >=Int scriptNumToInt(MIN)
-     andBool scriptNumToInt(X) <Int scriptNumToInt(MAX)
-
-  rule <k> OP_WITHIN => .K ...</k>
-       <flags> F </flags>
-       <stack> ListItem(MAX:Bytes) ListItem(MIN:Bytes) ListItem(X:Bytes) ST
-            => ListItem(intToScriptNum(0)) ST </stack>
-    requires validNumFlags(X, F) andBool validNumFlags(MIN, F) andBool validNumFlags(MAX, F)
-     andBool (scriptNumToInt(X) <Int scriptNumToInt(MIN)
-       orBool scriptNumToInt(X) >=Int scriptNumToInt(MAX))
 
 endmodule

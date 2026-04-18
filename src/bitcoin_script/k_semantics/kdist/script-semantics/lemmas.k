@@ -44,4 +44,17 @@ module LEMMAS
 
   rule { intToScriptNum(A) #Equals intToScriptNum(B) } => { A #Equals B } [simplification]
 
+  // =========================================================================
+  // #boolToBytes simplification (needed when OP_NOT / OP_NUMEQUAL / OP_LESSTHAN /
+  // OP_WITHIN / OP_BOOLAND / OP_BOOLOR etc. are symbolically executed by the
+  // Haskell backend — function-rule evaluation doesn't fire on symbolic Bools).
+  // The conditional form allows the prover to case-split on a symbolic Bool
+  // that the path condition already implies is true or false.
+  // =========================================================================
+
+  rule #boolToBytes(B:Bool) => intToScriptNum(1)
+    requires B                         [simplification]
+  rule #boolToBytes(B:Bool) => intToScriptNum(0)
+    requires notBool B                 [simplification]
+
 endmodule

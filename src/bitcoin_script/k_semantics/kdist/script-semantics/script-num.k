@@ -8,6 +8,26 @@ module SCRIPT-NUM
   imports BOOL
 
   // =========================================================================
+  // Byte-access helpers (used across all modules).
+  // =========================================================================
+
+  // Read a single byte at offset I as an unsigned int [0..255].
+  syntax Int ::= #byteAt(Bytes, Int) [function]
+  rule #byteAt(B, I) => Bytes2Int(substrBytes(B, I, I +Int 1), BE, Unsigned)
+
+  // Last byte of a byte string; useful for sigHashType and CScriptNum sign byte.
+  syntax Int ::= #byteLast(Bytes) [function]
+  rule #byteLast(B) => #byteAt(B, lengthBytes(B) -Int 1)
+
+  // CScriptNum boolean: true -> b"\x01" (intToScriptNum(1)),
+  //                     false -> b""     (intToScriptNum(0)).
+  // Used by every comparison/boolean opcode to push a canonical 1/0 result
+  // without duplicating the rule for each truth value.
+  syntax Bytes ::= #boolToBytes(Bool) [function, total]
+  rule #boolToBytes(true)  => intToScriptNum(1)
+  rule #boolToBytes(false) => intToScriptNum(0)
+
+  // =========================================================================
   // CScriptNum: Bitcoin script number encoding (LE sign-magnitude, 0-4 bytes)
   //
   //   0      -> b""
@@ -32,16 +52,16 @@ module SCRIPT-NUM
   // Positive: high bit of last byte is 0
   rule scriptNumToInt(B) => Bytes2Int(B, LE, Unsigned)
     requires lengthBytes(B) >Int 0
-     andBool Bytes2Int(substrBytes(B, lengthBytes(B) -Int 1, lengthBytes(B)), BE, Unsigned) &Int 128 ==Int 0
+     andBool #byteLast(B) &Int 128 ==Int 0
 
   // Negative: high bit of last byte is 1 — clear sign bit and negate
   rule scriptNumToInt(B) =>
       0 -Int Bytes2Int(
         substrBytes(B, 0, lengthBytes(B) -Int 1)
-          +Bytes Int2Bytes(1, Bytes2Int(substrBytes(B, lengthBytes(B) -Int 1, lengthBytes(B)), BE, Unsigned) &Int 127, BE),
+          +Bytes Int2Bytes(1, #byteLast(B) &Int 127, BE),
         LE, Unsigned)
     requires lengthBytes(B) >Int 0
-     andBool Bytes2Int(substrBytes(B, lengthBytes(B) -Int 1, lengthBytes(B)), BE, Unsigned) &Int 128 =/=Int 0
+     andBool #byteLast(B) &Int 128 =/=Int 0
 
   // --- 4-byte limit predicate (used by opcode rules) ---
   syntax Bool ::= validNum(Bytes) [function, total]
@@ -65,16 +85,16 @@ module SCRIPT-NUM
   // second-to-last byte's high bit is clear (unnecessary padding)
   rule #isMinimalNum(B) => true
     requires lengthBytes(B) >Int 0
-     andBool (Bytes2Int(substrBytes(B, lengthBytes(B) -Int 1, lengthBytes(B)), BE, Unsigned) &Int 127) =/=Int 0
+     andBool (#byteLast(B) &Int 127) =/=Int 0
 
   rule #isMinimalNum(B) => false
     requires lengthBytes(B) ==Int 1
-     andBool (Bytes2Int(substrBytes(B, 0, 1), BE, Unsigned) &Int 127) ==Int 0
+     andBool (#byteAt(B, 0) &Int 127) ==Int 0
 
   rule #isMinimalNum(B) => true
     requires lengthBytes(B) >Int 1
-     andBool (Bytes2Int(substrBytes(B, lengthBytes(B) -Int 1, lengthBytes(B)), BE, Unsigned) &Int 127) ==Int 0
-     andBool (Bytes2Int(substrBytes(B, lengthBytes(B) -Int 2, lengthBytes(B) -Int 1), BE, Unsigned) &Int 128) =/=Int 0
+     andBool (#byteLast(B) &Int 127) ==Int 0
+     andBool (#byteAt(B, lengthBytes(B) -Int 2) &Int 128) =/=Int 0
 
   rule #isMinimalNum(B) => false
     requires lengthBytes(B) >Int 1

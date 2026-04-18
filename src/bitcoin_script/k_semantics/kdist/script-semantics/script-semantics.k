@@ -221,7 +221,7 @@ module SCRIPT-SEMANTICS
        <witnessUsed> WU </witnessUsed>
     requires notBool (hasFlag(F, FLAG_P2SH) andBool #isP2SH(PK))
      andBool notBool (hasFlag(F, FLAG_WITNESS) andBool #isWitnessProgram(PK))
-     andBool (notBool hasFlag(F, FLAG_WITNESS) orBool WU orBool #witnessCount(W) ==Int 0)
+     andBool #witnessConsumed(F, WU, W)
      andBool (notBool hasFlag(F, FLAG_CLEANSTACK) orBool size(ST) ==Int 1)
 
   rule <k> #phaseComplete => #fail("CLEANSTACK") ...</k>
@@ -234,7 +234,7 @@ module SCRIPT-SEMANTICS
        <witnessUsed> WU </witnessUsed>
     requires notBool (hasFlag(F, FLAG_P2SH) andBool #isP2SH(PK))
      andBool notBool (hasFlag(F, FLAG_WITNESS) andBool #isWitnessProgram(PK))
-     andBool (notBool hasFlag(F, FLAG_WITNESS) orBool WU orBool #witnessCount(W) ==Int 0)
+     andBool #witnessConsumed(F, WU, W)
      andBool hasFlag(F, FLAG_CLEANSTACK) andBool size(ST) =/=Int 1
 
   // After scriptPubKey completes, IS P2SH, scriptPubKey succeeded:
@@ -297,7 +297,7 @@ module SCRIPT-SEMANTICS
        <witness> W </witness>
        <witnessUsed> WU </witnessUsed>
     requires notBool (hasFlag(F, FLAG_WITNESS) andBool #isWitnessProgram(REDEEM))
-     andBool (notBool hasFlag(F, FLAG_WITNESS) orBool WU orBool #witnessCount(W) ==Int 0)
+     andBool #witnessConsumed(F, WU, W)
      andBool (notBool hasFlag(F, FLAG_CLEANSTACK) orBool size(ST) ==Int 1)
 
   rule <k> #phaseComplete => #fail("CLEANSTACK") ...</k>
@@ -309,7 +309,7 @@ module SCRIPT-SEMANTICS
        <witness> W </witness>
        <witnessUsed> WU </witnessUsed>
     requires notBool (hasFlag(F, FLAG_WITNESS) andBool #isWitnessProgram(REDEEM))
-     andBool (notBool hasFlag(F, FLAG_WITNESS) orBool WU orBool #witnessCount(W) ==Int 0)
+     andBool #witnessConsumed(F, WU, W)
      andBool hasFlag(F, FLAG_CLEANSTACK) andBool size(ST) =/=Int 1
 
   // =========================================================================
@@ -534,7 +534,7 @@ module SCRIPT-SEMANTICS
   rule #hasAnnex(W) => true
     requires #witnessCount(W) >=Int 2
      andBool lengthBytes(#witnessItemAt(W, #witnessCount(W) -Int 1)) >Int 0
-     andBool Bytes2Int(substrBytes(#witnessItemAt(W, #witnessCount(W) -Int 1), 0, 1), BE, Unsigned) ==Int 80
+     andBool #byteAt(#witnessItemAt(W, #witnessCount(W) -Int 1), 0) ==Int 80
   rule #hasAnnex(_) => false [owise]
 
   // Effective witness count (excluding annex)
@@ -552,7 +552,7 @@ module SCRIPT-SEMANTICS
   syntax Int ::= #tapSigHashType(Bytes) [function]
   rule #tapSigHashType(SIG) => 0
     requires lengthBytes(SIG) ==Int 64
-  rule #tapSigHashType(SIG) => Bytes2Int(substrBytes(SIG, 64, 65), BE, Unsigned)
+  rule #tapSigHashType(SIG) => #byteAt(SIG, 64)
     requires lengthBytes(SIG) ==Int 65
 
   // Helper: extract 64-byte signature body
@@ -561,6 +561,15 @@ module SCRIPT-SEMANTICS
     requires lengthBytes(SIG) ==Int 64
   rule #tapSigBody(SIG) => substrBytes(SIG, 0, 64)
     requires lengthBytes(SIG) ==Int 65
+
+  // Helper: BIP 342 Schnorr sig shape check (64 bytes plain, or 65 bytes
+  // with a non-zero trailing hashtype). Factored to de-duplicate the guard
+  // that appears 6 times across taproot key-path and CHECKSIG/CHECKSIGADD
+  // in tapscript.
+  syntax Bool ::= #isSchnorrShape(Bytes) [function, total]
+  rule #isSchnorrShape(SIG) => lengthBytes(SIG) ==Int 64
+    orBool (lengthBytes(SIG) ==Int 65
+      andBool #byteAt(SIG, 64) =/=Int 0)
 
   // Key-path: invalid signature length (not 64 or 65)
   rule <k> #taprootVerify(_PROG) => #fail("SCHNORR_SIG_SIZE") ...</k>
@@ -574,16 +583,14 @@ module SCRIPT-SEMANTICS
        <witness> W </witness>
     requires #taprootWitnessCount(W) ==Int 1
      andBool lengthBytes(#witnessItemAt(W, 0)) ==Int 65
-     andBool Bytes2Int(substrBytes(#witnessItemAt(W, 0), 64, 65), BE, Unsigned) ==Int 0
+     andBool #byteAt(#witnessItemAt(W, 0), 64) ==Int 0
 
   // Key-path: valid sig, Schnorr verification succeeds → script passes
   rule <k> #taprootVerify(PROG) => .K ...</k>
        <witness> W </witness>
        <sighash> SIGHASHBLOB </sighash>
     requires #taprootWitnessCount(W) ==Int 1
-     andBool (lengthBytes(#witnessItemAt(W, 0)) ==Int 64
-       orBool (lengthBytes(#witnessItemAt(W, 0)) ==Int 65
-         andBool Bytes2Int(substrBytes(#witnessItemAt(W, 0), 64, 65), BE, Unsigned) =/=Int 0))
+     andBool #isSchnorrShape(#witnessItemAt(W, 0))
      andBool SchnorrVerify(
                PROG,
                lookupSighash(SIGHASHBLOB, #tapSigHashType(#witnessItemAt(W, 0)), 0),
@@ -594,9 +601,7 @@ module SCRIPT-SEMANTICS
        <witness> W </witness>
        <sighash> SIGHASHBLOB </sighash>
     requires #taprootWitnessCount(W) ==Int 1
-     andBool (lengthBytes(#witnessItemAt(W, 0)) ==Int 64
-       orBool (lengthBytes(#witnessItemAt(W, 0)) ==Int 65
-         andBool Bytes2Int(substrBytes(#witnessItemAt(W, 0), 64, 65), BE, Unsigned) =/=Int 0))
+     andBool #isSchnorrShape(#witnessItemAt(W, 0))
      andBool notBool SchnorrVerify(
                PROG,
                lookupSighash(SIGHASHBLOB, #tapSigHashType(#witnessItemAt(W, 0)), 0),
@@ -659,7 +664,7 @@ module SCRIPT-SEMANTICS
 
   // Extract leaf version (first byte, mask off parity bit 0)
   syntax Int ::= #cbLeafVersion(Bytes) [function]
-  rule #cbLeafVersion(CB) => Bytes2Int(substrBytes(CB, 0, 1), BE, Unsigned) &Int 254
+  rule #cbLeafVersion(CB) => #byteAt(CB, 0) &Int 254
 
   // --- Leaf hash computation ---
   // TapLeaf = TaggedHash("TapLeaf", leaf_version || compact_size(script_len) || script)
@@ -744,9 +749,9 @@ module SCRIPT-SEMANTICS
   // P2SH: exactly 23 bytes: OP_HASH160 (0xa9) PUSHBYTES_20 (0x14) <20 bytes> OP_EQUAL (0x87)
   rule #isP2SH(B) => true
     requires lengthBytes(B) ==Int 23
-     andBool Bytes2Int(substrBytes(B, 0, 1), BE, Unsigned) ==Int 169
-     andBool Bytes2Int(substrBytes(B, 1, 2), BE, Unsigned) ==Int 20
-     andBool Bytes2Int(substrBytes(B, 22, 23), BE, Unsigned) ==Int 135
+     andBool #byteAt(B, 0) ==Int 169
+     andBool #byteAt(B, 1) ==Int 20
+     andBool #byteAt(B, 22) ==Int 135
   rule #isP2SH(_) => false [owise]
 
   syntax Bool ::= #isPushOnly(Bytes) [function]
@@ -846,8 +851,19 @@ module SCRIPT-SEMANTICS
                  | "#decode1" "(" Bytes ")"
                  | "#decodePush" "(" Int "," Int "," Bytes ")"
 
+  // First byte (opcode) of a script; equivalent to #byteAt(B, 0).
   syntax Int ::= #scriptByte(Bytes) [function]
-  rule #scriptByte(B) => Bytes2Int(substrBytes(B, 0, 1), BE, Unsigned)
+  rule #scriptByte(B) => #byteAt(B, 0)
+
+  // Witness is "consumed" if: WITNESS flag is off, the witness was already
+  // used by a witness program, or there was no witness data in the first place.
+  // Negation is the WITNESS_UNEXPECTED error condition. Factored to de-duplicate
+  // the phase-termination logic (4 rules each for scriptPubKey and p2sh-redeem).
+  syntax Bool ::= #witnessConsumed(Int, Bool, Bytes) [function, total]
+  rule #witnessConsumed(F, WU, W) =>
+    notBool hasFlag(F, FLAG_WITNESS)
+      orBool WU
+      orBool #witnessCount(W) ==Int 0
 
   syntax Bytes ::= #scriptTail(Bytes) [function]
   rule #scriptTail(B) => substrBytes(B, 1, lengthBytes(B))
@@ -878,20 +894,20 @@ module SCRIPT-SEMANTICS
   rule #isZeroBytes(B, I) => false
     requires I <Int lengthBytes(B)
      andBool I <Int lengthBytes(B) -Int 1
-     andBool Bytes2Int(substrBytes(B, I, I +Int 1), BE, Unsigned) =/=Int 0
+     andBool #byteAt(B, I) =/=Int 0
   rule #isZeroBytes(B, I) => #isZeroBytes(B, I +Int 1)
     requires I <Int lengthBytes(B)
      andBool I <Int lengthBytes(B) -Int 1
-     andBool Bytes2Int(substrBytes(B, I, I +Int 1), BE, Unsigned) ==Int 0
+     andBool #byteAt(B, I) ==Int 0
   // Last byte: 0x00 or 0x80 (negative zero) both count as zero
   rule #isZeroBytes(B, I) => true
     requires I ==Int lengthBytes(B) -Int 1
-     andBool ( Bytes2Int(substrBytes(B, I, I +Int 1), BE, Unsigned) ==Int 0
-        orBool Bytes2Int(substrBytes(B, I, I +Int 1), BE, Unsigned) ==Int 128 )
+     andBool ( #byteAt(B, I) ==Int 0
+        orBool #byteAt(B, I) ==Int 128 )
   rule #isZeroBytes(B, I) => false
     requires I ==Int lengthBytes(B) -Int 1
-     andBool Bytes2Int(substrBytes(B, I, I +Int 1), BE, Unsigned) =/=Int 0
-     andBool Bytes2Int(substrBytes(B, I, I +Int 1), BE, Unsigned) =/=Int 128
+     andBool #byteAt(B, I) =/=Int 0
+     andBool #byteAt(B, I) =/=Int 128
 
   // =========================================================================
   // OP_DUP

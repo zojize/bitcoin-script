@@ -21,11 +21,11 @@ module SCRIPT-CRYPTO
 
   // Length of the r component in the DER encoding
   syntax Int ::= derRLen(Bytes) [function]
-  rule derRLen(SIG) => Bytes2Int(substrBytes(SIG, 3, 4), BE, Unsigned)
+  rule derRLen(SIG) => #byteAt(SIG, 3)
 
   // Length of the s component in the DER encoding
   syntax Int ::= derSLen(Bytes) [function]
-  rule derSLen(SIG) => Bytes2Int(substrBytes(SIG, 5 +Int derRLen(SIG), 6 +Int derRLen(SIG)), BE, Unsigned)
+  rule derSLen(SIG) => #byteAt(SIG, 5 +Int derRLen(SIG))
 
   // Normalize a DER integer component to exactly 32 bytes
   // Handles leading 0x00 padding (33-byte DER integers) and short values
@@ -46,7 +46,7 @@ module SCRIPT-CRYPTO
 
   // Extract hashtype byte (last byte) from a DER+hashtype signature
   syntax Int ::= sigHashType(Bytes) [function]
-  rule sigHashType(SIG) => Bytes2Int(substrBytes(SIG, lengthBytes(SIG) -Int 1, lengthBytes(SIG)), BE, Unsigned)
+  rule sigHashType(SIG) => #byteLast(SIG)
     requires lengthBytes(SIG) >Int 0
   rule sigHashType(SIG) => 1
     requires lengthBytes(SIG) ==Int 0
@@ -63,13 +63,13 @@ module SCRIPT-CRYPTO
   // Found matching entry: return the 32-byte hash
   rule lookupSighash(BLOB, HT, CSI) => substrBytes(BLOB, 3, 35)
     requires lengthBytes(BLOB) >=Int 35
-     andBool Bytes2Int(substrBytes(BLOB, 0, 1), BE, Unsigned) ==Int HT
+     andBool #byteAt(BLOB, 0) ==Int HT
      andBool Bytes2Int(substrBytes(BLOB, 1, 3), BE, Unsigned) ==Int CSI
 
   // Entry doesn't match: skip to next 35-byte chunk
   rule lookupSighash(BLOB, HT, CSI) => lookupSighash(substrBytes(BLOB, 35, lengthBytes(BLOB)), HT, CSI)
     requires lengthBytes(BLOB) >=Int 35
-     andBool (Bytes2Int(substrBytes(BLOB, 0, 1), BE, Unsigned) =/=Int HT
+     andBool (#byteAt(BLOB, 0) =/=Int HT
        orBool Bytes2Int(substrBytes(BLOB, 1, 3), BE, Unsigned) =/=Int CSI)
 
   // No match found or blob too short: return empty bytes (ecdsaVerify will fail)
@@ -87,7 +87,7 @@ module SCRIPT-CRYPTO
   // Prefix: 02 if y is even, 03 if y is odd.
   syntax Bytes ::= compressKey(Bytes) [function]
   rule compressKey(BODY) =>
-      Int2Bytes(1, 2 +Int (Bytes2Int(substrBytes(BODY, 63, 64), BE, Unsigned) &Int 1), BE)
+      Int2Bytes(1, 2 +Int (#byteAt(BODY, 63) &Int 1), BE)
       +Bytes substrBytes(BODY, 0, 32)
     requires lengthBytes(BODY) ==Int 64
 
@@ -113,11 +113,11 @@ module SCRIPT-CRYPTO
 
   // Helper: extract R length from DER sig
   syntax Int ::= #derRL(Bytes) [function]
-  rule #derRL(SIG) => Bytes2Int(substrBytes(SIG, 3, 4), BE, Unsigned)
+  rule #derRL(SIG) => #byteAt(SIG, 3)
 
   // Helper: extract S length from DER sig
   syntax Int ::= #derSL(Bytes) [function]
-  rule #derSL(SIG) => Bytes2Int(substrBytes(SIG, 5 +Int #derRL(SIG), 6 +Int #derRL(SIG)), BE, Unsigned)
+  rule #derSL(SIG) => #byteAt(SIG, 5 +Int #derRL(SIG))
 
   // Helper: offset of S data
   syntax Int ::= #derSO(Bytes) [function]
@@ -125,29 +125,27 @@ module SCRIPT-CRYPTO
 
   syntax Bool ::= #checkDERInner(Bytes) [function]
   rule #checkDERInner(SIG) => true
-    requires Bytes2Int(substrBytes(SIG, 0, 1), BE, Unsigned) ==Int 48           // 0x30 compound
-     andBool Bytes2Int(substrBytes(SIG, 1, 2), BE, Unsigned)
-             ==Int lengthBytes(SIG) -Int 3                                      // total len = sig - 3
-     andBool Bytes2Int(substrBytes(SIG, 2, 3), BE, Unsigned) ==Int 2            // 0x02 R tag
+    requires #byteAt(SIG, 0) ==Int 48                                           // 0x30 compound
+     andBool #byteAt(SIG, 1) ==Int lengthBytes(SIG) -Int 3                      // total len = sig - 3
+     andBool #byteAt(SIG, 2) ==Int 2                                            // 0x02 R tag
      andBool #derRL(SIG) >=Int 1                                                // R length >= 1
      andBool #derRL(SIG) <=Int lengthBytes(SIG) -Int 7                          // room for S
      // R not negative, no excessive padding
-     andBool Bytes2Int(substrBytes(SIG, 4, 5), BE, Unsigned) &Int 128 ==Int 0
+     andBool #byteAt(SIG, 4) &Int 128 ==Int 0
      andBool (#derRL(SIG) <=Int 1
-        orBool Bytes2Int(substrBytes(SIG, 4, 5), BE, Unsigned) =/=Int 0
-        orBool Bytes2Int(substrBytes(SIG, 5, 6), BE, Unsigned) &Int 128 =/=Int 0)
+        orBool #byteAt(SIG, 4) =/=Int 0
+        orBool #byteAt(SIG, 5) &Int 128 =/=Int 0)
      // S tag
-     andBool Bytes2Int(substrBytes(SIG, 4 +Int #derRL(SIG),
-                                        5 +Int #derRL(SIG)), BE, Unsigned) ==Int 2
+     andBool #byteAt(SIG, 4 +Int #derRL(SIG)) ==Int 2
      // S length
      andBool #derSL(SIG) >=Int 1
      andBool (#derSO(SIG) +Int #derSL(SIG)) ==Int lengthBytes(SIG) -Int 1       // S ends at hashtype
      // S not negative
-     andBool Bytes2Int(substrBytes(SIG, #derSO(SIG), #derSO(SIG) +Int 1), BE, Unsigned) &Int 128 ==Int 0
+     andBool #byteAt(SIG, #derSO(SIG)) &Int 128 ==Int 0
      // No excessive S padding
      andBool (#derSL(SIG) <=Int 1
-        orBool Bytes2Int(substrBytes(SIG, #derSO(SIG), #derSO(SIG) +Int 1), BE, Unsigned) =/=Int 0
-        orBool Bytes2Int(substrBytes(SIG, #derSO(SIG) +Int 1, #derSO(SIG) +Int 2), BE, Unsigned) &Int 128 =/=Int 0)
+        orBool #byteAt(SIG, #derSO(SIG)) =/=Int 0
+        orBool #byteAt(SIG, #derSO(SIG) +Int 1) &Int 128 =/=Int 0)
 
   rule #checkDERInner(_) => false [owise]
 
@@ -166,18 +164,18 @@ module SCRIPT-CRYPTO
   syntax Bool ::= validPubKeyType(Bytes) [function, total]
   rule validPubKeyType(PK) => true
     requires ( lengthBytes(PK) ==Int 33
-               andBool ( Bytes2Int(substrBytes(PK, 0, 1), BE, Unsigned) ==Int 2
-                  orBool Bytes2Int(substrBytes(PK, 0, 1), BE, Unsigned) ==Int 3 ) )
+               andBool ( #byteAt(PK, 0) ==Int 2
+                  orBool #byteAt(PK, 0) ==Int 3 ) )
       orBool ( lengthBytes(PK) ==Int 65
-               andBool Bytes2Int(substrBytes(PK, 0, 1), BE, Unsigned) ==Int 4 )
+               andBool #byteAt(PK, 0) ==Int 4 )
   rule validPubKeyType(_) => false [owise]
 
   // Compressed pubkey: 33 bytes with 02 or 03 prefix (for WITNESS_PUBKEYTYPE)
   syntax Bool ::= #isCompressedPubKey(Bytes) [function, total]
   rule #isCompressedPubKey(PK) => true
     requires lengthBytes(PK) ==Int 33
-     andBool ( Bytes2Int(substrBytes(PK, 0, 1), BE, Unsigned) ==Int 2
-        orBool Bytes2Int(substrBytes(PK, 0, 1), BE, Unsigned) ==Int 3 )
+     andBool ( #byteAt(PK, 0) ==Int 2
+        orBool #byteAt(PK, 0) ==Int 3 )
   rule #isCompressedPubKey(_) => false [owise]
 
 
