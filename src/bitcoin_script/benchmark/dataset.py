@@ -41,6 +41,12 @@ class BenchmarkInput:
     n_locktime: int
     n_sequence: int
 
+    # All prevouts of the tx (needed by BIP-341 taproot sighash and
+    # libbitcoinconsensus's verify_script_with_spent_outputs entry point).
+    # None if not all inputs' UTXOs could be resolved at extraction time.
+    all_prevout_scriptpubkeys: list[bytes] | None = None
+    all_prevout_amounts: list[int] | None = None
+
     def to_dict(self) -> dict:
         """Serialize to a msgpack-friendly dict."""
         return {f.name: getattr(self, f.name) for f in fields(self)}
@@ -51,6 +57,10 @@ class BenchmarkInput:
         d = dict(d)
         if "witness" in d and d["witness"] is not None:
             d["witness"] = [bytes(w) for w in d["witness"]]
+        if d.get("all_prevout_scriptpubkeys") is not None:
+            d["all_prevout_scriptpubkeys"] = [
+                bytes(b) for b in d["all_prevout_scriptpubkeys"]
+            ]
         for f in fields(cls):
             if f.type == "bytes" and f.name in d and d[f.name] is not None:
                 d[f.name] = bytes(d[f.name])
@@ -78,20 +88,32 @@ class Dataset:
 def save_dataset(dataset: Dataset, path: Path) -> None:
     """Serialize a dataset to a MessagePack file.
 
-    Deduplicates ``tx_serialized`` by storing each unique transaction once
-    in a separate ``txdata`` table keyed by ``txid``, and replacing each
-    input's ``tx_serialized`` with an empty bytes stub.
+    Deduplicates ``tx_serialized`` and the per-tx prevout arrays by storing
+    each unique tx's data once in a separate ``txdata`` table keyed by
+    ``txid``, and stripping the duplicated fields from each input.
     """
-    # Build txid → tx_serialized mapping (dedup).
-    txdata: dict[bytes, bytes] = {}
+    # Build txid → {tx, prevout_spks, prevout_amounts} mapping (dedup).
+    txdata: dict[bytes, dict] = {}
     for inp in dataset.inputs:
         if inp.txid not in txdata:
-            txdata[inp.txid] = inp.tx_serialized
+            txdata[inp.txid] = {
+                "tx": inp.tx_serialized,
+                "prevout_spks": inp.all_prevout_scriptpubkeys,
+                "prevout_amounts": inp.all_prevout_amounts,
+            }
+
+    inputs_out = []
+    for inp in dataset.inputs:
+        d = inp.to_dict()
+        d["tx_serialized"] = b""
+        d["all_prevout_scriptpubkeys"] = None
+        d["all_prevout_amounts"] = None
+        inputs_out.append(d)
 
     data: dict[str, Any] = {
-        "header": {**dataset.header, "version": 2},
+        "header": {**dataset.header, "version": 3},
         "txdata": txdata,
-        "inputs": [{**inp.to_dict(), "tx_serialized": b""} for inp in dataset.inputs],
+        "inputs": inputs_out,
     }
     with path.open("wb") as f:
         msgpack.pack(data, f, use_bin_type=True)
@@ -100,20 +122,43 @@ def save_dataset(dataset: Dataset, path: Path) -> None:
 def load_dataset(path: Path) -> Dataset:
     """Deserialize a dataset from a MessagePack file.
 
-    Supports both v1 (inline tx_serialized) and v2 (deduplicated txdata).
+    Supports v1 (inline tx_serialized), v2 (deduplicated tx_serialized),
+    and v3 (also deduplicates per-tx prevout arrays for taproot).
     """
     with path.open("rb") as f:
         raw: Any = msgpack.unpack(f, raw=False)
 
-    txdata: dict[bytes, bytes] = {}
-    if "txdata" in raw:
-        txdata = {bytes(k): bytes(v) for k, v in raw["txdata"].items()}
+    version = raw.get("header", {}).get("version", 1)
+    txdata_raw = raw.get("txdata", {})
+
+    # Normalize txdata shape across versions:
+    #   v2: txid -> raw_tx_bytes
+    #   v3: txid -> {tx, prevout_spks, prevout_amounts}
+    tx_bytes: dict[bytes, bytes] = {}
+    tx_prevouts: dict[bytes, tuple[list[bytes], list[int]] | None] = {}
+    for k, v in txdata_raw.items():
+        key = bytes(k)
+        if version >= 3 and isinstance(v, dict):
+            tx_bytes[key] = bytes(v.get("tx", b""))
+            spks = v.get("prevout_spks")
+            amounts = v.get("prevout_amounts")
+            if spks is not None and amounts is not None:
+                tx_prevouts[key] = ([bytes(s) for s in spks], list(amounts))
+            else:
+                tx_prevouts[key] = None
+        else:
+            tx_bytes[key] = bytes(v)
+            tx_prevouts[key] = None
 
     inputs: list[BenchmarkInput] = []
     for d in raw["inputs"]:
         inp = BenchmarkInput.from_dict(d)
-        if not inp.tx_serialized and inp.txid in txdata:
-            inp.tx_serialized = txdata[inp.txid]
+        if not inp.tx_serialized and inp.txid in tx_bytes:
+            inp.tx_serialized = tx_bytes[inp.txid]
+        if inp.all_prevout_scriptpubkeys is None:
+            po = tx_prevouts.get(inp.txid)
+            if po is not None:
+                inp.all_prevout_scriptpubkeys, inp.all_prevout_amounts = po
         inputs.append(inp)
 
     return Dataset(inputs=inputs, header=raw["header"])

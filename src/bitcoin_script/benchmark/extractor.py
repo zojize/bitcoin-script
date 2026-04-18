@@ -117,6 +117,12 @@ def extract_inputs_from_block(
                         tx_version=tx.nVersion,
                         n_locktime=tx.nLockTime,
                         n_sequence=vin.nSequence,
+                        all_prevout_scriptpubkeys=all_prevout_spks
+                        if all_resolved
+                        else None,
+                        all_prevout_amounts=all_prevout_amounts
+                        if all_resolved
+                        else None,
                     )
                 )
 

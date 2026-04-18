@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ctypes
 import json
 import logging
 import statistics
@@ -88,6 +89,24 @@ def _verify_with_k(
     return (median_ns, success, error)
 
 
+_FLAG_TAPROOT = 131072
+
+
+class _UTXOStruct(ctypes.Structure):
+    """Mirror of Bitcoin Core's libbitcoinconsensus UTXO struct.
+
+    Layout must match ``struct UTXO { const unsigned char *scriptPubKey;
+    unsigned int scriptPubKeyLen; int64_t value; }`` from
+    src/script/bitcoinconsensus.h.
+    """
+
+    _fields_ = [
+        ("scriptPubKey", ctypes.POINTER(ctypes.c_ubyte)),
+        ("scriptPubKeyLen", ctypes.c_uint),
+        ("value", ctypes.c_int64),
+    ]
+
+
 _consensus_lib_handle: object | None = None
 
 
@@ -113,11 +132,29 @@ def _get_consensus_handle() -> object:
         except ImportError:
             if path is None:
                 raise
-            import ctypes
-
             handle = ctypes.cdll.LoadLibrary(path)
             _add_function_definitions(handle)
             _consensus_lib_handle = handle
+
+        # Declare the spent_outputs entry point; python-bitcointx only knows
+        # about verify_script_with_amount, so argtypes aren't set for it.
+        lib = _consensus_lib_handle
+        assert isinstance(lib, ctypes.CDLL)
+        if hasattr(lib, "bitcoinconsensus_verify_script_with_spent_outputs"):
+            fn = lib.bitcoinconsensus_verify_script_with_spent_outputs
+            fn.restype = ctypes.c_int
+            fn.argtypes = [
+                ctypes.c_char_p,  # scriptPubKey
+                ctypes.c_uint,  # scriptPubKeyLen
+                ctypes.c_int64,  # amount
+                ctypes.c_char_p,  # txTo
+                ctypes.c_uint,  # txToLen
+                ctypes.POINTER(_UTXOStruct),  # spentOutputs
+                ctypes.c_uint,  # spentOutputsLen
+                ctypes.c_uint,  # nIn
+                ctypes.c_uint,  # flags
+                ctypes.POINTER(ctypes.c_uint),  # err
+            ]
     return _consensus_lib_handle
 
 
@@ -143,16 +180,36 @@ def _k_flags_to_consensus_int(k_flags: int) -> int:
     return result
 
 
+def _build_utxo_array(
+    spks: list[bytes], amounts: list[int]
+) -> tuple[ctypes.Array, list]:
+    """Build a C array of UTXO structs for verify_script_with_spent_outputs.
+
+    Returns the array plus the underlying byte buffers so callers can keep
+    them alive for the duration of the C call (ctypes pointers are not GC
+    roots for the target memory).
+    """
+    n = len(spks)
+    arr = (_UTXOStruct * n)()
+    buffers: list = []
+    for i, (spk, amt) in enumerate(zip(spks, amounts, strict=True)):
+        buf = (ctypes.c_ubyte * len(spk)).from_buffer_copy(spk)
+        buffers.append(buf)
+        arr[i].scriptPubKey = ctypes.cast(buf, ctypes.POINTER(ctypes.c_ubyte))
+        arr[i].scriptPubKeyLen = len(spk)
+        arr[i].value = amt
+    return arr, buffers
+
+
 def _verify_with_core(
     inp: BenchmarkInput, iterations: int
 ) -> tuple[int, bool, str | None]:
     """Run libbitcoinconsensus verification via direct ctypes call.
 
-    Bypasses the python-bitcointx wrapper (which re-serializes the
-    transaction on every call) and passes raw bytes directly to the C API.
+    For pre-taproot inputs, uses ``verify_script_with_amount``. For taproot
+    inputs (FLAG_TAPROOT set and all prevouts available), uses
+    ``verify_script_with_spent_outputs``, required for BIP-341 sighash.
     """
-    import ctypes
-
     handle = _get_consensus_handle()
     assert isinstance(handle, ctypes.CDLL)
 
@@ -161,24 +218,58 @@ def _verify_with_core(
     flags = _k_flags_to_consensus_int(inp.flags)
     err = ctypes.c_uint(0)
 
+    # Use spent_outputs path when the caller requests taproot validation and
+    # we have the per-tx prevout array to feed it.
+    use_spent_outputs = (
+        (inp.flags & _FLAG_TAPROOT)
+        and inp.all_prevout_scriptpubkeys is not None
+        and inp.all_prevout_amounts is not None
+    )
+
+    utxo_arr = None
+    _buffers: list = []
+    n_utxos = 0
+    if use_spent_outputs:
+        utxo_arr, _buffers = _build_utxo_array(
+            inp.all_prevout_scriptpubkeys,  # type: ignore[arg-type]
+            inp.all_prevout_amounts,  # type: ignore[arg-type]
+        )
+        n_utxos = len(inp.all_prevout_scriptpubkeys)  # type: ignore[arg-type]
+
     timings: list[int] = []
     success = True
     error: str | None = None
 
     for _ in range(iterations):
         err.value = 0
-        t0 = time.perf_counter_ns()
-        ret = handle.bitcoinconsensus_verify_script_with_amount(
-            script_pubkey,
-            len(script_pubkey),
-            inp.amount,
-            tx_data,
-            len(tx_data),
-            inp.n_in,
-            flags,
-            ctypes.byref(err),
-        )
-        elapsed = time.perf_counter_ns() - t0
+        if use_spent_outputs:
+            t0 = time.perf_counter_ns()
+            ret = handle.bitcoinconsensus_verify_script_with_spent_outputs(
+                script_pubkey,
+                len(script_pubkey),
+                inp.amount,
+                tx_data,
+                len(tx_data),
+                utxo_arr,
+                n_utxos,
+                inp.n_in,
+                flags,
+                ctypes.byref(err),
+            )
+            elapsed = time.perf_counter_ns() - t0
+        else:
+            t0 = time.perf_counter_ns()
+            ret = handle.bitcoinconsensus_verify_script_with_amount(
+                script_pubkey,
+                len(script_pubkey),
+                inp.amount,
+                tx_data,
+                len(tx_data),
+                inp.n_in,
+                flags,
+                ctypes.byref(err),
+            )
+            elapsed = time.perf_counter_ns() - t0
         timings.append(elapsed)
 
         if ret != 1:
