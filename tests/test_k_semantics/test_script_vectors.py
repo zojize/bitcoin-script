@@ -6,6 +6,8 @@ import pytest
 
 from .bitcoin_core_vectors import classify_vector, parse_bitcoin_core_asm, parse_flags
 from .conftest import (
+    build_crediting_transaction,
+    build_spending_transaction,
     compute_sighash_blob,
     compute_witness_sighash_blob,
     encode_witness_blob,
@@ -127,12 +129,22 @@ def test_witness_vector(k, entry):
             amount_satoshis,
         )
 
+    # Materialize the crediting + spending tx pair so K can compute BIP-143
+    # sighashes natively (for witness-v0 CHECKSIG). Taproot still relies on
+    # the precomputed blob until BIP-341/342 land in K.
+    credit_tx = build_crediting_transaction(pubkey_bytes, amount_satoshis)
+    spend_tx = build_spending_transaction(sig_bytes, credit_tx)
+    tx_bytes = spend_tx.serialize()
+
     result = k.verify_script(
         script_sig=sig_bytes,
         script_pubkey=pubkey_bytes,
         sighash=sighash,
         witness=witness_blob,
         flags=flags_mask,
+        tx=tx_bytes,
+        input_index=0,
+        amount=amount_satoshis,
     )
 
     if expected == "OK":

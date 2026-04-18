@@ -47,8 +47,10 @@ def _verify_input_worker(
     tx_version: int,
     n_locktime: int,
     n_sequence: int,
-    tx_idx: int,
+    tx: bytes,
     input_index: int,
+    amount: int,
+    tx_idx: int,
 ) -> tuple[int, int, str | None]:
     """Worker function: verify a single input. Returns (tx_idx, input_index, error_or_None)."""
     global _worker_k
@@ -62,6 +64,9 @@ def _verify_input_worker(
         tx_version=tx_version,
         n_locktime=n_locktime,
         n_sequence=n_sequence,
+        tx=tx,
+        input_index=input_index,
+        amount=amount,
     )
     if not _worker_k.success(result):
         return (tx_idx, input_index, _worker_k.error(result))
@@ -650,18 +655,23 @@ class ChainVerifier:
                                 "tx_version": tx.nVersion,
                                 "n_locktime": tx.nLockTime,
                                 "n_sequence": vin.nSequence,
+                                "tx": tx.serialize(),
+                                "input_index": input_index,
+                                "amount": amount,
                             },
                         )
                     )
 
-                # Verify inputs (parallel or sequential)
+                # Verify inputs (parallel or sequential). `input_index` is
+                # already present in the kwargs dict (passed to verify_script
+                # for K-side BIP-143 sighash); the worker also uses it for
+                # result tuple indexing.
                 if self._pool is not None and len(tasks) > 1:
                     futures = [
                         self._pool.submit(
                             _verify_input_worker,
                             **t[2],
                             tx_idx=t[0],
-                            input_index=t[1],
                         )
                         for t in tasks
                     ]
