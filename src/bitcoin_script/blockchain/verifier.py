@@ -237,7 +237,7 @@ def _compute_sighash_blob(
     tx: CTransaction,
     input_index: int,
     script_pubkey: bytes,
-    amount: int,
+    _amount: int,
     *,
     all_prevout_scriptpubkeys: list[bytes] | None = None,
     all_prevout_amounts: list[int] | None = None,
@@ -246,6 +246,11 @@ def _compute_sighash_blob(
 
     Returns concatenated (1-byte hashtype + 2-byte BE codesepIdx + 32-byte sighash) entries.
     Computes sighashes for each CODESEPARATOR position in the subscript.
+
+    Witness-v0 (BIP-143) sighashes are no longer emitted here — the K
+    semantics compute them natively via #bip143Sighash from the <tx> /
+    <inputIndex> / <scriptCode> / <amount> cells. Legacy and BIP-341
+    taproot still use this blob as the input-side representation.
     """
     from bitcoin.core.script import (
         CScript,
@@ -253,7 +258,6 @@ def _compute_sighash_blob(
         SIGHASH_ANYONECANPAY,
         SIGHASH_NONE,
         SIGHASH_SINGLE,
-        SIGVERSION_WITNESS_V0,
         SignatureHash,
     )
 
@@ -288,40 +292,6 @@ def _compute_sighash_blob(
             wp = is_witness_program(redeem)
 
     parts: list[bytes] = []
-
-    # BIP-143 witness sighash
-    if wp is not None and wp[0] == 0:
-        _version, program = wp
-        if len(program) == 20:
-            subscript = CScript(
-                bytes([0x76, 0xA9, 0x14]) + program + bytes([0x88, 0xAC])
-            )
-            witness_subscripts: list[tuple[int, CScript]] = [(0, subscript)]
-        elif len(program) == 32 and witness_items:
-            # P2WSH: witness script may contain CODESEPARATOR
-            # BIP-143: scriptCode does NOT strip CODESEP bytes (unlike legacy)
-            ws = witness_items[-1]
-            codesep_pos = find_codesep_positions(ws)
-            witness_subscripts = [(0, CScript(ws))]
-            for idx, bp in enumerate(codesep_pos):
-                witness_subscripts.append((idx + 1, CScript(ws[bp:])))
-        else:
-            witness_subscripts = []
-
-        for csi, sub in witness_subscripts:
-            for ht in sorted(hashtypes):
-                try:
-                    sh = SignatureHash(
-                        sub,
-                        tx,
-                        input_index,
-                        ht,
-                        amount=amount,
-                        sigversion=SIGVERSION_WITNESS_V0,
-                    )
-                    parts.append(bytes([ht]) + csi.to_bytes(2, "big") + bytes(sh))
-                except AssertionError, ValueError:
-                    continue
 
     # BIP-341 taproot sighash (witness v1)
     if (
