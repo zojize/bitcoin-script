@@ -592,6 +592,26 @@ module SCRIPT-SEMANTICS
   rule #taprootWitnessCount(W) => #witnessCount(W)
     requires notBool #hasAnnex(W)
 
+  // Annex bytes (including the leading 0x50 marker) when present; empty
+  // .Bytes otherwise. Consumed by #bip341Sighash for the annex block of
+  // the BIP-341 sigmsg.
+  syntax Bytes ::= #taprootAnnex(Bytes) [function]
+  rule #taprootAnnex(W) => #witnessItemAt(W, #witnessCount(W) -Int 1)
+    requires #hasAnnex(W)
+  rule #taprootAnnex(W) => .Bytes
+    requires notBool #hasAnnex(W)
+
+  // Taproot key-path sighash dispatcher. Routes to #bip341Sighash when
+  // <tx> is populated; otherwise falls back to the precomputed blob for
+  // legacy crediting-tx test fixtures that haven't been migrated yet.
+  syntax Bytes ::= #taprootKeypathSighash(Bytes, Bytes, Int, Bytes, Bytes, Int) [function]
+  rule #taprootKeypathSighash(TX, PREVOUTS, IDX, ANNEX, _BLOB, HT) =>
+           #bip341Sighash(TX, PREVOUTS, IDX, ANNEX, HT)
+    requires lengthBytes(TX) >Int 0
+  rule #taprootKeypathSighash(TX, _PREVOUTS, _IDX, _ANNEX, BLOB, HT) =>
+           lookupSighash(BLOB, HT, 0)
+    requires lengthBytes(TX) ==Int 0
+
   // --- Key path spend (BIP 341) ---
   // Single witness item (after stripping annex): Schnorr signature.
   // Verify against the output key (32-byte witness program).
@@ -637,22 +657,32 @@ module SCRIPT-SEMANTICS
   rule <k> #taprootVerify(PROG) => .K ...</k>
        <witness> W </witness>
        <sighash> SIGHASHBLOB </sighash>
+       <tx> TX </tx>
+       <prevouts> PREVOUTS </prevouts>
+       <inputIndex> IDX </inputIndex>
     requires #taprootWitnessCount(W) ==Int 1
      andBool #isSchnorrShape(#witnessItemAt(W, 0))
      andBool SchnorrVerify(
                PROG,
-               lookupSighash(SIGHASHBLOB, #tapSigHashType(#witnessItemAt(W, 0)), 0),
+               #taprootKeypathSighash(TX, PREVOUTS, IDX, #taprootAnnex(W),
+                                      SIGHASHBLOB,
+                                      #tapSigHashType(#witnessItemAt(W, 0))),
                #tapSigBody(#witnessItemAt(W, 0)))
 
   // Key-path: valid sig, Schnorr verification fails → error
   rule <k> #taprootVerify(PROG) => #fail("SCHNORR_SIG") ...</k>
        <witness> W </witness>
        <sighash> SIGHASHBLOB </sighash>
+       <tx> TX </tx>
+       <prevouts> PREVOUTS </prevouts>
+       <inputIndex> IDX </inputIndex>
     requires #taprootWitnessCount(W) ==Int 1
      andBool #isSchnorrShape(#witnessItemAt(W, 0))
      andBool notBool SchnorrVerify(
                PROG,
-               lookupSighash(SIGHASHBLOB, #tapSigHashType(#witnessItemAt(W, 0)), 0),
+               #taprootKeypathSighash(TX, PREVOUTS, IDX, #taprootAnnex(W),
+                                      SIGHASHBLOB,
+                                      #tapSigHashType(#witnessItemAt(W, 0))),
                #tapSigBody(#witnessItemAt(W, 0)))
 
   // --- Script path spend ---

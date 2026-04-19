@@ -192,6 +192,188 @@ module SCRIPT-SIGHASH
            )
 
   // =========================================================================
+  // BIP-341 field hashes (Taproot — single SHA-256, not double).
+  //
+  // Unlike BIP-143 which hashes and then hashes again, BIP-341's field
+  // hashes are a single Sha256raw over a flat concatenation. The final
+  // sighash is obtained by a tagged hash over the full sigmsg.
+  //
+  // Layout (per BIP-341):
+  //   sha_prevouts     = sha256(concat(outpoint_i) for i in vins)
+  //   sha_amounts      = sha256(concat(8-byte LE amount_i) for i in vins)
+  //   sha_scriptpubkeys = sha256(concat(cs_len(spk_i) || spk_i) for i in vins)
+  //   sha_sequences    = sha256(concat(4-byte LE sequence_i) for i in vins)
+  //   sha_outputs      = sha256(concat(serialized vout_j) for j in vouts)
+  //
+  // Prevouts source: <prevouts> cell (each record is a serialized TxOut,
+  // walked via #prevoutAt/#prevoutAmount/#prevoutScriptSerialized).
+  // =========================================================================
+
+  // Concat of 8-byte LE amounts from prevouts[I, I+N).
+  syntax Bytes ::= #concatPrevoutAmounts(Bytes, Int, Int) [function]
+  rule #concatPrevoutAmounts(_, _, 0) => .Bytes
+  rule #concatPrevoutAmounts(P, I, N) =>
+           Int2Bytes(8, #prevoutAmount(P, I), LE)
+           +Bytes #concatPrevoutAmounts(P, I +Int 1, N -Int 1)
+    requires N >Int 0
+
+  // Concat of serialized scriptPubKeys (cs_len || bytes) from prevouts[I, I+N).
+  syntax Bytes ::= #concatPrevoutScripts(Bytes, Int, Int) [function]
+  rule #concatPrevoutScripts(_, _, 0) => .Bytes
+  rule #concatPrevoutScripts(P, I, N) =>
+           #prevoutScriptSerialized(P, I)
+           +Bytes #concatPrevoutScripts(P, I +Int 1, N -Int 1)
+    requires N >Int 0
+
+  // BIP-341 single-SHA-256 field hashes. N = number of vins (for prevout
+  // iteration) / vouts (for output iteration).
+  syntax Bytes ::= #bip341ShaPrevouts(Bytes) [function]
+  rule #bip341ShaPrevouts(TX) =>
+           Sha256raw(#concatOutpoints(TX, 0, #txVinCount(TX)))
+
+  syntax Bytes ::= #bip341ShaAmounts(Bytes, Int) [function]
+  rule #bip341ShaAmounts(P, N) =>
+           Sha256raw(#concatPrevoutAmounts(P, 0, N))
+
+  syntax Bytes ::= #bip341ShaScriptpubkeys(Bytes, Int) [function]
+  rule #bip341ShaScriptpubkeys(P, N) =>
+           Sha256raw(#concatPrevoutScripts(P, 0, N))
+
+  syntax Bytes ::= #bip341ShaSequences(Bytes) [function]
+  rule #bip341ShaSequences(TX) =>
+           Sha256raw(#concatSequences(TX, 0, #txVinCount(TX)))
+
+  syntax Bytes ::= #bip341ShaOutputs(Bytes) [function]
+  rule #bip341ShaOutputs(TX) =>
+           Sha256raw(#concatVouts(TX, 0, #txVoutCount(TX)))
+
+  // =========================================================================
+  // BIP-341 sigmsg assembly (Taproot).
+  //
+  //   epoch                   = 0x00
+  //   hash_type               = 1 byte
+  //   nVersion                = 4 LE
+  //   nLockTime               = 4 LE
+  //   [if !ANYONECANPAY]
+  //     sha_prevouts           (32)
+  //     sha_amounts            (32)
+  //     sha_scriptpubkeys      (32)
+  //     sha_sequences          (32)
+  //   [if base != NONE && base != SINGLE]
+  //     sha_outputs            (32)
+  //   spend_type              = (ext_flag << 1) | has_annex   (1 byte)
+  //   [if ANYONECANPAY]
+  //     outpoint_i             (36)
+  //     amount_i               (8 LE)
+  //     scriptpubkey_size_i    (cs)
+  //     scriptpubkey_i         (variable)
+  //     sequence_i             (4 LE)
+  //   [else]
+  //     input_index            (4 LE)
+  //   [if has_annex]
+  //     sha256(cs_len(annex) || annex)   (32)
+  //   [if base == SINGLE]
+  //     sha256(serialized vout[input_index])   (32)
+  //   [if ext_flag == 1] (script-path, BIP-342)
+  //     tapleaf_hash           (32)
+  //     key_version            (1 byte = 0)
+  //     codesep_pos            (4 LE)
+  //
+  //   sighash = taggedHash("TapSighash", 0x00 || sigmsg)
+  //
+  // Hashtype 0x00 is SIGHASH_DEFAULT (treated like SIGHASH_ALL).
+  // =========================================================================
+
+  // Decompose hashtype into (base, anyonecanpay) pieces.
+  //   base = 1 (ALL), 2 (NONE), 3 (SINGLE); DEFAULT (0x00) is treated as 1.
+  syntax Int ::= #bip341Base(Int) [function]
+  rule #bip341Base(0)  => 1           // SIGHASH_DEFAULT -> ALL
+  rule #bip341Base(HT) => HT &Int 3   requires HT =/=Int 0
+
+  syntax Bool ::= #bip341Anyonecanpay(Int) [function]
+  rule #bip341Anyonecanpay(HT) => HT &Int 128 =/=Int 0
+
+  // Block 1: prevouts/amounts/scriptpubkeys/sequences hashes (or empty
+  // when ANYONECANPAY masks them out).
+  syntax Bytes ::= #bip341BlockPrevouts(Bytes, Bytes, Int, Int) [function]
+  // args: tx, prevouts, hashtype, vinCount
+  rule #bip341BlockPrevouts(TX, P, HT, N) =>
+           #bip341ShaPrevouts(TX)
+           +Bytes #bip341ShaAmounts(P, N)
+           +Bytes #bip341ShaScriptpubkeys(P, N)
+           +Bytes #bip341ShaSequences(TX)
+    requires HT &Int 128 ==Int 0
+  rule #bip341BlockPrevouts(_, _, HT, _) => .Bytes
+    requires HT &Int 128 =/=Int 0
+
+  // Block 2: sha_outputs (or empty for NONE/SINGLE).
+  syntax Bytes ::= #bip341BlockOutputs(Bytes, Int) [function]
+  rule #bip341BlockOutputs(TX, HT) => #bip341ShaOutputs(TX)
+    requires #bip341Base(HT) =/=Int 2 andBool #bip341Base(HT) =/=Int 3
+  rule #bip341BlockOutputs(_, HT) => .Bytes
+    requires #bip341Base(HT) ==Int 2 orBool #bip341Base(HT) ==Int 3
+
+  // Block 3: per-input fields. ANYONECANPAY: outpoint+amount+spk+seq.
+  // Non-ANYONECANPAY: 4-byte LE inputIndex.
+  syntax Bytes ::= #bip341BlockInput(Bytes, Bytes, Int, Int) [function]
+  // args: tx, prevouts, inputIdx, hashtype
+  rule #bip341BlockInput(TX, P, IDX, HT) =>
+           #txVinOutpoint(TX, IDX)
+           +Bytes Int2Bytes(8, #prevoutAmount(P, IDX), LE)
+           +Bytes #prevoutScriptSerialized(P, IDX)
+           +Bytes Int2Bytes(4, #txVinSequence(TX, IDX), LE)
+    requires HT &Int 128 =/=Int 0
+  rule #bip341BlockInput(_, _, IDX, HT) => Int2Bytes(4, IDX, LE)
+    requires HT &Int 128 ==Int 0
+
+  // Block 4: annex hash. ANNEX is either the raw annex bytes (including
+  // the 0x50 prefix) or .Bytes when no annex is present.
+  syntax Bytes ::= #bip341BlockAnnex(Bytes) [function]
+  rule #bip341BlockAnnex(ANNEX) =>
+           Sha256raw(#bip143CompactSize(lengthBytes(ANNEX)) +Bytes ANNEX)
+    requires lengthBytes(ANNEX) >Int 0
+  rule #bip341BlockAnnex(ANNEX) => .Bytes
+    requires lengthBytes(ANNEX) ==Int 0
+
+  // Block 5: sha256 of the single matching output when base == SINGLE.
+  syntax Bytes ::= #bip341BlockSingleOutput(Bytes, Int, Int) [function]
+  rule #bip341BlockSingleOutput(TX, IDX, HT) =>
+           Sha256raw(#txVoutSerialized(TX, IDX))
+    requires #bip341Base(HT) ==Int 3
+      andBool IDX <Int #txVoutCount(TX)
+  rule #bip341BlockSingleOutput(_, _, HT) => .Bytes
+    requires #bip341Base(HT) =/=Int 3
+
+  // spend_type byte: (ext_flag << 1) | (1 if has_annex else 0).
+  syntax Int ::= #bip341SpendType(Int, Bytes) [function]
+  // args: extFlag, annex (empty -> 0 bit)
+  rule #bip341SpendType(EXT, ANNEX) =>
+           (EXT <<Int 1)
+           |Int (#if lengthBytes(ANNEX) >Int 0 #then 1 #else 0 #fi)
+
+  // Full BIP-341 key-path sighash (ext_flag = 0, no tapleaf/keyVer/codesep).
+  // Callers pass:
+  //   tx       : <tx> cell
+  //   prevouts : <prevouts> cell
+  //   inputIdx : <inputIndex> cell
+  //   annex    : annex bytes with 0x50 prefix (or .Bytes when no annex)
+  //   ht       : hashtype byte
+  syntax Bytes ::= #bip341Sighash(Bytes, Bytes, Int, Bytes, Int) [function]
+  rule #bip341Sighash(TX, PREVOUTS, IDX, ANNEX, HT) =>
+           #taggedHash("TapSighash",
+               Int2Bytes(1, 0, BE)                              // epoch
+             +Bytes Int2Bytes(1, HT, BE)                        // hashtype
+             +Bytes Int2Bytes(4, #txVersion(TX), LE)
+             +Bytes Int2Bytes(4, #txLocktime(TX), LE)
+             +Bytes #bip341BlockPrevouts(TX, PREVOUTS, HT, #txVinCount(TX))
+             +Bytes #bip341BlockOutputs(TX, HT)
+             +Bytes Int2Bytes(1, #bip341SpendType(0, ANNEX), BE)
+             +Bytes #bip341BlockInput(TX, PREVOUTS, IDX, HT)
+             +Bytes #bip341BlockAnnex(ANNEX)
+             +Bytes #bip341BlockSingleOutput(TX, IDX, HT)
+           )
+
+  // =========================================================================
   // Delegation stub.
   //
   // Returns the 32-byte sighash, or .Bytes on lookup failure (matches
