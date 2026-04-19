@@ -66,7 +66,18 @@ Five more commits landed the full K-side sighash for witness-v0 CHECKSIG / CHECK
     - [ ] Special cases: `SIGHASH_SINGLE` with `input_index >= len(vout)` returns `0x0100..00` (32 bytes, little-endian 1).
     - [ ] Double-SHA-256 over the serialized modified tx + 4-byte LE hashtype.
     - [ ] Closes 10 `sighash mismatch: CODESEP/unusual P2SH with CONST_SCRIPTCODE excluded` xfails in `test_tx_vectors.py`.
-- [ ] **Rerun benchmark** — once legacy lands, rerun the full mainnet benchmark to quantify the K/Core ratio shift.
+- [x] **Legacy sighash** (pre-SegWit) — landed in commit [9852c23](https://github.com/zojize/bitcoin-script/commit/9852c23) and [6c1973e](https://github.com/zojize/bitcoin-script/commit/6c1973e). Closes 6 of 7 sighash-mismatch xfails (CHECKMULTISIG FindAndDelete-all-sigs + `<scriptCodePhase>` cell for scriptSig-scoped scriptCode). tx_188 remains as a debatable-semantics xfail.
+- [x] **Rerun benchmark** — run on 2026-04-19 via `feat/tapscript` @ cb635ca on the M4 Pro remote, 30 iterations per side. Combined results: [benchmark-results-v4-combined-m4pro.json](../benchmark-results-v4-combined-m4pro.json). Overall K 1,454 inp/s vs Core 3,437 inp/s (2.4× ratio), K wins on stress (2×). Caveat below.
+
+### Benchmark path caveat (commit [cb635ca](https://github.com/zojize/bitcoin-script/commit/cb635ca))
+
+The v4 benchmark runner skips passing `<tx>`/`<prevouts>` for non-taproot inputs. This means for ~95% of benchmarked inputs (legacy + witness-v0), K uses the `lookupSighash` blob-lookup fast path rather than the K-native `#legacySighash`/`#bip143Sighash` rewrites. Mainnet chain verification (`ChainVerifier`) still exercises the K-native path — the benchmark and mainnet therefore measure different paths.
+
+**Why the shortcut exists:** `#legacyPreimage` / `#concatLegacyVins` / `#concatLegacyVouts` / `#concatOutpoints` / `#concatSequences` / `#concatVouts` all build the preimage via right-associative `+Bytes` recursion, which is O(tx_size²) under K's Bytes semantics. On 1MB stress-block txs this is 500× slower than blob lookup — projected ~5h+ per benchmark run without the workaround.
+
+**Open follow-up:** either (a) rewrite the concat helpers as left-fold with an accumulator (keeps everything in K, still O(n²) but with a smaller constant), or (b) add a `#sha256Midstate` plugin primitive and thread the midstate through a walker so hashing is O(n). (b) is the cleanest — it matches how Bitcoin Core actually computes sighash and is the only option that gives the benchmark an honest K-native number.
+
+**Dataset note:** `benchmark-dataset-v3.msgpack` was extracted before commit [2d25a63](https://github.com/zojize/bitcoin-script/commit/2d25a63) dropped witness-v0 entries from `_compute_sighash_blob`. The stored blobs still contain BIP-143 entries, which is why the benchmark's witness-v0 slice verifies cleanly under the lookup path. A fresh extraction against current code would produce blobs without witness-v0 entries, and the benchmark would fail witness-v0 verification unless the runner were also updated to pass `<tx>` for witness-v0.
 
 ### Remaining xfails (23 as of commit [c77c1b0](https://github.com/zojize/bitcoin-script/commit/c77c1b0))
 
@@ -97,7 +108,7 @@ Items flagged by the external audit of commit `e457812` that aren't solved by th
 
 ### Doc consistency
 
-- [ ] **CLAUDE.md taproot status** — the "Known gaps" section still says "Taproot (BIP 341/342): not implemented." Either remove or replace with the real remaining gaps (post-sighash-formalization, probably just "legacy sighash OP_CODESEPARATOR edge cases" or similar).
+- [x] **CLAUDE.md taproot status** — updated in concert with the benchmark caveat above. Now documents taproot as implemented, lists the remaining tx_188 edge case and the K legacy sighash O(n²) cost explicitly.
 - [ ] **Tx-vector claim** — `tests/test_k_semantics/bitcoin_core_vectors.py:212` xfails any vector with the TAPROOT flag, so the headline "174 of 214 tx vectors" excludes taproot entirely. Either remove the xfail (verify what actually passes with TAPROOT enabled) or change the headline to "174/214 non-taproot tx vectors" until the xfail is revisited post-sighash-formalization.
 
 ### Methodology hygiene
