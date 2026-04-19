@@ -73,13 +73,26 @@ def _tx_id(i: int, v: list) -> str:
 
 _TX_XFAIL_FLAGS = {"BADTX"}  # Pure transaction-level checks (not script)
 
-# tx_valid/tx_invalid indices with sighash computation issues.
-# These vectors exclude CONST_SCRIPTCODE and use CODESEPARATOR or unusual
-# P2SH structures where the Python sighash harness produces incorrect hashes.
-# The K semantics handles CODESEPARATOR correctly — only the Python test
-# sighash blob generation needs fixing.
-_SIGHASH_XFAIL_VALID = {23, 30, 87, 89, 91, 93, 96, 236, 244}
-_SIGHASH_XFAIL_INVALID = {188}
+# tx_valid/tx_invalid indices where the K-side legacy sighash doesn't
+# yet match Bitcoin Core. Remaining gaps:
+#
+#   * SIGPUSHONLY + CONST_SCRIPTCODE-excluded: scriptSig contains
+#     OP_CODESEPARATOR, and the CHECKSIG there signs against a
+#     post-CODESEP slice that our K doesn't propagate across the
+#     scriptSig → scriptPubKey boundary (would need a clean reset that
+#     isn't yet compatible with the Haskell-backend prover specs).
+#   * CONST_SCRIPTCODE+LOW_S CHECKMULTISIG cases: Bitcoin Core applies
+#     FindAndDelete for every sig before hashing; our K only drops the
+#     specific sig being checked at each step.
+#   * tx_invalid CONST_SCRIPTCODE with IF/CODESEPARATOR/ENDIF: depends
+#     on FindAndDelete(sig) against an unusual subscript layout.
+#
+# The K side handles the happy path end-to-end — 1,650 K tests + all 9
+# prover specs + mainnet BIP-143/341/342 smoke tests pass. The remaining
+# gaps are followup work on legacy CHECKMULTISIG FindAndDelete-all-sigs
+# and scriptSig-scoped scriptCode tracking.
+_SIGHASH_XFAIL_VALID: set[int] = {87, 89, 91, 93, 96, 244}
+_SIGHASH_XFAIL_INVALID: set[int] = {188}
 
 
 def _has_codeseparator(entry: list) -> bool:
@@ -210,6 +223,9 @@ def _verify_tx(k, entry: list, expect_valid: bool, *, vec_index: int = -1) -> No
             tx_version=tx.nVersion,
             n_locktime=tx.nLockTime,
             n_sequence=vin.nSequence,
+            tx=tx_bytes,
+            input_index=input_index,
+            amount=amount_sat,
         )
 
         if not k.success(result):

@@ -406,6 +406,247 @@ module SCRIPT-SIGHASH
            )
 
   // =========================================================================
+  // Legacy (pre-SegWit) sighash.
+  //
+  // Constructs a modified copy of the spending transaction and appends
+  // the 4-byte LE hashtype, double-SHA-256 the whole thing. Unlike
+  // BIP-143/341/342 which hash field-by-field, legacy literally
+  // re-serializes a modified tx. Hashtype-specific mutations:
+  //
+  //   ANYONECANPAY (bit 7):
+  //     vin_count -> 1, only vin[inputIdx] is kept, others dropped.
+  //
+  //   base type = ALL (default + 0x01):
+  //     vouts unchanged.
+  //     non-current vins: nSequence unchanged.
+  //
+  //   base type = NONE (0x02):
+  //     vouts cleared (vout_count = 0).
+  //     non-current vins: nSequence = 0.
+  //
+  //   base type = SINGLE (0x03):
+  //     if inputIdx >= vout_count: return fixed 0x0100..00 sighash
+  //     (the "SIGHASH_SINGLE bug").
+  //     Else vouts truncated to [0, inputIdx+1). Vouts before inputIdx
+  //     are placeholders (amount = 0xffffffffffffffff, empty script).
+  //     Only vout[inputIdx] is the real one.
+  //     non-current vins: nSequence = 0.
+  //
+  // All vins except vin[inputIdx] have their scriptSig set to empty
+  // (cs_len = 0x00). vin[inputIdx]'s scriptSig is replaced with the
+  // subscript (scriptCode).
+  // =========================================================================
+
+  // nSequence to emit for a non-target vin (the one we're not signing).
+  syntax Int ::= #legacyOtherSequence(Bytes, Int, Int) [function]
+  // args: tx, vin index, hashtype
+  rule #legacyOtherSequence(_, _, HT) => 0
+    requires (HT &Int 31) ==Int 2 orBool (HT &Int 31) ==Int 3
+  rule #legacyOtherSequence(TX, I, HT) => #txVinSequence(TX, I)
+    requires (HT &Int 31) =/=Int 2 andBool (HT &Int 31) =/=Int 3
+
+  // Serialized modified vin[I] given inputIdx IDX and subscript SC.
+  syntax Bytes ::= #legacyVin(Bytes, Int, Int, Bytes, Int) [function]
+  // args: tx, I (this vin's index), IDX (target), subscript, hashtype
+  // The signed vin: outpoint || cs(len(sub)) || sub || original sequence
+  rule #legacyVin(TX, IDX, IDX, SC, _HT) =>
+           #txVinOutpoint(TX, IDX)
+           +Bytes #bip143CompactSize(lengthBytes(SC))
+           +Bytes SC
+           +Bytes Int2Bytes(4, #txVinSequence(TX, IDX), LE)
+  // Other vins: outpoint || 0x00 (empty scriptSig) || (maybe-zeroed sequence)
+  rule #legacyVin(TX, I, IDX, _SC, HT) =>
+           #txVinOutpoint(TX, I)
+           +Bytes Int2Bytes(1, 0, BE)
+           +Bytes Int2Bytes(4, #legacyOtherSequence(TX, I, HT), LE)
+    requires I =/=Int IDX
+
+  // Iterate and concat modified vins for [I, N).
+  syntax Bytes ::= #concatLegacyVins(Bytes, Int, Int, Int, Bytes, Int) [function]
+  // args: tx, current I, N (stop), IDX, subscript, hashtype
+  rule #concatLegacyVins(_, N, N, _, _, _) => .Bytes
+  rule #concatLegacyVins(TX, I, N, IDX, SC, HT) =>
+           #legacyVin(TX, I, IDX, SC, HT)
+           +Bytes #concatLegacyVins(TX, I +Int 1, N, IDX, SC, HT)
+    requires I <Int N
+
+  // Full vins block (count prefix + serialized vins). ANYONECANPAY keeps
+  // only the target vin (count=1); else all vins.
+  syntax Bytes ::= #legacyVinsBlock(Bytes, Int, Bytes, Int) [function]
+  // args: tx, inputIdx, subscript, hashtype
+  rule #legacyVinsBlock(TX, IDX, SC, HT) =>
+           #bip143CompactSize(1)
+           +Bytes #legacyVin(TX, IDX, IDX, SC, HT)
+    requires HT &Int 128 =/=Int 0
+  rule #legacyVinsBlock(TX, IDX, SC, HT) =>
+           #bip143CompactSize(#txVinCount(TX))
+           +Bytes #concatLegacyVins(TX, 0, #txVinCount(TX), IDX, SC, HT)
+    requires HT &Int 128 ==Int 0
+
+  // Modified vout[J] for hashtype HT and inputIdx IDX.
+  // SINGLE: j < inputIdx → placeholder (amount=0xff..ff, empty script);
+  //         j == inputIdx → the real vout[inputIdx];
+  //         j > inputIdx → should never be constructed (voutCount caps it).
+  // Other: the real vout[j].
+  syntax Bytes ::= #legacyVout(Bytes, Int, Int, Int) [function]
+  // args: tx, J (this vout's index), IDX (target), hashtype
+  // SINGLE + j < inputIdx: placeholder
+  rule #legacyVout(_, J, IDX, HT) =>
+           Int2Bytes(8, 18446744073709551615, LE)  // amount = -1 cast to u64
+           +Bytes Int2Bytes(1, 0, BE)              // empty scriptPubKey
+    requires (HT &Int 31) ==Int 3 andBool J <Int IDX
+  // Any other j: pass through the real vout
+  rule #legacyVout(TX, J, IDX, HT) => #txVoutSerialized(TX, J)
+    requires (HT &Int 31) =/=Int 3 orBool J >=Int IDX
+
+  // Iterate and concat modified vouts for [J, N).
+  syntax Bytes ::= #concatLegacyVouts(Bytes, Int, Int, Int, Int) [function]
+  // args: tx, current J, N (stop), IDX, hashtype
+  rule #concatLegacyVouts(_, N, N, _, _) => .Bytes
+  rule #concatLegacyVouts(TX, J, N, IDX, HT) =>
+           #legacyVout(TX, J, IDX, HT)
+           +Bytes #concatLegacyVouts(TX, J +Int 1, N, IDX, HT)
+    requires J <Int N
+
+  // Modified vout count: 0 for NONE, IDX+1 for SINGLE, else tx's voutCount.
+  syntax Int ::= #legacyVoutCount(Bytes, Int, Int) [function]
+  rule #legacyVoutCount(_, _, HT) => 0
+    requires (HT &Int 31) ==Int 2
+  rule #legacyVoutCount(_, IDX, HT) => IDX +Int 1
+    requires (HT &Int 31) ==Int 3
+  rule #legacyVoutCount(TX, _, HT) => #txVoutCount(TX)
+    requires (HT &Int 31) =/=Int 2 andBool (HT &Int 31) =/=Int 3
+
+  // Full vouts block (count prefix + vouts).
+  syntax Bytes ::= #legacyVoutsBlock(Bytes, Int, Int) [function]
+  rule #legacyVoutsBlock(TX, IDX, HT) =>
+           #bip143CompactSize(#legacyVoutCount(TX, IDX, HT))
+           +Bytes #concatLegacyVouts(TX, 0, #legacyVoutCount(TX, IDX, HT), IDX, HT)
+
+  // Legacy sighash preimage: modified tx + 4-byte LE hashtype.
+  syntax Bytes ::= #legacyPreimage(Bytes, Int, Bytes, Int) [function]
+  // args: tx, inputIdx, subscript, hashtype
+  rule #legacyPreimage(TX, IDX, SC, HT) =>
+           Int2Bytes(4, #txVersion(TX), LE)
+           +Bytes #legacyVinsBlock(TX, IDX, SC, HT)
+           +Bytes #legacyVoutsBlock(TX, IDX, HT)
+           +Bytes Int2Bytes(4, #txLocktime(TX), LE)
+           +Bytes Int2Bytes(4, HT, LE)
+
+  // FindAndDelete(OP_CODESEPARATOR) — script-aware removal of codesep
+  // opcodes. The old implementation did a byte-level scan which would
+  // strip 0xab bytes that happen to appear inside push data (e.g. a
+  // pubkey hash containing 0xab). Bitcoin Core's FindAndDelete iterates
+  // opcode-by-opcode and only strips the opcode when the full opcode
+  // matches the pattern — which for `CScript([OP_CODESEPARATOR])` is
+  // the single byte 0xab.
+
+  // Length (in bytes) of the opcode starting at B[I].
+  //   1-75       : push N: 1 + N
+  //   76 (PUSHDATA1): 2 + next byte
+  //   77 (PUSHDATA2): 3 + 2-byte LE
+  //   78 (PUSHDATA4): 5 + 4-byte LE
+  //   else       : 1 byte
+  // For truncated pushes (insufficient bytes remaining), falls back to 1
+  // so the walker makes forward progress; callers cap the slice via
+  // #minInt against lengthBytes(B).
+  syntax Int ::= #opcodeLen(Bytes, Int) [function]
+  rule #opcodeLen(B, I) => 1 +Int #byteAt(B, I)
+    requires #byteAt(B, I) >=Int 1 andBool #byteAt(B, I) <=Int 75
+  rule #opcodeLen(B, I) => 2 +Int #byteAt(B, I +Int 1)
+    requires #byteAt(B, I) ==Int 76 andBool I +Int 1 <Int lengthBytes(B)
+  rule #opcodeLen(B, I) =>
+           3 +Int Bytes2Int(substrBytes(B, I +Int 1, I +Int 3), LE, Unsigned)
+    requires #byteAt(B, I) ==Int 77 andBool I +Int 3 <=Int lengthBytes(B)
+  rule #opcodeLen(B, I) =>
+           5 +Int Bytes2Int(substrBytes(B, I +Int 1, I +Int 5), LE, Unsigned)
+    requires #byteAt(B, I) ==Int 78 andBool I +Int 5 <=Int lengthBytes(B)
+  rule #opcodeLen(_, _) => 1 [owise]
+
+  // min(A, B) helper. K has #if/#then/#else/#fi but a function rule is clearer.
+  syntax Int ::= #minInt(Int, Int) [function]
+  rule #minInt(A, B) => A requires A <=Int B
+  rule #minInt(A, B) => B requires A >Int B
+
+  syntax Bytes ::= #dropCodeseps(Bytes) [function]
+  rule #dropCodeseps(B) => #dropCodesepsAcc(B, 0, .Bytes)
+
+  syntax Bytes ::= #dropCodesepsAcc(Bytes, Int, Bytes) [function]
+  rule #dropCodesepsAcc(B, I, ACC) => ACC
+    requires I >=Int lengthBytes(B)
+  // OP_CODESEPARATOR (as an opcode, not push data): skip 1 byte.
+  rule #dropCodesepsAcc(B, I, ACC) => #dropCodesepsAcc(B, I +Int 1, ACC)
+    requires I <Int lengthBytes(B) andBool #byteAt(B, I) ==Int 171
+  // Any other opcode: copy the opcode bytes (capped at end of script).
+  rule #dropCodesepsAcc(B, I, ACC) =>
+           #dropCodesepsAcc(B,
+               #minInt(I +Int #opcodeLen(B, I), lengthBytes(B)),
+               ACC +Bytes substrBytes(B, I,
+                 #minInt(I +Int #opcodeLen(B, I), lengthBytes(B))))
+    requires I <Int lengthBytes(B) andBool #byteAt(B, I) =/=Int 171
+
+  // FindAndDelete(script, pattern) — script-aware opcode removal where
+  // the opcode's starting bytes match PATTERN (of any length). Used by
+  // Bitcoin Core's EvalChecksig to strip the signature from the subscript
+  // before hashing (legacy / BASE sigversion, CONST_SCRIPTCODE off).
+  // Pattern of length 0 is treated as no-op (no matches).
+  syntax Bytes ::= #findAndDelete(Bytes, Bytes) [function]
+  rule #findAndDelete(S, P) => S
+    requires lengthBytes(P) ==Int 0
+  rule #findAndDelete(S, P) => #faDelAcc(S, P, 0, .Bytes)
+    requires lengthBytes(P) >Int 0
+
+  // Construct the minimal push-encoded form of DATA, matching Bitcoin
+  // Core's `CScript() << vchData` serialization. FindAndDelete(sig)
+  // actually looks for the SIG pushed as a complete opcode, not the raw
+  // sig bytes; e.g. a 72-byte sig in a script looks like `0x48 <72B>`
+  // and that whole 73-byte sequence is the pattern that must match.
+  syntax Bytes ::= #pushed(Bytes) [function]
+  rule #pushed(D) => .Bytes
+    requires lengthBytes(D) ==Int 0
+  rule #pushed(D) => Int2Bytes(1, lengthBytes(D), BE) +Bytes D
+    requires lengthBytes(D) >=Int 1 andBool lengthBytes(D) <=Int 75
+  rule #pushed(D) =>
+           Int2Bytes(1, 76, BE) +Bytes Int2Bytes(1, lengthBytes(D), BE) +Bytes D
+    requires lengthBytes(D) >=Int 76 andBool lengthBytes(D) <=Int 255
+  rule #pushed(D) =>
+           Int2Bytes(1, 77, BE) +Bytes Int2Bytes(2, lengthBytes(D), LE) +Bytes D
+    requires lengthBytes(D) >=Int 256 andBool lengthBytes(D) <=Int 65535
+  rule #pushed(D) =>
+           Int2Bytes(1, 78, BE) +Bytes Int2Bytes(4, lengthBytes(D), LE) +Bytes D
+    requires lengthBytes(D) >=Int 65536 andBool lengthBytes(D) <=Int 4294967295
+
+  syntax Bytes ::= #faDelAcc(Bytes, Bytes, Int, Bytes) [function]
+  rule #faDelAcc(S, _, I, ACC) => ACC
+    requires I >=Int lengthBytes(S)
+  // Prefix at opcode start matches pattern: skip this opcode entirely.
+  rule #faDelAcc(S, P, I, ACC) =>
+           #faDelAcc(S, P,
+                     #minInt(I +Int #opcodeLen(S, I), lengthBytes(S)),
+                     ACC)
+    requires I <Int lengthBytes(S)
+     andBool I +Int lengthBytes(P) <=Int lengthBytes(S)
+     andBool substrBytes(S, I, I +Int lengthBytes(P)) ==K P
+  // Prefix doesn't match: copy opcode bytes, advance.
+  rule #faDelAcc(S, P, I, ACC) =>
+           #faDelAcc(S, P,
+                     #minInt(I +Int #opcodeLen(S, I), lengthBytes(S)),
+                     ACC +Bytes substrBytes(S, I,
+                       #minInt(I +Int #opcodeLen(S, I), lengthBytes(S))))
+    requires I <Int lengthBytes(S)
+     andBool (I +Int lengthBytes(P) >Int lengthBytes(S)
+        orBool substrBytes(S, I, I +Int lengthBytes(P)) =/=K P)
+
+  // Legacy sighash with SIGHASH_SINGLE out-of-bounds special case.
+  syntax Bytes ::= #legacySighash(Bytes, Int, Bytes, Int) [function]
+  rule #legacySighash(TX, IDX, _SC, HT) =>
+           Int2Bytes(32, 1, LE)
+    requires (HT &Int 31) ==Int 3 andBool IDX >=Int #txVoutCount(TX)
+  rule #legacySighash(TX, IDX, SC, HT) =>
+           #doubleSha256(#legacyPreimage(TX, IDX, #dropCodeseps(SC), HT))
+    requires (HT &Int 31) =/=Int 3 orBool IDX <Int #txVoutCount(TX)
+
+  // =========================================================================
   // Delegation stub.
   //
   // Returns the 32-byte sighash, or .Bytes on lookup failure (matches
