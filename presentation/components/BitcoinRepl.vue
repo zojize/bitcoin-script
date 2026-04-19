@@ -6,6 +6,7 @@ const API_BASE = import.meta.env.DEV ? 'http://localhost:8787' : ''
 interface HistoryEntry {
   type: 'input' | 'output' | 'error' | 'info'
   text: string
+  copy?: string  // Optional: show a copy button, copies this value to input
 }
 
 interface LastResult {
@@ -113,9 +114,16 @@ function scrollToBottom() {
   })
 }
 
-function addEntry(type: HistoryEntry['type'], text: string) {
-  history.value.push({ type, text })
+function addEntry(type: HistoryEntry['type'], text: string, copy?: string) {
+  history.value.push({ type, text, copy })
   scrollToBottom()
+}
+
+function copyToInput(value: string) {
+  if (inputValue.value && !inputValue.value.endsWith(' ')) {
+    inputValue.value += ' '
+  }
+  inputValue.value += value
 }
 
 async function handleSubmit() {
@@ -179,8 +187,6 @@ async function handleSubmit() {
       }
     } else if (cmd === '.scripthash') {
       await scriptHash()
-    } else if (cmd === '.example') {
-      loadP2SHExample()
     } else if (cmd === '.script') {
       if (asmTokens.value.length === 0) {
         addEntry('info', 'Script is empty.')
@@ -222,7 +228,6 @@ async function handleSubmit() {
       addEntry('info', '  .sig [...]    Push scriptSig tokens, clear, or show')
       addEntry('info', '  .flags [...]  Set/show verification flags')
       addEntry('info', '  .scripthash   HASH160 of current scriptPubKey buffer')
-      addEntry('info', '  .example      Load a P2SH math puzzle demo')
       addEntry('info', '  .help         Show this help')
       addEntry('info', 'Input: OP_1, OP_DUP, OP_ADD, OP_CHECKSIG, 0xHEX, ...')
     } else if (cmd === '.run') {
@@ -325,30 +330,37 @@ async function scriptHash() {
     if (data.error) {
       addEntry('error', `Error: ${data.error}`)
     } else {
-      addEntry('info', `script hex: 0x${data.script_hex}`)
-      addEntry('output', `HASH160:    0x${data.hash160}`)
+      addEntry('output', `HASH160: 0x${data.hash160}`, `0x${data.hash160}`)
     }
   } catch {
     addEntry('error', 'Connection error')
   }
 }
 
-function loadP2SHExample() {
-  // Math puzzle: redeemScript requires a 3 on the stack to pass.
-  // redeemScript = OP_3 OP_ADD OP_5 OP_EQUAL  →  hex: 53 93 55 87
-  // Wait — I want: push X; X + 2 == 5. So OP_2 OP_ADD OP_5 OP_EQUAL = 52 93 55 87
-  // hash160(52 93 55 87) = 8e9a55016b5f68f07aa9f1d8bef929b1f0b48547
-  asmTokens.value = ['OP_HASH160', '0x8e9a55016b5f68f07aa9f1d8bef929b1f0b48547', 'OP_EQUAL']
-  sigTokens.value = ['OP_3', '0x52935587']
-  flagsMask.value = 1  // FLAG_P2SH
-  lastResult.value = null
-  addEntry('info', '── P2SH math puzzle example ──')
-  addEntry('info', 'redeemScript: OP_2 OP_ADD OP_5 OP_EQUAL  (X+2==5, so X=3)')
-  addEntry('info', 'scriptSig: OP_3 <redeemScript>')
-  addEntry('info', 'scriptPubKey: OP_HASH160 <h160(redeemScript)> OP_EQUAL')
-  addEntry('info', 'flags: P2SH')
-  addEntry('info', 'Type .run to execute (should PASS)')
-  addEntry('info', 'Try .sig clear, then .sig OP_2 0x52935587, .run → FAIL')
+async function encodeScript() {
+  if (asmTokens.value.length === 0) {
+    addEntry('info', 'scriptPubKey buffer is empty.')
+    return
+  }
+  if (activeBackend.value === 'local') {
+    addEntry('error', 'Encoding requires a backend (Python or K).')
+    return
+  }
+  try {
+    const res = await fetch(`${API_BASE}/hash160`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ asm: currentScript.value }),
+    })
+    const data = await res.json()
+    if (data.error) {
+      addEntry('error', `Error: ${data.error}`)
+    } else {
+      addEntry('output', `bytes (${data.script_hex.length / 2} bytes): 0x${data.script_hex}`, `0x${data.script_hex}`)
+    }
+  } catch {
+    addEntry('error', 'Connection error')
+  }
 }
 
 function simulateExecution() {
@@ -503,8 +515,16 @@ function insertOp(op: string) {
         v-for="(entry, i) in history"
         :key="i"
         class="history-line"
-        :class="`line-${entry.type}`"
-      >{{ entry.text }}</div>
+        :class="[`line-${entry.type}`, { 'line-with-copy': entry.copy }]"
+      >
+        <span>{{ entry.text }}</span>
+        <button
+          v-if="entry.copy"
+          class="copy-btn"
+          :title="`Copy ${entry.copy} to input`"
+          @click="copyToInput(entry.copy)"
+        >copy →</button>
+      </div>
       <div v-if="isLoading" class="history-line line-info animate-pulse">Executing...</div>
     </div>
 
@@ -516,8 +536,8 @@ function insertOp(op: string) {
         class="op-btn"
         @click="insertOp(op)"
       >{{ op.replace('OP_', '') }}</button>
+      <button class="op-btn op-btn-special" @click="encodeScript" title="Encode current buffer to raw bytes (for pushing as a redeemScript)">ENCODE</button>
       <button class="op-btn op-btn-special" @click="scriptHash" title="HASH160 of current scriptPubKey buffer">HASH160</button>
-      <button class="op-btn op-btn-special" @click="loadP2SHExample" title="Load a P2SH math puzzle demo">.example</button>
       <button class="op-btn op-btn-run" @click="executeScript">.run</button>
       <button class="op-btn op-btn-reset" @click="asmTokens = []; sigTokens = []; addEntry('info', 'Script cleared.')">.reset</button>
     </div>
@@ -615,6 +635,31 @@ function insertOp(op: string) {
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-all;
+}
+.line-with-copy {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.line-with-copy > span {
+  flex: 1;
+}
+.copy-btn {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 3px;
+  background: transparent;
+  color: rgba(59, 130, 246, 0.7);
+  font-family: inherit;
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.copy-btn:hover {
+  border-color: #3b82f6;
+  color: #3b82f6;
+  background: rgba(59, 130, 246, 0.1);
 }
 
 .line-input { color: #e5e5e5; }
