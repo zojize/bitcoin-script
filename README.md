@@ -192,11 +192,11 @@ The K semantics define Bitcoin Script execution as a term-rewriting system:
 1. **Decoder** (`script-decode.k`): reads raw script bytes into K opcode terms
 2. **Execution**: each opcode has rewriting rules that modify the configuration (stack, altstack, exec-guard stack, flags, phase)
 3. **Phases**: scriptSig → scriptPubKey → P2SH redeem → witness-v0 → witness-v1 (tapscript)
-4. **Verification**: sighash computed in Python, passed to K; ECDSA/Schnorr verification via blockchain-k-plugin C++ hooks
+4. **Verification**: all four sighash variants (legacy, BIP-143, BIP-341 key-path, BIP-342 tapscript) computed K-natively inside the semantics from `<tx>`, `<prevouts>`, `<inputIndex>`, `<scriptCode>`, `<amount>` config cells; ECDSA, Schnorr, SHA-256, RIPEMD-160, and `secp256k1_xonly_pubkey_tweak_add_check` come from the blockchain-k-plugin C++ hooks
 5. **Resource accounting**: `<sigopsWeight>` cell tracks BIP 342 signature validation budget (analogous to KEVM's gas model)
 
 The `ChainVerifier` orchestrates block-by-block verification:
 1. Load blocks from `.blk` files, order by prev-hash chain linkage
-2. For each non-coinbase input: look up UTXO, compute sighash, invoke K
+2. For each non-coinbase input: look up UTXO, pass tx + prevouts to K (K computes sighash natively)
 3. Update UTXO set (spend inputs, add outputs)
 4. Checkpoint progress to SQLite for resume

@@ -1,6 +1,6 @@
 # Bitcoin Script
 
-Bitcoin Script interpreter and formal verification toolkit. The K Framework semantics pass all 1,217 of Bitcoin Core's script_tests.json vectors (including SegWit) and have verified 100,000+ mainnet blocks with zero errors.
+Bitcoin Script interpreter and formal verification toolkit. The K Framework semantics pass 1,672 tests (1,222 of Bitcoin Core's script_tests.json including SegWit + Taproot, 216 of tx_valid/tx_invalid.json with 13 xfails for out-of-scope BADTX/flag-exclusion cases, 22 K-proof specs, 2 LLVM-backed HTLC proofs, plus coverage tests). Mainnet verification runs clean on 100,000+ blocks. All four sighash variants (legacy, BIP-143, BIP-341 key-path, BIP-342 tapscript) are computed K-natively; the blockchain-k-plugin supplies the SHA/ECDSA/Schnorr/secp256k1 primitives.
 
 ## Folder structure
 
@@ -147,5 +147,7 @@ P2SH, DERSIG, STRICTENC, LOW_S, NULLDUMMY, SIGPUSHONLY, MINIMALDATA, DISCOURAGE_
 
 ## Known gaps
 
-- **CONST_SCRIPTCODE**: enforced — prohibits OP_CODESEPARATOR in base (non-witness) phases.
-- **Taproot (BIP 341/342)**: not implemented (5 test vectors xfailed).
+- **CONST_SCRIPTCODE**: enforced — prohibits OP_CODESEPARATOR in base (non-witness) phases when the flag is active.
+- **Taproot (BIP 341/342)**: implemented. Schnorr verification, key-path and script-path spends, control-block parity check (`secp256k1_xonly_pubkey_tweak_add_check`), per-input sigmsg with `tapleaf` + `codesep_pos` extension. 7/7 BIP-341 wallet test vectors pass; 5575/5575 mainnet tapscript inputs verify clean.
+- **Legacy sighash edge case (tx_188)**: a single tx_invalid.json vector (`IF CODESEPARATOR ENDIF <pk> CHECKSIGVERIFY CODESEPARATOR 1` with CONST_SCRIPTCODE excluded) where the sig verifies against the post-CODESEP scriptCode in our K and Core's rejection appears to be from an older unconditional-reject policy. Left as xfail with a note.
+- **K legacy sighash is O(tx_size²)** under repeated `+Bytes` concatenation. For 1MB stress-block txs this is 500× slower than the precomputed-blob lookup. The benchmark runner works around this by only passing `<tx>`/`<prevouts>` for taproot inputs ([src/bitcoin_script/benchmark/runner.py](src/bitcoin_script/benchmark/runner.py)); mainnet chain verification still exercises the K-native path. A proper fix threads an SHA-256 midstate through the walker instead of concatenating bytes.
