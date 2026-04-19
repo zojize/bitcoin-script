@@ -73,25 +73,16 @@ def _tx_id(i: int, v: list) -> str:
 
 _TX_XFAIL_FLAGS = {"BADTX"}  # Pure transaction-level checks (not script)
 
-# tx_valid/tx_invalid indices where the K-side legacy sighash doesn't
-# yet match Bitcoin Core. Remaining gaps:
+# tx_invalid indices where the K-side legacy sighash doesn't yet match
+# Bitcoin Core:
 #
-#   * SIGPUSHONLY + CONST_SCRIPTCODE-excluded: scriptSig contains
-#     OP_CODESEPARATOR, and the CHECKSIG there signs against a
-#     post-CODESEP slice that our K doesn't propagate across the
-#     scriptSig → scriptPubKey boundary (would need a clean reset that
-#     isn't yet compatible with the Haskell-backend prover specs).
-#   * CONST_SCRIPTCODE+LOW_S CHECKMULTISIG cases: Bitcoin Core applies
-#     FindAndDelete for every sig before hashing; our K only drops the
-#     specific sig being checked at each step.
-#   * tx_invalid CONST_SCRIPTCODE with IF/CODESEPARATOR/ENDIF: depends
-#     on FindAndDelete(sig) against an unusual subscript layout.
-#
-# The K side handles the happy path end-to-end — 1,650 K tests + all 9
-# prover specs + mainnet BIP-143/341/342 smoke tests pass. The remaining
-# gaps are followup work on legacy CHECKMULTISIG FindAndDelete-all-sigs
-# and scriptSig-scoped scriptCode tracking.
-_SIGHASH_XFAIL_VALID: set[int] = {87, 89, 91, 93, 96, 244}
+#   * tx_188: scriptPubKey `IF CODESEPARATOR ENDIF <pk> CHECKSIGVERIFY
+#     CODESEPARATOR 1` with CONST_SCRIPTCODE excluded. The K verifies
+#     the sig against the post-CODESEP scriptCode slice (matching Core's
+#     documented behavior), but Core still marks this invalid — likely
+#     a vector written against older semantics where CODESEP in any
+#     executed IF was always rejected.
+_SIGHASH_XFAIL_VALID: set[int] = set()
 _SIGHASH_XFAIL_INVALID: set[int] = {188}
 
 
