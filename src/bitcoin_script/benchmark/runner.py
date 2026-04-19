@@ -55,6 +55,17 @@ class BenchmarkResult:
     metadata: dict = field(default_factory=dict)
 
 
+def _cs(n: int) -> bytes:
+    """Bitcoin compactSize encoding (1/3/5/9 bytes)."""
+    if n <= 252:
+        return n.to_bytes(1, "little")
+    if n <= 0xFFFF:
+        return b"\xfd" + n.to_bytes(2, "little")
+    if n <= 0xFFFFFFFF:
+        return b"\xfe" + n.to_bytes(4, "little")
+    return b"\xff" + n.to_bytes(8, "little")
+
+
 def _verify_with_k(
     k: object, inp: BenchmarkInput, iterations: int
 ) -> tuple[int, bool, str | None]:
@@ -62,6 +73,20 @@ def _verify_with_k(
     from bitcoin_script.script_utils import encode_witness_blob  # type: ignore[import-not-found]
 
     witness_blob = encode_witness_blob(inp.witness) if inp.witness else b""
+    # Serialize per-tx prevouts (<8 LE amount><cs len><spk>, concatenated)
+    # for BIP-341/BIP-342 K-side sighash. Empty when not all prevouts were
+    # resolved at extraction time; the K dispatcher falls back to the blob.
+    prevouts_blob = b""
+    if (
+        inp.all_prevout_scriptpubkeys is not None
+        and inp.all_prevout_amounts is not None
+    ):
+        for spk, amt in zip(
+            inp.all_prevout_scriptpubkeys, inp.all_prevout_amounts, strict=True
+        ):
+            prevouts_blob += amt.to_bytes(8, "little")
+            prevouts_blob += _cs(len(spk)) + spk
+
     timings: list[int] = []
     success = True
     error: str | None = None
@@ -80,6 +105,7 @@ def _verify_with_k(
             tx=inp.tx_serialized,
             input_index=inp.input_index,
             amount=inp.amount,
+            prevouts=prevouts_blob,
         )
         elapsed = time.perf_counter_ns() - t0
         timings.append(elapsed)

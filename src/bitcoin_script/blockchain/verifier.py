@@ -50,6 +50,7 @@ def _verify_input_worker(
     tx: bytes,
     input_index: int,
     amount: int,
+    prevouts: bytes,
     tx_idx: int,
 ) -> tuple[int, int, str | None]:
     """Worker function: verify a single input. Returns (tx_idx, input_index, error_or_None)."""
@@ -67,6 +68,7 @@ def _verify_input_worker(
         tx=tx,
         input_index=input_index,
         amount=amount,
+        prevouts=prevouts,
     )
     if not _worker_k.success(result):
         return (tx_idx, input_index, _worker_k.error(result))
@@ -582,7 +584,21 @@ class ChainVerifier:
             txid = tx.GetTxid()
 
             if not is_coinbase:
-                # Collect all inputs to verify
+                # Collect all inputs to verify.
+                # Pre-fetch every prevout once so BIP-341 key-path / BIP-342
+                # script-path sighash (in K) have sha_amounts /
+                # sha_scriptpubkeys / the ANYONECANPAY per-input amount
+                # + scriptPubKey available through the <prevouts> cell.
+                all_prevouts: list[tuple[bytes, int] | None] = []
+                for vin in tx.vin:
+                    u = self._utxo.get(bytes(vin.prevout.hash), vin.prevout.n)
+                    all_prevouts.append(u)
+                prevouts_blob = b""
+                if all(p is not None for p in all_prevouts):
+                    for spk, amt in all_prevouts:  # type: ignore[misc]
+                        prevouts_blob += amt.to_bytes(8, "little")
+                        prevouts_blob += _compact_size(len(spk)) + spk
+
                 tasks: list[tuple[int, int, dict]] = []
                 for input_index, vin in enumerate(tx.vin):
                     prev_txid = bytes(vin.prevout.hash)
@@ -628,6 +644,7 @@ class ChainVerifier:
                                 "tx": tx.serialize(),
                                 "input_index": input_index,
                                 "amount": amount,
+                                "prevouts": prevouts_blob,
                             },
                         )
                     )

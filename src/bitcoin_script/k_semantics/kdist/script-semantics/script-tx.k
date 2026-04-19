@@ -201,4 +201,43 @@ module SCRIPT-TX
            #txVoutAt(TX, I),
            #txVoutAt(TX, I) +Int #voutLen(TX, #txVoutAt(TX, I)))
 
+  // =========================================================================
+  // Prevouts iteration.
+  //
+  // The <prevouts> cell carries a concatenation of serialized prevout
+  // records, one per vin, in vin order. Each record has the same layout as
+  // a TxOut: <8-byte LE amount> <compactSize spk_len> <scriptPubKey>.
+  //
+  // This matches Bitcoin's normal vout serialization, so #voutLen /
+  // #skipVouts work unchanged. The only difference is there's no enclosing
+  // tx header — offset 0 is the first prevout.
+  //
+  // BIP-341 / BIP-342 sighash consume this blob to produce
+  // sha_amounts / sha_scriptpubkeys (precomputed-per-tx) and the single
+  // amount+scriptPubKey of vin[inputIdx] (for ANYONECANPAY).
+  // =========================================================================
+
+  // Byte offset of prevout[I] within the prevouts blob.
+  syntax Int ::= #prevoutAt(Bytes, Int) [function]
+  rule #prevoutAt(P, I) => #skipVouts(P, 0, I)
+
+  // 8-byte LE amount of prevout[I].
+  syntax Int ::= #prevoutAmount(Bytes, Int) [function]
+  rule #prevoutAmount(P, I) => #readUInt64LE(P, #prevoutAt(P, I))
+
+  // scriptPubKey bytes (no cs length prefix) of prevout[I].
+  syntax Bytes ::= #prevoutScript(Bytes, Int) [function]
+  rule #prevoutScript(P, I) =>
+         substrBytes(P,
+           #prevoutAt(P, I) +Int 8 +Int #compactSizeBytes(P, #prevoutAt(P, I) +Int 8),
+           #prevoutAt(P, I) +Int #voutLen(P, #prevoutAt(P, I)))
+
+  // scriptPubKey with its compactSize length prefix (serialized form), used
+  // by BIP-341 sha_scriptpubkeys.
+  syntax Bytes ::= #prevoutScriptSerialized(Bytes, Int) [function]
+  rule #prevoutScriptSerialized(P, I) =>
+         substrBytes(P,
+           #prevoutAt(P, I) +Int 8,
+           #prevoutAt(P, I) +Int #voutLen(P, #prevoutAt(P, I)))
+
 endmodule
