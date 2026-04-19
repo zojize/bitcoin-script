@@ -39,6 +39,29 @@ module LEMMAS
     requires N >=Int -2147483647 [simplification, smt-lemma]
 
   // =========================================================================
+  // Sign of negation (needed for intToScriptNum branch selection)
+  // =========================================================================
+
+  rule (0 -Int N) >Int 0 => true
+    requires N <Int 0 [simplification, smt-lemma]
+
+  rule (0 -Int N) <Int 0 => true
+    requires N >Int 0 [simplification, smt-lemma]
+
+  // =========================================================================
+  // absInt simplification
+  // =========================================================================
+
+  rule absInt(N) => N requires N >=Int 0 [simplification]
+  rule absInt(N) => 0 -Int N requires N <Int 0 [simplification]
+
+  rule absInt(N) >=Int 0 => true
+    requires N >=Int -2147483647 [simplification, smt-lemma]
+
+  rule absInt(N) <=Int 2147483647 => true
+    requires N >=Int -2147483647 andBool N <=Int 2147483647 [simplification, smt-lemma]
+
+  // =========================================================================
   // intToScriptNum is injective
   // =========================================================================
 
