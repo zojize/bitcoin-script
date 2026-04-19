@@ -6,6 +6,19 @@ module SCRIPT-SIG
   imports SCRIPT-SEMANTICS
   imports KRYPTO
 
+  // BIP-342 tapscript Schnorr sighash dispatcher. Routes to #bip342Sighash
+  // when <tx> is populated; otherwise falls back to the precomputed blob
+  // for legacy test paths. Takes the annex (from witness), tapleaf hash,
+  // codesep byte offset, and hashtype.
+  syntax Bytes ::= #tapscriptSighash(Bytes, Bytes, Int, Bytes, Bytes, Int, Bytes, Int, Int) [function]
+  // args: tx, prevouts, idx, annex, tapleaf, codesepPos, blob, ht, csi
+  rule #tapscriptSighash(TX, PREVOUTS, IDX, ANNEX, TAPLEAF, CSP, _BLOB, HT, _CSI) =>
+         #bip342Sighash(TX, PREVOUTS, IDX, ANNEX, HT, TAPLEAF, CSP)
+    requires lengthBytes(TX) >Int 0
+  rule #tapscriptSighash(TX, _PREVOUTS, _IDX, _ANNEX, _TAPLEAF, _CSP, BLOB, HT, CSI) =>
+         lookupSighash(BLOB, HT, CSI)
+    requires lengthBytes(TX) ==Int 0
+
   // ECDSA sighash dispatch used by CHECKSIG / CHECKMULTISIG (BIP-143 K path).
   //
   //   phase == witness-v0, <tx> populated:
@@ -205,36 +218,52 @@ module SCRIPT-SIG
      andBool Bytes2Int(substrBytes(SIG, 64, 65), BE, Unsigned) ==Int 0
      andBool W >=Int 50
 
-  // 32-byte pubkey: Schnorr verify succeeds → push 1
+  // 32-byte pubkey: Schnorr verify succeeds → push 1.
+  // Sighash via #tapscriptSighash (K-side BIP-342 when <tx> is populated,
+  // else the precomputed blob).
   rule <k> OP_CHECKSIG => .K ...</k>
        <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST
             => ListItem(intToScriptNum(1)) ST </stack>
        <sighash> SIGHASHBLOB </sighash>
        <codesepIdx> CSI </codesepIdx>
-       <sigopsWeight> W => W -Int 50 </sigopsWeight>
+       <codesepPos> CSP </codesepPos>
+       <tapleafHash> TAPLEAF </tapleafHash>
+       <tx> TX </tx>
+       <prevouts> PREVOUTS </prevouts>
+       <inputIndex> IDX </inputIndex>
+       <witness> W </witness>
+       <sigopsWeight> WT => WT -Int 50 </sigopsWeight>
        <phase> witness-v1 </phase>
     requires lengthBytes(PK) ==Int 32
      andBool #isSchnorrShape(SIG)
      andBool SchnorrVerify(
                PK,
-               lookupSighash(SIGHASHBLOB, #tapSigHashType(SIG), CSI),
+               #tapscriptSighash(TX, PREVOUTS, IDX, #taprootAnnex(W), TAPLEAF, CSP,
+                                  SIGHASHBLOB, #tapSigHashType(SIG), CSI),
                #tapSigBody(SIG))
-     andBool W >=Int 50
+     andBool WT >=Int 50
 
   // 32-byte pubkey: Schnorr verify fails → error (mandatory, no push-0 fallback)
   rule <k> OP_CHECKSIG => #fail("SCHNORR_SIG") ...</k>
        <stack> ListItem(PK:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
        <sighash> SIGHASHBLOB </sighash>
        <codesepIdx> CSI </codesepIdx>
-       <sigopsWeight> W => W -Int 50 </sigopsWeight>
+       <codesepPos> CSP </codesepPos>
+       <tapleafHash> TAPLEAF </tapleafHash>
+       <tx> TX </tx>
+       <prevouts> PREVOUTS </prevouts>
+       <inputIndex> IDX </inputIndex>
+       <witness> W </witness>
+       <sigopsWeight> WT => WT -Int 50 </sigopsWeight>
        <phase> witness-v1 </phase>
     requires lengthBytes(PK) ==Int 32
      andBool #isSchnorrShape(SIG)
      andBool notBool SchnorrVerify(
                PK,
-               lookupSighash(SIGHASHBLOB, #tapSigHashType(SIG), CSI),
+               #tapscriptSighash(TX, PREVOUTS, IDX, #taprootAnnex(W), TAPLEAF, CSP,
+                                  SIGHASHBLOB, #tapSigHashType(SIG), CSI),
                #tapSigBody(SIG))
-     andBool W >=Int 50
+     andBool WT >=Int 50
 
   // Non-32-byte non-empty pubkey in tapscript: unknown key type → push 1
   // (future softfork compatibility, BIP 342)
@@ -303,30 +332,44 @@ module SCRIPT-SIG
             => ListItem(intToScriptNum(scriptNumToInt(N) +Int 1)) ST </stack>
        <sighash> SIGHASHBLOB </sighash>
        <codesepIdx> CSI </codesepIdx>
-       <sigopsWeight> W => W -Int 50 </sigopsWeight>
+       <codesepPos> CSP </codesepPos>
+       <tapleafHash> TAPLEAF </tapleafHash>
+       <tx> TX </tx>
+       <prevouts> PREVOUTS </prevouts>
+       <inputIndex> IDX </inputIndex>
+       <witness> WIT </witness>
+       <sigopsWeight> WT => WT -Int 50 </sigopsWeight>
        <phase> witness-v1 </phase>
     requires lengthBytes(PK) ==Int 32
      andBool #isSchnorrShape(SIG)
      andBool SchnorrVerify(
                PK,
-               lookupSighash(SIGHASHBLOB, #tapSigHashType(SIG), CSI),
+               #tapscriptSighash(TX, PREVOUTS, IDX, #taprootAnnex(WIT), TAPLEAF, CSP,
+                                  SIGHASHBLOB, #tapSigHashType(SIG), CSI),
                #tapSigBody(SIG))
-     andBool W >=Int 50
+     andBool WT >=Int 50
 
   // 32-byte pubkey: Schnorr verify fails → error
   rule <k> OP_CHECKSIGADD => #fail("SCHNORR_SIG") ...</k>
        <stack> ListItem(PK:Bytes) ListItem(_N:Bytes) ListItem(SIG:Bytes) ST => ST </stack>
        <sighash> SIGHASHBLOB </sighash>
        <codesepIdx> CSI </codesepIdx>
-       <sigopsWeight> W => W -Int 50 </sigopsWeight>
+       <codesepPos> CSP </codesepPos>
+       <tapleafHash> TAPLEAF </tapleafHash>
+       <tx> TX </tx>
+       <prevouts> PREVOUTS </prevouts>
+       <inputIndex> IDX </inputIndex>
+       <witness> WIT </witness>
+       <sigopsWeight> WT => WT -Int 50 </sigopsWeight>
        <phase> witness-v1 </phase>
     requires lengthBytes(PK) ==Int 32
      andBool #isSchnorrShape(SIG)
      andBool notBool SchnorrVerify(
                PK,
-               lookupSighash(SIGHASHBLOB, #tapSigHashType(SIG), CSI),
+               #tapscriptSighash(TX, PREVOUTS, IDX, #taprootAnnex(WIT), TAPLEAF, CSP,
+                                  SIGHASHBLOB, #tapSigHashType(SIG), CSI),
                #tapSigBody(SIG))
-     andBool W >=Int 50
+     andBool WT >=Int 50
 
   // Non-32-byte non-empty pubkey in tapscript: unknown key type → push N+1
   // (future softfork compatibility, BIP 342)
@@ -602,17 +645,28 @@ module SCRIPT-SIG
        <scriptCode> _ => T </scriptCode>
        <phase> witness-v0 </phase>
 
-  // OP_CODESEPARATOR in other phases (witness-v1 tapscript, or legacy
-  // without CONST_SCRIPTCODE): just increment the counter. Tapscript uses
-  // <codesepIdx> as the BIP-342 codesep_pos input to TapSighash; legacy
-  // phases (when allowed) use it to index into the blob.
+  // OP_CODESEPARATOR in witness-v1 (tapscript): bump the counter AND
+  // record the byte offset of this CODESEP within the tapscript, to be
+  // folded into the BIP-342 sigmsg as codesep_pos. Position of the
+  // CODESEP opcode (zero-indexed by byte):
+  //     tapscriptLen - pendingTailLen - 1
+  // The -1 accounts for the CODESEP byte itself which precedes the tail.
+  rule <k> OP_CODESEPARATOR => .K ...</k>
+       <codesepIdx> N => N +Int 1 </codesepIdx>
+       <pendingCodesepTail> T </pendingCodesepTail>
+       <tapscriptBytes> TS </tapscriptBytes>
+       <codesepPos> _ => lengthBytes(TS) -Int lengthBytes(T) -Int 1 </codesepPos>
+       <phase> witness-v1 </phase>
+
+  // OP_CODESEPARATOR in legacy phases without CONST_SCRIPTCODE: just bump
+  // the counter. Legacy sighash still uses the precomputed blob (indexed
+  // by codesepIdx) until the in-K legacy sighash lands.
   rule <k> OP_CODESEPARATOR => .K ...</k>
        <codesepIdx> N => N +Int 1 </codesepIdx>
        <phase> P </phase>
        <flags> F </flags>
-    requires P =/=K witness-v0
-     andBool notBool (P =/=K witness-v0 andBool P =/=K witness-v1
-              andBool hasFlag(F, FLAG_CONST_SCRIPTCODE))
+    requires P =/=K witness-v0 andBool P =/=K witness-v1
+     andBool notBool hasFlag(F, FLAG_CONST_SCRIPTCODE)
 
   // =========================================================================
   // OP_CHECKSIGVERIFY: CHECKSIG then VERIFY

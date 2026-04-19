@@ -64,6 +64,17 @@ module SCRIPT-SEMANTICS
       // witness-v0 exec rule promotes the value into <scriptCode>, so
       // inactive-branch CODESEPs cannot corrupt the active scriptCode.
       <pendingCodesepTail> .Bytes </pendingCodesepTail>
+      // BIP-342 tapscript extensions. Initialized at witness-v1
+      // script-path entry (see #taprootVerify) and consumed by
+      // #bip342Sighash for the per-input sigmsg extension:
+      //   tapleafHash : TapLeaf tagged hash over (leaf_ver || cs(len) || script)
+      //   tapscriptBytes : the executing tapscript bytes (for computing
+      //                    codesepPos at OP_CODESEPARATOR exec time)
+      //   codesepPos    : byte offset of the most recent executed
+      //                   OP_CODESEPARATOR, or 0xFFFFFFFF when none yet.
+      <tapleafHash> .Bytes </tapleafHash>
+      <tapscriptBytes> .Bytes </tapscriptBytes>
+      <codesepPos> 4294967295 </codesepPos>
     </T>
 
   // --- Flag checking (Bitcoin Core verification flags as bitmask) ---
@@ -696,7 +707,9 @@ module SCRIPT-SEMANTICS
      andBool ( lengthBytes(#witnessItemAt(W, #taprootWitnessCount(W) -Int 1)) <Int 33
         orBool (lengthBytes(#witnessItemAt(W, #taprootWitnessCount(W) -Int 1)) -Int 33) modInt 32 =/=Int 0 )
 
-  // Control block valid: verify output key and enter tapscript execution
+  // Control block valid: verify output key and enter tapscript execution.
+  // Stash the tapleaf hash + tapscript bytes for BIP-342 sigmsg, and
+  // reset <codesepPos> to 0xFFFFFFFF (no CODESEP executed yet).
   rule <k> #taprootVerify(PROG)
         => #pushWitnessStack(W, 0, #taprootWitnessCount(W) -Int 2)
         ~> #decodeScript(#witnessItemAt(W, #taprootWitnessCount(W) -Int 2))
@@ -707,6 +720,9 @@ module SCRIPT-SEMANTICS
        <exec> _ => .List </exec>
        <opCount> _ => 0 </opCount>
        <codesepIdx> _ => 0 </codesepIdx>
+       <codesepPos> _ => 4294967295 </codesepPos>
+       <tapleafHash> _ => #leafHash(#taprootCB(W), #taprootScript(W)) </tapleafHash>
+       <tapscriptBytes> _ => #taprootScript(W) </tapscriptBytes>
        <phase> _ => witness-v1 </phase>
        <witnessUsed> _ => true </witnessUsed>
     requires #taprootWitnessCount(W) >Int 1
