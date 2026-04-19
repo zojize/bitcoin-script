@@ -46,23 +46,34 @@ Five more commits landed the full K-side sighash for witness-v0 CHECKSIG / CHECK
     - [x] Switch the witness-v0 CHECKSIG / CHECKMULTISIG rules in `script-sig.k` to use `#bip143Sighash` (via `#ecdsaSighash` dispatcher) instead of `lookupSighash`.
     - [x] Drop `witness-v0` entries from the precomputed blob in `verifier.py::_compute_sighash_blob` and thread tx/amount through benchmark + test callers.
     - Mainnet smoke: 1,000/1,000 random witness-v0 inputs from benchmark-dataset-v3.msgpack verified via K-side BIP-143 with zero failures.
-- [ ] **BIP-341 key-path sighash** (Taproot)
-    - [ ] Five precomputed hashes: `#sha_prevouts`, `#sha_amounts`, `#sha_scriptpubkeys`, `#sha_sequences`, `#sha_outputs` (single SHA-256, not double).
-    - [ ] `#bip341Sighash(tx, prevouts, inputIdx, annex, hashtype)` — BIP-341 sigmsg with spend type (0 / 1 for annex), wrapped with `#taggedHash("TapSighash", ...)`.
-    - [ ] Switch the key-path CHECKSIG path in `script-semantics.k` (`#taprootVerify`) to use `#bip341Sighash`.
-- [ ] **BIP-342 script-path sighash** (Tapscript)
-    - [ ] `#tapleafHash(leafVersion, script)` = `#taggedHash("TapLeaf", leaf_version || compact_size(script) || script)`.
-    - [ ] `#bip342Sighash(tx, prevouts, inputIdx, annex, hashtype, tapleafHash, keyVersion, codesepPos)` extending BIP-341 with tapscript-specific fields.
-    - [ ] Switch tapscript CHECKSIG / CHECKSIGADD rules in `script-sig.k` to use `#bip342Sighash`.
+- [x] **BIP-341 key-path sighash** (Taproot) — commit [e72a69f](https://github.com/zojize/bitcoin-script/commit/e72a69f)
+    - [x] Five precomputed hashes: `#bip341ShaPrevouts/ShaAmounts/ShaScriptpubkeys/ShaSequences/ShaOutputs` (single SHA-256, not double).
+    - [x] `#bip341Sighash(tx, prevouts, inputIdx, annex, hashtype)` — full sigmsg with spend type, wrapped with `#taggedHash("TapSighash", ...)`.
+    - [x] Prevout walker helpers (`#prevoutAt`, `#prevoutAmount`, `#prevoutScriptSerialized`) in SCRIPT-TX for walking the `<prevouts>` blob.
+    - [x] Switch `#taprootVerify` key-path rules to use `#bip341Sighash` via `#taprootKeypathSighash` dispatcher.
+    - [x] Reference validation: `tests/test_k_semantics/test_bip341_vectors.py` — all 7 inputs from BIP-341 `wallet-test-vectors.json` (hashtypes 0x00, 0x01, 0x02, 0x03, 0x81, 0x82, 0x83) pass. Mainnet smoke: 2,000/2,000 taproot inputs from `benchmark-dataset-v3.msgpack` pass.
+- [x] **BIP-342 script-path sighash** (Tapscript) — commit [c77c1b0](https://github.com/zojize/bitcoin-script/commit/c77c1b0)
+    - [x] New cells `<tapleafHash>`, `<tapscriptBytes>`, `<codesepPos>` initialized at witness-v1 script-path entry in `#taprootVerify`.
+    - [x] `#bip342Sighash(tx, prevouts, inputIdx, annex, hashtype, tapleafHash, codesepPos)` extending BIP-341 with tapleaf_hash || 0x00 (key_version) || codesep_pos.
+    - [x] OP_CODESEPARATOR exec rule split by phase: witness-v1 updates `<codesepPos>` to byte offset (`tapscriptLen - pendingTailLen - 1`).
+    - [x] Switch tapscript CHECKSIG / CHECKSIGADD rules (4 total) to use `#bip342Sighash` via `#tapscriptSighash` dispatcher.
+    - [x] Mainnet smoke: **5,575 / 5,575** tapscript script-path inputs pass.
 - [ ] **Legacy sighash** (pre-SegWit)
     - [ ] Hashtype dispatch: `SIGHASH_ALL`, `SIGHASH_NONE`, `SIGHASH_SINGLE`, each × `SIGHASH_ANYONECANPAY`.
-    - [ ] `OP_CODESEPARATOR` subscript slicing (legacy semantics: drop all bytes up to and including the last executed codesep — different from BIP-143).
-    - [ ] Special cases: `SIGHASH_SINGLE` with `vin > vout` returns `0x01` hash.
-    - [ ] Double-SHA-256 over the serialized modified tx.
-- [ ] **Test vectors**
-    - [ ] Cross-check every K sighash rule against Bitcoin Core's `script_tests.json` + `tx_valid.json` + BIP-341 test vectors at `bip-0341/wallet-test-vectors.json`.
-    - [ ] Add a standalone `sighash_test.py` fixture that computes K sighash and compares byte-for-byte to `python-bitcointx`'s reference.
-- [ ] **Rerun benchmark** — once BIP-341 + BIP-342 + legacy all land, re-run the full mainnet benchmark to quantify the K/Core ratio shift. BIP-143 alone didn't regress the 113 script_tests witness vectors; 1,000 mainnet witness-v0 smoke test is clean.
+    - [ ] `OP_CODESEPARATOR` subscript slicing (legacy semantics: FindAndDelete 0xab bytes from subscript; or, drop everything up to + including the last executed codesep).
+    - [ ] Signature `FindAndDelete` from scriptCode (legacy only — BIP-143 + BIP-341 both dropped this).
+    - [ ] Tx modification per hashtype: clear vouts for NONE, filter for SINGLE, single-vin for ANYONECANPAY, set other sequences to 0 for NONE/SINGLE.
+    - [ ] Special cases: `SIGHASH_SINGLE` with `input_index >= len(vout)` returns `0x0100..00` (32 bytes, little-endian 1).
+    - [ ] Double-SHA-256 over the serialized modified tx + 4-byte LE hashtype.
+    - [ ] Closes 10 `sighash mismatch: CODESEP/unusual P2SH with CONST_SCRIPTCODE excluded` xfails in `test_tx_vectors.py`.
+- [ ] **Rerun benchmark** — once legacy lands, rerun the full mainnet benchmark to quantify the K/Core ratio shift.
+
+### Remaining xfails (23 as of commit [c77c1b0](https://github.com/zojize/bitcoin-script/commit/c77c1b0))
+
+- **10** `sighash mismatch` — resolved by landing legacy sighash in K (above).
+- **9** `BADTX` — transaction-level validation out of script-semantics scope. Can be resolved by adding pre-K sanity checks in the test harness (e.g. check tx round-trips through deserialize + re-serialize; reject oversized vins/vouts).
+- **3** `invalidity depends on excluded flag: {P2SH | P2SH,CLTV | P2SH,CSV}` — tx_invalid entries whose invalidity disappears when their listed flag is excluded. Requires harness-level analysis; may be legitimate upstream oddities.
+- **1** `TaprootCheckOutput hook does not check parity bit from control block` — blockchain-k-plugin C++ fix: swap `secp256k1_xonly_pubkey_tweak_add + serialize + memcmp` for `secp256k1_xonly_pubkey_tweak_add_check` and pass the expected parity from the control block's LSB.
 
 ### Expected performance impact
 
