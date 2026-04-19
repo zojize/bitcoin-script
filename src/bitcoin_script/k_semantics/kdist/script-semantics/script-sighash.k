@@ -374,6 +374,38 @@ module SCRIPT-SIGHASH
            )
 
   // =========================================================================
+  // BIP-342 sigmsg (Tapscript script-path).
+  //
+  // Extends the BIP-341 sigmsg with three additional fields when
+  // ext_flag == 1:
+  //   tapleaf_hash   (32 bytes)   = taggedHash("TapLeaf", leaf_ver || cs(len) || script)
+  //   key_version    (1 byte = 0) — reserved for future pubkey type changes
+  //   codesep_pos    (4 LE bytes) — byte offset of most recent executed
+  //                                 OP_CODESEPARATOR, or 0xFFFFFFFF if none.
+  //
+  // Everything else is identical to BIP-341 with ext_flag=1 in spend_type.
+  // =========================================================================
+
+  syntax Bytes ::= #bip342Sighash(Bytes, Bytes, Int, Bytes, Int, Bytes, Int) [function]
+  // args: tx, prevouts, inputIdx, annex, hashtype, tapleafHash, codesepPos
+  rule #bip342Sighash(TX, PREVOUTS, IDX, ANNEX, HT, TAPLEAF, CSP) =>
+           #taggedHash("TapSighash",
+               Int2Bytes(1, 0, BE)                              // epoch
+             +Bytes Int2Bytes(1, HT, BE)                        // hashtype
+             +Bytes Int2Bytes(4, #txVersion(TX), LE)
+             +Bytes Int2Bytes(4, #txLocktime(TX), LE)
+             +Bytes #bip341BlockPrevouts(TX, PREVOUTS, HT, #txVinCount(TX))
+             +Bytes #bip341BlockOutputs(TX, HT)
+             +Bytes Int2Bytes(1, #bip341SpendType(1, ANNEX), BE) // ext_flag=1
+             +Bytes #bip341BlockInput(TX, PREVOUTS, IDX, HT)
+             +Bytes #bip341BlockAnnex(ANNEX)
+             +Bytes #bip341BlockSingleOutput(TX, IDX, HT)
+             +Bytes TAPLEAF                                     // 32 bytes
+             +Bytes Int2Bytes(1, 0, BE)                         // key_version=0
+             +Bytes Int2Bytes(4, CSP, LE)                       // codesep_pos
+           )
+
+  // =========================================================================
   // Delegation stub.
   //
   // Returns the 32-byte sighash, or .Bytes on lookup failure (matches
