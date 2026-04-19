@@ -752,13 +752,16 @@ module SCRIPT-SEMANTICS
   rule #taprootScript(W) => #witnessItemAt(W, #taprootWitnessCount(W) -Int 2)
 
   // --- Control block validation ---
-  // Extracts internal key, computes merkle root from path, verifies tweaked key == output
+  // Extracts internal key, computes merkle root from path, verifies tweaked
+  // key bytes == output AND that the expected parity (bit 0 of the control
+  // block's first byte) matches the computed tweak parity (BIP-341).
   syntax Bool ::= #validControlBlock(Bytes, Bytes) [function]
   rule #validControlBlock(W, PROG) =>
     TaprootCheckOutput(PROG,
       #cbInternalKey(#taprootCB(W)),
       #walkMerkle(#taprootCB(W), 33,
-        #leafHash(#taprootCB(W), #taprootScript(W))))
+        #leafHash(#taprootCB(W), #taprootScript(W))),
+      #byteAt(#taprootCB(W), 0) &Int 1)
 
   // Extract internal key (bytes 1-33 of control block)
   syntax Bytes ::= #cbInternalKey(Bytes) [function]

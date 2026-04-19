@@ -614,9 +614,6 @@ class TestScriptPathControlBlock:
         assert not k.success(result)
         assert k.error(result) == "WITNESS_PROGRAM_MISMATCH"
 
-    @pytest.mark.xfail(
-        reason="TaprootCheckOutput hook does not check parity bit from control block"
-    )
     def test_wrong_parity_bit(self, k):
         """Control block with flipped parity bit should fail."""
         tapscript = bytes([0x51])  # OP_1
