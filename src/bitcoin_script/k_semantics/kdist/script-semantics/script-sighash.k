@@ -616,6 +616,16 @@ module SCRIPT-SIGHASH
            Int2Bytes(1, 78, BE) +Bytes Int2Bytes(4, lengthBytes(D), LE) +Bytes D
     requires lengthBytes(D) >=Int 65536 andBool lengthBytes(D) <=Int 4294967295
 
+  // Iteratively apply #findAndDelete(scriptCode, pushed(sig)) for every
+  // signature in SIGS. Used by legacy CHECKMULTISIG, where Bitcoin Core's
+  // EvalChecksig strips ALL collected sigs from the subscript before
+  // starting the per-sig verification loop. Witness-v0 CHECKMULTISIG
+  // does NOT apply this (BIP-143).
+  syntax Bytes ::= #findAndDeleteAll(Bytes, List) [function]
+  rule #findAndDeleteAll(S, .List) => S
+  rule #findAndDeleteAll(S, ListItem(SIG:Bytes) SIGS) =>
+         #findAndDeleteAll(#findAndDelete(S, #pushed(SIG)), SIGS)
+
   syntax Bytes ::= #faDelAcc(Bytes, Bytes, Int, Bytes) [function]
   rule #faDelAcc(S, _, I, ACC) => ACC
     requires I >=Int lengthBytes(S)

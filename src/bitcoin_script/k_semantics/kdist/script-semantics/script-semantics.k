@@ -57,6 +57,14 @@ module SCRIPT-SEMANTICS
       <inputIndex> $INPUTINDEX:Int </inputIndex>
       <amount> $AMOUNT:Int </amount>
       <scriptCode> .Bytes </scriptCode>
+      // Phase that most recently populated <scriptCode> via a legacy
+      // OP_CODESEPARATOR. Used to scope the scriptCode override to the
+      // phase that set it — Bitcoin Core resets pbegincodehash at each
+      // phase boundary, so a CODESEP in scriptSig must not leak its
+      // post-slice into scriptPubKey's CHECKSIG scriptCode. Default
+      // `done` (no phase has set it). Prover specs that don't fire
+      // CODESEP never touch this cell.
+      <scriptCodePhase> done </scriptCodePhase>
       // Post-CODESEP tail bytes stashed by the decoder (see
       // script-decode.k) and read by the OP_CODESEPARATOR exec rule in
       // witness-v0 phase to slice <scriptCode> at the byte AFTER the
@@ -966,9 +974,16 @@ module SCRIPT-SEMANTICS
   syntax Bool ::= #isMinimalPush(Int, Bytes) [function, total]
 
   // Sig verification syntax (rules in SCRIPT-SIG)
+  //
+  // #verifyMultisig's third arg is the "multisig scriptCode" — for legacy
+  // phases, Bitcoin Core's EvalChecksig for CHECKMULTISIG applies
+  // FindAndDelete(scriptCode, CScript() << vchSig) for EVERY collected
+  // signature BEFORE running the verify loop, then uses the same stripped
+  // scriptCode for all per-sig sighashes. We precompute it once at the
+  // #collectSigs(0, ...) → #verifyMultisig transition.
   syntax KItem ::= "#collectPubKeys" "(" Int "," List ")"
                  | "#collectSigs" "(" Int "," List "," List ")"
-                 | "#verifyMultisig" "(" List "," List ")"
+                 | "#verifyMultisig" "(" List "," List "," Bytes ")"
 
   // =========================================================================
   // #isTruthy: Bitcoin truthiness check

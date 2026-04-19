@@ -28,14 +28,29 @@ module SCRIPT-SIG
   // force fresh existentials in every K proof claim that doesn't
   // mention the cell). Instead the cell is the "CODESEP override",
   // empty until an OP_CODESEPARATOR fires.
-  syntax Bytes ::= #legacyScriptCodeOf(Phase, Bytes, Bytes, Bytes) [function]
-  // args: phase, <scriptCode>, <scriptPubKeyBytes>, <p2shRedeemBytes>
-  rule #legacyScriptCodeOf(_, SC, _, _) => SC
-    requires lengthBytes(SC) >Int 0
-  rule #legacyScriptCodeOf(p2sh-redeem, SC, _, REDEEM) => REDEEM
-    requires lengthBytes(SC) ==Int 0
-  rule #legacyScriptCodeOf(PH, SC, SPK, _) => SPK
-    requires PH =/=K p2sh-redeem andBool lengthBytes(SC) ==Int 0
+  syntax Bytes ::= #legacyScriptCodeOf(Phase, Phase, Bytes, Bytes, Bytes, Bytes) [function]
+  // args: current <phase>, <scriptCodePhase>, <scriptCode>,
+  //       <scriptSigBytes>, <scriptPubKeyBytes>, <p2shRedeemBytes>
+  //
+  // Bitcoin Core's legacy sighash uses scriptCode = CScript(pbegincodehash, pend)
+  // where the begin pointer resets to the start of the currently-executing
+  // script on phase entry (and advances on each OP_CODESEPARATOR).
+  //
+  // We encode this as: the override <scriptCode> applies ONLY if it was
+  // set during the currently-executing phase (tracked in <scriptCodePhase>).
+  // Otherwise the default for this phase is used:
+  //   scriptSig     -> scriptSig bytes
+  //   scriptPubKey  -> scriptPubKey bytes
+  //   p2sh-redeem   -> p2sh redeem script bytes
+  rule #legacyScriptCodeOf(PH, SCP, SC, _, _, _) => SC
+    requires PH ==K SCP andBool lengthBytes(SC) >Int 0
+  rule #legacyScriptCodeOf(scriptSig, SCP, SC, SIG, _, _) => SIG
+    requires scriptSig =/=K SCP orBool lengthBytes(SC) ==Int 0
+  rule #legacyScriptCodeOf(p2sh-redeem, SCP, SC, _, _, REDEEM) => REDEEM
+    requires p2sh-redeem =/=K SCP orBool lengthBytes(SC) ==Int 0
+  rule #legacyScriptCodeOf(PH, SCP, SC, _, SPK, _) => SPK
+    requires PH =/=K scriptSig andBool PH =/=K p2sh-redeem
+     andBool (PH =/=K SCP orBool lengthBytes(SC) ==Int 0)
 
   // ECDSA sighash dispatch used by CHECKSIG / CHECKMULTISIG.
   //
@@ -55,19 +70,41 @@ module SCRIPT-SIG
   //
   // Extra args SPK + REDEEM give legacy the hooks needed to compute the
   // effective scriptCode without a phase-entry init rule.
-  syntax Bytes ::= #ecdsaSighash(Phase, Bytes, Int, Bytes, Int, Bytes, Int, Int, Bytes, Bytes, Bytes) [function]
-  rule #ecdsaSighash(witness-v0, TX, IDX, SC, AMT, _BLOB, HT, _CSI, _SIG, _SPK, _REDEEM) =>
+  syntax Bytes ::= #ecdsaSighash(Phase, Phase, Bytes, Int, Bytes, Int, Bytes, Int, Int, Bytes, Bytes, Bytes, Bytes) [function]
+  // args: current phase, scriptCodePhase, tx, inputIdx, <scriptCode>, amount,
+  //       sighashBlob, hashtype, codesepIdx, SIG, <scriptSigBytes>,
+  //       <scriptPubKeyBytes>, <p2shRedeemBytes>
+  rule #ecdsaSighash(witness-v0, _SCP, TX, IDX, SC, AMT, _BLOB, HT, _CSI, _SIG, _SIGB, _SPK, _REDEEM) =>
          #bip143Sighash(TX, IDX, SC, AMT, HT)
     requires lengthBytes(TX) >Int 0
-  rule #ecdsaSighash(witness-v0, TX, _IDX, _SC, _AMT, BLOB, HT, CSI, _SIG, _SPK, _REDEEM) =>
+  rule #ecdsaSighash(witness-v0, _SCP, TX, _IDX, _SC, _AMT, BLOB, HT, CSI, _SIG, _SIGB, _SPK, _REDEEM) =>
          lookupSighash(BLOB, HT, CSI)
     requires lengthBytes(TX) ==Int 0
-  rule #ecdsaSighash(PH, TX, IDX, SC, _AMT, _BLOB, HT, _CSI, SIG, SPK, REDEEM) =>
+  rule #ecdsaSighash(PH, SCP, TX, IDX, SC, _AMT, _BLOB, HT, _CSI, SIG, SIGB, SPK, REDEEM) =>
          #legacySighash(TX, IDX,
-           #findAndDelete(#legacyScriptCodeOf(PH, SC, SPK, REDEEM), #pushed(SIG)),
+           #findAndDelete(#legacyScriptCodeOf(PH, SCP, SC, SIGB, SPK, REDEEM), #pushed(SIG)),
            HT)
     requires PH =/=K witness-v0 andBool lengthBytes(TX) >Int 0
-  rule #ecdsaSighash(PH, TX, _IDX, _SC, _AMT, BLOB, HT, CSI, _SIG, _SPK, _REDEEM) =>
+  rule #ecdsaSighash(PH, _SCP, TX, _IDX, _SC, _AMT, BLOB, HT, CSI, _SIG, _SIGB, _SPK, _REDEEM) =>
+         lookupSighash(BLOB, HT, CSI)
+    requires PH =/=K witness-v0 andBool lengthBytes(TX) ==Int 0
+
+  // Multisig variant of ecdsaSighash: receives the scriptCode with ALL
+  // collected sigs already stripped (MSSC) for legacy phases. witness-v0
+  // ignores MSSC and uses the BIP-143 path (SC from <scriptCode> cell).
+  syntax Bytes ::= #ecdsaSighashMulti(Phase, Bytes, Int, Bytes, Int, Bytes, Int, Int, Bytes) [function]
+  // args: phase, tx, inputIdx, <scriptCode>, amount, sighashBlob, hashtype,
+  //       codesepIdx, MSSC (pre-stripped multisig scriptCode for legacy)
+  rule #ecdsaSighashMulti(witness-v0, TX, IDX, SC, AMT, _BLOB, HT, _CSI, _MSSC) =>
+         #bip143Sighash(TX, IDX, SC, AMT, HT)
+    requires lengthBytes(TX) >Int 0
+  rule #ecdsaSighashMulti(witness-v0, TX, _IDX, _SC, _AMT, BLOB, HT, CSI, _MSSC) =>
+         lookupSighash(BLOB, HT, CSI)
+    requires lengthBytes(TX) ==Int 0
+  rule #ecdsaSighashMulti(PH, TX, IDX, _SC, _AMT, _BLOB, HT, _CSI, MSSC) =>
+         #legacySighash(TX, IDX, MSSC, HT)
+    requires PH =/=K witness-v0 andBool lengthBytes(TX) >Int 0
+  rule #ecdsaSighashMulti(PH, TX, _IDX, _SC, _AMT, BLOB, HT, CSI, _MSSC) =>
          lookupSighash(BLOB, HT, CSI)
     requires PH =/=K witness-v0 andBool lengthBytes(TX) ==Int 0
 
@@ -161,14 +198,16 @@ module SCRIPT-SIG
        <tx> TX </tx>
        <inputIndex> IDX </inputIndex>
        <scriptCode> SC </scriptCode>
+       <scriptCodePhase> SCP </scriptCodePhase>
        <amount> AMT </amount>
+       <scriptSigBytes> SIGB </scriptSigBytes>
        <scriptPubKeyBytes> SPK </scriptPubKeyBytes>
        <p2shRedeemBytes> REDEEM </p2shRedeemBytes>
     requires PH =/=K witness-v1
      andBool lengthBytes(SIG) >Int 0
      andBool notBool (PH ==K witness-v0 andBool hasFlag(F, FLAG_WITNESS_PUBKEYTYPE) andBool notBool #isCompressedPubKey(PK))
      andBool ecdsaVerify(PK, SIG,
-               #ecdsaSighash(PH, TX, IDX, SC, AMT, SIGHASHBLOB, sigHashType(SIG), CSI, SIG, SPK, REDEEM))
+               #ecdsaSighash(PH, SCP, TX, IDX, SC, AMT, SIGHASHBLOB, sigHashType(SIG), CSI, SIG, SIGB, SPK, REDEEM))
 
   // Non-empty sig fails verification, no NULLFAIL: push 0
   rule <k> OP_CHECKSIG => .K ...</k>
@@ -181,14 +220,16 @@ module SCRIPT-SIG
        <tx> TX </tx>
        <inputIndex> IDX </inputIndex>
        <scriptCode> SC </scriptCode>
+       <scriptCodePhase> SCP </scriptCodePhase>
        <amount> AMT </amount>
+       <scriptSigBytes> SIGB </scriptSigBytes>
        <scriptPubKeyBytes> SPK </scriptPubKeyBytes>
        <p2shRedeemBytes> REDEEM </p2shRedeemBytes>
     requires PH =/=K witness-v1
      andBool lengthBytes(SIG) >Int 0
      andBool notBool (PH ==K witness-v0 andBool hasFlag(F, FLAG_WITNESS_PUBKEYTYPE) andBool notBool #isCompressedPubKey(PK))
      andBool notBool ecdsaVerify(PK, SIG,
-               #ecdsaSighash(PH, TX, IDX, SC, AMT, SIGHASHBLOB, sigHashType(SIG), CSI, SIG, SPK, REDEEM))
+               #ecdsaSighash(PH, SCP, TX, IDX, SC, AMT, SIGHASHBLOB, sigHashType(SIG), CSI, SIG, SIGB, SPK, REDEEM))
      andBool notBool hasFlag(F, FLAG_NULLFAIL)
 
   // Non-empty sig fails verification, NULLFAIL set: script error
@@ -201,14 +242,16 @@ module SCRIPT-SIG
        <tx> TX </tx>
        <inputIndex> IDX </inputIndex>
        <scriptCode> SC </scriptCode>
+       <scriptCodePhase> SCP </scriptCodePhase>
        <amount> AMT </amount>
+       <scriptSigBytes> SIGB </scriptSigBytes>
        <scriptPubKeyBytes> SPK </scriptPubKeyBytes>
        <p2shRedeemBytes> REDEEM </p2shRedeemBytes>
     requires PH =/=K witness-v1
      andBool lengthBytes(SIG) >Int 0
      andBool notBool (PH ==K witness-v0 andBool hasFlag(F, FLAG_WITNESS_PUBKEYTYPE) andBool notBool #isCompressedPubKey(PK))
      andBool notBool ecdsaVerify(PK, SIG,
-               #ecdsaSighash(PH, TX, IDX, SC, AMT, SIGHASHBLOB, sigHashType(SIG), CSI, SIG, SPK, REDEEM))
+               #ecdsaSighash(PH, SCP, TX, IDX, SC, AMT, SIGHASHBLOB, sigHashType(SIG), CSI, SIG, SIGB, SPK, REDEEM))
      andBool hasFlag(F, FLAG_NULLFAIL)
 
   // =========================================================================
@@ -482,10 +525,26 @@ module SCRIPT-SIG
     requires M >Int 0
 
   // Step 3b: All M sigs collected; pop dummy element, begin verification
-  // NULLDUMMY: when flag set, dummy must be empty
-  rule <k> #collectSigs(0, PKs, Sigs) => #verifyMultisig(PKs, Sigs) ...</k>
+  // NULLDUMMY: when flag set, dummy must be empty.
+  //
+  // At this transition we compute the legacy "multisig scriptCode" (MSSC)
+  // once: Bitcoin Core's EvalChecksig strips all collected sigs from the
+  // subscript BEFORE running the per-sig verify loop (CONST_SCRIPTCODE off).
+  // Witness-v0 doesn't apply FindAndDelete; #ecdsaSighashMulti ignores MSSC
+  // there.
+  rule <k> #collectSigs(0, PKs, Sigs) =>
+           #verifyMultisig(PKs, Sigs,
+             #findAndDeleteAll(
+               #legacyScriptCodeOf(PH, SCP, SC, SIGB, SPK, REDEEM),
+               Sigs)) ...</k>
        <stack> ListItem(DUMMY:Bytes) ST => ST </stack>
        <flags> F </flags>
+       <phase> PH </phase>
+       <scriptCode> SC </scriptCode>
+       <scriptCodePhase> SCP </scriptCodePhase>
+       <scriptSigBytes> SIGB </scriptSigBytes>
+       <scriptPubKeyBytes> SPK </scriptPubKeyBytes>
+       <p2shRedeemBytes> REDEEM </p2shRedeemBytes>
     requires notBool hasFlag(F, FLAG_NULLDUMMY) orBool lengthBytes(DUMMY) ==Int 0
 
   rule <k> #collectSigs(0, _, _) => #fail("NULLDUMMY") ...</k>
@@ -548,20 +607,20 @@ module SCRIPT-SIG
   // =========================================================================
 
   // Step 4a: All sigs verified (sigs list exhausted) — push true
-  rule <k> #verifyMultisig(_, .List) => .K ...</k>
+  rule <k> #verifyMultisig(_, .List, _) => .K ...</k>
        <stack> ST => ListItem(intToScriptNum(1)) ST </stack>
 
   // Step 4b: Not enough pubkeys for remaining sigs — fail immediately
   // Mirrors Bitcoin Core's "nSigsCount > nKeysCount" early exit.
   // NULLFAIL: ANY remaining non-empty sig causes script failure.
-  rule <k> #verifyMultisig(PKs, Sigs) => .K ...</k>
+  rule <k> #verifyMultisig(PKs, Sigs, _) => .K ...</k>
        <stack> ST => ListItem(intToScriptNum(0)) ST </stack>
        <flags> F </flags>
     requires size(Sigs) >Int 0
      andBool size(Sigs) >Int size(PKs)
      andBool (notBool hasFlag(F, FLAG_NULLFAIL) orBool notBool #hasNonEmptySig(Sigs))
 
-  rule <k> #verifyMultisig(PKs, Sigs) => #fail("NULLFAIL") ...</k>
+  rule <k> #verifyMultisig(PKs, Sigs, _) => #fail("NULLFAIL") ...</k>
        <flags> F </flags>
     requires size(Sigs) >Int 0
      andBool size(Sigs) >Int size(PKs)
@@ -574,7 +633,7 @@ module SCRIPT-SIG
   // AFTER each iteration, preventing encoding checks on unreachable pubkeys.
 
   // Step 4c: Encoding check fails for current sig-pk pair → error
-  rule <k> #verifyMultisig(ListItem(PK:Bytes) PKs, ListItem(SIG:Bytes) Sigs)
+  rule <k> #verifyMultisig(ListItem(PK:Bytes) PKs, ListItem(SIG:Bytes) Sigs, _)
         => #fail(#msEncErr(SIG, PK, F)) ...</k>
        <flags> F </flags>
     requires size(Sigs) <=Int size(PKs)
@@ -582,7 +641,7 @@ module SCRIPT-SIG
      andBool notBool #msEncOK(SIG, PK, F)
 
   // Step 4c': WITNESS_PUBKEYTYPE: in witness v0, pubkey must be compressed
-  rule <k> #verifyMultisig(ListItem(PK:Bytes) _PKs, ListItem(SIG:Bytes) _Sigs)
+  rule <k> #verifyMultisig(ListItem(PK:Bytes) _PKs, ListItem(SIG:Bytes) _Sigs, _)
         => #fail("WITNESS_PUBKEYTYPE") ...</k>
        <flags> F </flags>
        <phase> witness-v0 </phase>
@@ -592,23 +651,24 @@ module SCRIPT-SIG
      andBool notBool #isCompressedPubKey(PK)
 
   // Step 4d: Empty sig — check pubkey encoding (STRICTENC), advance pubkey
-  rule <k> #verifyMultisig(ListItem(PK:Bytes) PKs, ListItem(SIG:Bytes) Sigs)
-        => #verifyMultisig(PKs, ListItem(SIG) Sigs) ...</k>
+  rule <k> #verifyMultisig(ListItem(PK:Bytes) PKs, ListItem(SIG:Bytes) Sigs, MSSC)
+        => #verifyMultisig(PKs, ListItem(SIG) Sigs, MSSC) ...</k>
        <flags> F </flags>
     requires size(Sigs) <=Int size(PKs)
      andBool lengthBytes(SIG) ==Int 0
      andBool (notBool hasFlag(F, FLAG_STRICTENC) orBool validPubKeyType(PK))
 
-  rule <k> #verifyMultisig(ListItem(PK:Bytes) PKs, ListItem(SIG:Bytes) Sigs)
+  rule <k> #verifyMultisig(ListItem(PK:Bytes) _PKs, ListItem(SIG:Bytes) _Sigs, _)
         => #fail("PUBKEYTYPE") ...</k>
        <flags> F </flags>
-    requires size(Sigs) <=Int size(PKs)
-     andBool lengthBytes(SIG) ==Int 0
+    requires lengthBytes(SIG) ==Int 0
      andBool hasFlag(F, FLAG_STRICTENC) andBool notBool validPubKeyType(PK)
 
-  // Step 4e: Encoding OK, sig matches current pubkey — advance both
-  rule <k> #verifyMultisig(ListItem(PK:Bytes) PKs, ListItem(SIG:Bytes) Sigs)
-        => #verifyMultisig(PKs, Sigs) ...</k>
+  // Step 4e: Encoding OK, sig matches current pubkey — advance both.
+  // Uses MSSC (pre-stripped all-sigs scriptCode) via #ecdsaSighashMulti
+  // for legacy sighash; witness-v0 uses SC from cell (BIP-143 unchanged).
+  rule <k> #verifyMultisig(ListItem(PK:Bytes) PKs, ListItem(SIG:Bytes) Sigs, MSSC)
+        => #verifyMultisig(PKs, Sigs, MSSC) ...</k>
        <sighash> SIGHASHBLOB </sighash>
        <codesepIdx> CSI </codesepIdx>
        <flags> F </flags>
@@ -617,18 +677,16 @@ module SCRIPT-SIG
        <inputIndex> IDX </inputIndex>
        <scriptCode> SC </scriptCode>
        <amount> AMT </amount>
-       <scriptPubKeyBytes> SPK </scriptPubKeyBytes>
-       <p2shRedeemBytes> REDEEM </p2shRedeemBytes>
     requires size(Sigs) <=Int size(PKs)
      andBool lengthBytes(SIG) >Int 0
      andBool #msEncOK(SIG, PK, F)
      andBool notBool (PH ==K witness-v0 andBool hasFlag(F, FLAG_WITNESS_PUBKEYTYPE) andBool notBool #isCompressedPubKey(PK))
      andBool ecdsaVerify(PK, SIG,
-               #ecdsaSighash(PH, TX, IDX, SC, AMT, SIGHASHBLOB, sigHashType(SIG), CSI, SIG, SPK, REDEEM))
+               #ecdsaSighashMulti(PH, TX, IDX, SC, AMT, SIGHASHBLOB, sigHashType(SIG), CSI, MSSC))
 
   // Step 4f: Encoding OK, sig does not match — advance pubkey only
-  rule <k> #verifyMultisig(ListItem(PK:Bytes) PKs, ListItem(SIG:Bytes) Sigs)
-        => #verifyMultisig(PKs, ListItem(SIG) Sigs) ...</k>
+  rule <k> #verifyMultisig(ListItem(PK:Bytes) PKs, ListItem(SIG:Bytes) Sigs, MSSC)
+        => #verifyMultisig(PKs, ListItem(SIG) Sigs, MSSC) ...</k>
        <sighash> SIGHASHBLOB </sighash>
        <codesepIdx> CSI </codesepIdx>
        <flags> F </flags>
@@ -637,14 +695,12 @@ module SCRIPT-SIG
        <inputIndex> IDX </inputIndex>
        <scriptCode> SC </scriptCode>
        <amount> AMT </amount>
-       <scriptPubKeyBytes> SPK </scriptPubKeyBytes>
-       <p2shRedeemBytes> REDEEM </p2shRedeemBytes>
     requires size(Sigs) <=Int size(PKs)
      andBool lengthBytes(SIG) >Int 0
      andBool #msEncOK(SIG, PK, F)
      andBool notBool (PH ==K witness-v0 andBool hasFlag(F, FLAG_WITNESS_PUBKEYTYPE) andBool notBool #isCompressedPubKey(PK))
      andBool notBool ecdsaVerify(PK, SIG,
-               #ecdsaSighash(PH, TX, IDX, SC, AMT, SIGHASHBLOB, sigHashType(SIG), CSI, SIG, SPK, REDEEM))
+               #ecdsaSighashMulti(PH, TX, IDX, SC, AMT, SIGHASHBLOB, sigHashType(SIG), CSI, MSSC))
 
   // =========================================================================
   // Additional hash opcodes
@@ -699,14 +755,17 @@ module SCRIPT-SIG
 
   // OP_CODESEPARATOR in legacy phases without CONST_SCRIPTCODE: bump
   // the counter AND promote the decoder-stashed tail into <scriptCode>.
-  // #legacyScriptCodeOf picks this override (when non-empty) over the
-  // full phase source, matching Bitcoin Core's slice-after-last-codesep
-  // semantics. Prover specs that don't fire OP_CODESEPARATOR never hit
-  // this rule, keeping their <scriptCode> cell in its initial state.
+  // We also record the setting phase in <scriptCodePhase> so that
+  // #legacyScriptCodeOf can ignore the override when execution has
+  // crossed into a later phase (Bitcoin Core resets pbegincodehash at
+  // each phase boundary). Prover specs that don't fire OP_CODESEPARATOR
+  // never hit this rule, keeping <scriptCode> / <scriptCodePhase> in
+  // their initial (.Bytes / done) state.
   rule <k> OP_CODESEPARATOR => .K ...</k>
        <codesepIdx> N => N +Int 1 </codesepIdx>
        <pendingCodesepTail> T </pendingCodesepTail>
        <scriptCode> _ => T </scriptCode>
+       <scriptCodePhase> _ => P </scriptCodePhase>
        <phase> P </phase>
        <flags> F </flags>
     requires P =/=K witness-v0 andBool P =/=K witness-v1

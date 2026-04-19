@@ -78,13 +78,17 @@ def test_llvm_prove(
     # Default values for unbound cell-sorted variables (cells not mentioned in
     # the claim get auto-completed by the kprove parser as fresh variables of
     # cell sort; LLVM execution needs concrete cell contents).
-    _CELL_DEFAULTS: dict[str, tuple[str, KToken]] = {
+    _CELL_DEFAULTS: dict[str, tuple[str, KToken | KApply]] = {
         "SigopsWeightCell": ("<sigopsWeight>", KToken("0", KSort("Int"))),
         "TxCell": ("<tx>", KToken('b""', KSort("Bytes"))),
         "PrevoutsCell": ("<prevouts>", KToken('b""', KSort("Bytes"))),
         "InputIndexCell": ("<inputIndex>", KToken("0", KSort("Int"))),
         "AmountCell": ("<amount>", KToken("0", KSort("Int"))),
         "ScriptCodeCell": ("<scriptCode>", KToken('b""', KSort("Bytes"))),
+        "ScriptCodePhaseCell": (
+            "<scriptCodePhase>",
+            KApply("done_SCRIPT-SEMANTICS_Phase", []),
+        ),
         "PendingCodesepTailCell": (
             "<pendingCodesepTail>",
             KToken('b""', KSort("Bytes")),
