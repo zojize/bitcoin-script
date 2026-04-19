@@ -138,6 +138,12 @@ module SCRIPT-TX
   rule #txVinOutpoint(TX, I) =>
          substrBytes(TX, #txVinAt(TX, I), #txVinAt(TX, I) +Int 36)
 
+  // Like #txVinOutpoint but takes a pre-computed vin offset — for use by
+  // stream walkers that advance an offset linearly across all vins,
+  // avoiding the O(n²) re-walk inside #txVinAt.
+  syntax Bytes ::= #txVinOutpointAtOffset(Bytes, Int) [function]
+  rule #txVinOutpointAtOffset(TX, O) => substrBytes(TX, O, O +Int 36)
+
   // 4-byte LE sequence value of vin[I]. The sequence is the last 4 bytes
   // of the vin record, so offset = vin_start + vin_len - 4. Pass the
   // vin-start offset (not the vin index) as #vinLen's second arg.
@@ -145,6 +151,11 @@ module SCRIPT-TX
   rule #txVinSequence(TX, I) =>
          #readUInt32LE(TX,
            #txVinAt(TX, I) +Int #vinLen(TX, #txVinAt(TX, I)) -Int 4)
+
+  // Like #txVinSequence but takes a pre-computed vin offset.
+  syntax Int ::= #txVinSequenceAtOffset(Bytes, Int) [function]
+  rule #txVinSequenceAtOffset(TX, O) =>
+         #readUInt32LE(TX, O +Int #vinLen(TX, O) -Int 4)
 
   // Offset of the nVout compactSize (right after the last vin).
   syntax Int ::= #txVoutOffset(Bytes) [function]
@@ -201,6 +212,12 @@ module SCRIPT-TX
            #txVoutAt(TX, I),
            #txVoutAt(TX, I) +Int #voutLen(TX, #txVoutAt(TX, I)))
 
+  // Like #txVoutSerialized but takes a pre-computed vout offset — for
+  // stream walkers that advance an offset linearly across all vouts.
+  syntax Bytes ::= #txVoutSerializedAtOffset(Bytes, Int) [function]
+  rule #txVoutSerializedAtOffset(TX, O) =>
+         substrBytes(TX, O, O +Int #voutLen(TX, O))
+
   // =========================================================================
   // Prevouts iteration.
   //
@@ -239,5 +256,13 @@ module SCRIPT-TX
          substrBytes(P,
            #prevoutAt(P, I) +Int 8,
            #prevoutAt(P, I) +Int #voutLen(P, #prevoutAt(P, I)))
+
+  // At-offset variants used by stream walkers to avoid O(n²) re-seeks.
+  syntax Int ::= #prevoutAmountAtOffset(Bytes, Int) [function]
+  rule #prevoutAmountAtOffset(P, O) => #readUInt64LE(P, O)
+
+  syntax Bytes ::= #prevoutScriptSerializedAtOffset(Bytes, Int) [function]
+  rule #prevoutScriptSerializedAtOffset(P, O) =>
+         substrBytes(P, O +Int 8, O +Int #voutLen(P, O))
 
 endmodule

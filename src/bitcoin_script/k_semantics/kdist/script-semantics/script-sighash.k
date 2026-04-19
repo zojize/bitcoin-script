@@ -48,6 +48,72 @@ module SCRIPT-SIGHASH
   rule #doubleSha256(B) => Sha256raw(Sha256raw(B))
 
   // =========================================================================
+  // Streaming SHA-256 walkers over tx fields.
+  //
+  // K's `+Bytes` allocates and copies on every call, making right-recursive
+  // byte-concatenation O(n²) — catastrophic for the 5000+ vin stress txs on
+  // mainnet (empirically 500 ms/input before, <1 ms after).
+  //
+  // These helpers thread an opaque SHA-256 midstate Bytes through a walker,
+  // calling Sha256Update with a small (~40 byte) chunk per vin/vout rather
+  // than building the full preimage as K Bytes. The underlying Crypto++
+  // SHA256 is stream-stateful; the plugin serializes/restores the state
+  // blob around each Update call.
+  //
+  // Each walker returns the updated midstate; call Sha256Final on it to
+  // get the 32-byte digest.
+  // =========================================================================
+
+  // Stream every 36-byte vin outpoint through S. Threads the running byte
+  // offset O so we advance through the tx linearly — avoids the O(n²)
+  // cost of #txVinAt re-walking from vin[0] on every call.
+  syntax Bytes ::= #streamOutpoints(Bytes, Bytes, Int, Int) [function]
+  // args: state, tx, current-vin-offset, vins-remaining
+  rule #streamOutpoints(S, _, _, 0) => S
+  rule #streamOutpoints(S, TX, O, N) =>
+           #streamOutpoints(Sha256Update(S, #txVinOutpointAtOffset(TX, O)),
+                            TX, O +Int #vinLen(TX, O), N -Int 1)
+    requires N >Int 0
+
+  // Stream every 4-byte LE vin sequence through S (offset-threaded).
+  syntax Bytes ::= #streamSequences(Bytes, Bytes, Int, Int) [function]
+  rule #streamSequences(S, _, _, 0) => S
+  rule #streamSequences(S, TX, O, N) =>
+           #streamSequences(
+               Sha256Update(S, Int2Bytes(4, #txVinSequenceAtOffset(TX, O), LE)),
+               TX, O +Int #vinLen(TX, O), N -Int 1)
+    requires N >Int 0
+
+  // Stream every serialized vout (amount||cs_len||script) through S
+  // (offset-threaded).
+  syntax Bytes ::= #streamVouts(Bytes, Bytes, Int, Int) [function]
+  rule #streamVouts(S, _, _, 0) => S
+  rule #streamVouts(S, TX, O, N) =>
+           #streamVouts(Sha256Update(S, #txVoutSerializedAtOffset(TX, O)),
+                        TX, O +Int #voutLen(TX, O), N -Int 1)
+    requires N >Int 0
+
+  // Stream every 8-byte LE prevout amount through S (offset-threaded).
+  // Prevout records have the same layout as vouts, so #voutLen applies.
+  syntax Bytes ::= #streamPrevoutAmounts(Bytes, Bytes, Int, Int) [function]
+  rule #streamPrevoutAmounts(S, _, _, 0) => S
+  rule #streamPrevoutAmounts(S, P, O, N) =>
+           #streamPrevoutAmounts(
+               Sha256Update(S, Int2Bytes(8, #prevoutAmountAtOffset(P, O), LE)),
+               P, O +Int #voutLen(P, O), N -Int 1)
+    requires N >Int 0
+
+  // Stream every prevout scriptPubKey (cs_len || spk_bytes) through S
+  // (offset-threaded).
+  syntax Bytes ::= #streamPrevoutScripts(Bytes, Bytes, Int, Int) [function]
+  rule #streamPrevoutScripts(S, _, _, 0) => S
+  rule #streamPrevoutScripts(S, P, O, N) =>
+           #streamPrevoutScripts(
+               Sha256Update(S, #prevoutScriptSerializedAtOffset(P, O)),
+               P, O +Int #voutLen(P, O), N -Int 1)
+    requires N >Int 0
+
+  // =========================================================================
   // BIP-143 sighash field hashes (SegWit v0).
   //
   // BIP-143 splits the sigmsg into three per-tx precomputable hashes that
@@ -92,12 +158,14 @@ module SCRIPT-SIGHASH
     requires N >Int 0
 
   // hashPrevouts — dSHA256 of all outpoints, or 32 zero bytes when
-  // ANYONECANPAY masks prevouts out.
+  // ANYONECANPAY masks prevouts out. Streams outpoints through a SHA-256
+  // midstate rather than building the full concat in Bytes.
   syntax Bytes ::= #bip143HashPrevouts(Bytes, Int) [function]
   rule #bip143HashPrevouts(_, HT) => Int2Bytes(32, 0, BE)
     requires HT &Int 128 =/=Int 0
   rule #bip143HashPrevouts(TX, HT) =>
-           #doubleSha256(#concatOutpoints(TX, 0, #txVinCount(TX)))
+           Sha256raw(Sha256Final(#streamOutpoints(Sha256Init(), TX,
+                     #txVin0Offset(TX), #txVinCount(TX))))
     requires HT &Int 128 ==Int 0
 
   // hashSequence — dSHA256 of all sequences, or 32 zero bytes when the
@@ -108,7 +176,8 @@ module SCRIPT-SIGHASH
       orBool (HT &Int 31) ==Int 2
       orBool (HT &Int 31) ==Int 3
   rule #bip143HashSequence(TX, HT) =>
-           #doubleSha256(#concatSequences(TX, 0, #txVinCount(TX)))
+           Sha256raw(Sha256Final(#streamSequences(Sha256Init(), TX,
+                     #txVin0Offset(TX), #txVinCount(TX))))
     requires HT &Int 128 ==Int 0
       andBool (HT &Int 31) =/=Int 2
       andBool (HT &Int 31) =/=Int 3
@@ -117,10 +186,6 @@ module SCRIPT-SIGHASH
   //   SIGHASH_SINGLE + inputIdx < vout count : dSHA256(vout[inputIdx]).
   //   SIGHASH_NONE   or SINGLE-out-of-bounds : 32 zero bytes.
   //   otherwise (ALL / 0x00 / 0x04..)        : dSHA256 of all vouts.
-  //
-  // Note: Bitcoin Core's SIGHASH_SINGLE out-of-bounds behavior for BIP-143
-  // differs from legacy: BIP-143 zeros the hash (never the 0x01-hash bug),
-  // which is what the third-rule guard below models.
   syntax Bytes ::= #bip143HashOutputs(Bytes, Int, Int) [function]
   rule #bip143HashOutputs(TX, IDX, HT) =>
            #doubleSha256(#txVoutSerialized(TX, IDX))
@@ -130,7 +195,8 @@ module SCRIPT-SIGHASH
     requires (HT &Int 31) ==Int 2
       orBool ((HT &Int 31) ==Int 3 andBool IDX >=Int #txVoutCount(TX))
   rule #bip143HashOutputs(TX, _, HT) =>
-           #doubleSha256(#concatVouts(TX, 0, #txVoutCount(TX)))
+           Sha256raw(Sha256Final(#streamVouts(Sha256Init(), TX,
+                     #txVout0Offset(TX), #txVoutCount(TX))))
     requires (HT &Int 31) =/=Int 2
       andBool (HT &Int 31) =/=Int 3
 
@@ -226,26 +292,31 @@ module SCRIPT-SIGHASH
     requires N >Int 0
 
   // BIP-341 single-SHA-256 field hashes. N = number of vins (for prevout
-  // iteration) / vouts (for output iteration).
+  // iteration) / vouts (for output iteration). Each is a streaming SHA-256
+  // over the per-vin/per-vout records — never builds the full concat in Bytes.
   syntax Bytes ::= #bip341ShaPrevouts(Bytes) [function]
   rule #bip341ShaPrevouts(TX) =>
-           Sha256raw(#concatOutpoints(TX, 0, #txVinCount(TX)))
+           Sha256Final(#streamOutpoints(Sha256Init(), TX,
+                       #txVin0Offset(TX), #txVinCount(TX)))
 
+  // Prevouts blob has no tx header; vin[0] is at offset 0.
   syntax Bytes ::= #bip341ShaAmounts(Bytes, Int) [function]
   rule #bip341ShaAmounts(P, N) =>
-           Sha256raw(#concatPrevoutAmounts(P, 0, N))
+           Sha256Final(#streamPrevoutAmounts(Sha256Init(), P, 0, N))
 
   syntax Bytes ::= #bip341ShaScriptpubkeys(Bytes, Int) [function]
   rule #bip341ShaScriptpubkeys(P, N) =>
-           Sha256raw(#concatPrevoutScripts(P, 0, N))
+           Sha256Final(#streamPrevoutScripts(Sha256Init(), P, 0, N))
 
   syntax Bytes ::= #bip341ShaSequences(Bytes) [function]
   rule #bip341ShaSequences(TX) =>
-           Sha256raw(#concatSequences(TX, 0, #txVinCount(TX)))
+           Sha256Final(#streamSequences(Sha256Init(), TX,
+                       #txVin0Offset(TX), #txVinCount(TX)))
 
   syntax Bytes ::= #bip341ShaOutputs(Bytes) [function]
   rule #bip341ShaOutputs(TX) =>
-           Sha256raw(#concatVouts(TX, 0, #txVoutCount(TX)))
+           Sha256Final(#streamVouts(Sha256Init(), TX,
+                       #txVout0Offset(TX), #txVoutCount(TX)))
 
   // =========================================================================
   // BIP-341 sigmsg assembly (Taproot).
@@ -445,6 +516,13 @@ module SCRIPT-SIGHASH
   rule #legacyOtherSequence(TX, I, HT) => #txVinSequence(TX, I)
     requires (HT &Int 31) =/=Int 2 andBool (HT &Int 31) =/=Int 3
 
+  // At-offset variant for stream walkers.
+  syntax Int ::= #legacyOtherSequenceAtOffset(Bytes, Int, Int) [function]
+  rule #legacyOtherSequenceAtOffset(_, _, HT) => 0
+    requires (HT &Int 31) ==Int 2 orBool (HT &Int 31) ==Int 3
+  rule #legacyOtherSequenceAtOffset(TX, O, HT) => #txVinSequenceAtOffset(TX, O)
+    requires (HT &Int 31) =/=Int 2 andBool (HT &Int 31) =/=Int 3
+
   // Serialized modified vin[I] given inputIdx IDX and subscript SC.
   syntax Bytes ::= #legacyVin(Bytes, Int, Int, Bytes, Int) [function]
   // args: tx, I (this vin's index), IDX (target), subscript, hashtype
@@ -524,6 +602,8 @@ module SCRIPT-SIGHASH
            +Bytes #concatLegacyVouts(TX, 0, #legacyVoutCount(TX, IDX, HT), IDX, HT)
 
   // Legacy sighash preimage: modified tx + 4-byte LE hashtype.
+  // (Kept for documentation / non-streaming fallback; #legacySighash uses
+  // the streaming path below.)
   syntax Bytes ::= #legacyPreimage(Bytes, Int, Bytes, Int) [function]
   // args: tx, inputIdx, subscript, hashtype
   rule #legacyPreimage(TX, IDX, SC, HT) =>
@@ -532,6 +612,106 @@ module SCRIPT-SIGHASH
            +Bytes #legacyVoutsBlock(TX, IDX, HT)
            +Bytes Int2Bytes(4, #txLocktime(TX), LE)
            +Bytes Int2Bytes(4, HT, LE)
+
+  // ---- Streaming version of the legacy preimage hash ---------------------
+  //
+  // Threads a SHA-256 midstate through the same field sequence as
+  // #legacyPreimage so the preimage is never materialized as K Bytes.
+  // Returns the final 32-byte first-round digest (caller wraps with a
+  // second Sha256raw for the dSHA256).
+
+  // Stream one vin's legacy form through S. The per-vin chunk is tiny
+  // (~41 bytes for non-target vins, outpoint + small scriptCode + sequence
+  // for the target vin), so building it as Bytes is fine. O is this vin's
+  // byte offset in TX; I is the vin index (only used to pick target branch).
+  syntax Bytes ::= #streamLegacyVinAtOffset(Bytes, Bytes, Int, Int, Int, Bytes, Int) [function]
+  // args: S, tx, offset, I (this vin's index), IDX (target), subscript, hashtype
+  rule #streamLegacyVinAtOffset(S, TX, O, IDX, IDX, SC, _HT) =>
+           Sha256Update(S,
+               #txVinOutpointAtOffset(TX, O)
+             +Bytes #bip143CompactSize(lengthBytes(SC))
+             +Bytes SC
+             +Bytes Int2Bytes(4, #txVinSequenceAtOffset(TX, O), LE))
+  rule #streamLegacyVinAtOffset(S, TX, O, I, IDX, _SC, HT) =>
+           Sha256Update(S,
+               #txVinOutpointAtOffset(TX, O)
+             +Bytes Int2Bytes(1, 0, BE)
+             +Bytes Int2Bytes(4, #legacyOtherSequenceAtOffset(TX, O, HT), LE))
+    requires I =/=Int IDX
+
+  // Stream vins from offset O, for N iterations. Offset-threaded to avoid
+  // the O(n²) re-walk that #txVinAt would cost.
+  syntax Bytes ::= #streamLegacyVins(Bytes, Bytes, Int, Int, Int, Int, Bytes, Int) [function]
+  // args: S, tx, current-offset, current-I, N (stop), IDX, SC, HT
+  rule #streamLegacyVins(S, _, _, N, N, _, _, _) => S
+  rule #streamLegacyVins(S, TX, O, I, N, IDX, SC, HT) =>
+           #streamLegacyVins(
+               #streamLegacyVinAtOffset(S, TX, O, I, IDX, SC, HT),
+               TX, O +Int #vinLen(TX, O), I +Int 1, N, IDX, SC, HT)
+    requires I <Int N
+
+  // Stream the full vins block (count prefix + vins) through S.
+  syntax Bytes ::= #streamLegacyVinsBlock(Bytes, Bytes, Int, Bytes, Int) [function]
+  rule #streamLegacyVinsBlock(S, TX, IDX, SC, HT) =>
+           #streamLegacyVinAtOffset(Sha256Update(S, #bip143CompactSize(1)),
+                            TX, #txVinAt(TX, IDX), IDX, IDX, SC, HT)
+    requires HT &Int 128 =/=Int 0
+  rule #streamLegacyVinsBlock(S, TX, IDX, SC, HT) =>
+           #streamLegacyVins(Sha256Update(S, #bip143CompactSize(#txVinCount(TX))),
+                             TX, #txVin0Offset(TX), 0, #txVinCount(TX), IDX, SC, HT)
+    requires HT &Int 128 ==Int 0
+
+  // Modified vout[J] at offset O in TX — same dispatch as #legacyVout but
+  // takes the offset rather than having to re-walk for it.
+  syntax Bytes ::= #legacyVoutAtOffset(Bytes, Int, Int, Int, Int) [function]
+  // args: tx, offset, J (this vout's index), IDX (target), HT
+  rule #legacyVoutAtOffset(_, _, J, IDX, HT) =>
+           Int2Bytes(8, 18446744073709551615, LE)
+           +Bytes Int2Bytes(1, 0, BE)
+    requires (HT &Int 31) ==Int 3 andBool J <Int IDX
+  rule #legacyVoutAtOffset(TX, O, J, IDX, HT) => #txVoutSerializedAtOffset(TX, O)
+    requires (HT &Int 31) =/=Int 3 orBool J >=Int IDX
+
+  // Stream vouts starting at offset O, for N iterations. Only advances
+  // the offset past REAL vouts (SINGLE placeholders have a synthetic
+  // payload but their emitting index is < IDX, which — by SINGLE's
+  // definition — means we never actually walk past a placeholder
+  // because vout[IDX] is the real vout at offset #txVoutAt(TX, IDX)).
+  //
+  // Wait — in the SINGLE+J<IDX case we emit a placeholder but the
+  // underlying tx still has a real vout[J]. We must advance past it.
+  syntax Bytes ::= #streamLegacyVouts(Bytes, Bytes, Int, Int, Int, Int, Int) [function]
+  // args: S, tx, offset, J, N (stop), IDX, HT
+  rule #streamLegacyVouts(S, _, _, N, N, _, _) => S
+  rule #streamLegacyVouts(S, TX, O, J, N, IDX, HT) =>
+           #streamLegacyVouts(
+               Sha256Update(S, #legacyVoutAtOffset(TX, O, J, IDX, HT)),
+               TX, O +Int #voutLen(TX, O), J +Int 1, N, IDX, HT)
+    requires J <Int N
+
+  // Stream the full vouts block (count prefix + modified vouts) through S.
+  syntax Bytes ::= #streamLegacyVoutsBlock(Bytes, Bytes, Int, Int) [function]
+  rule #streamLegacyVoutsBlock(S, TX, IDX, HT) =>
+           #streamLegacyVouts(
+               Sha256Update(S, #bip143CompactSize(#legacyVoutCount(TX, IDX, HT))),
+               TX, #txVout0Offset(TX), 0,
+               #legacyVoutCount(TX, IDX, HT), IDX, HT)
+
+  // Stream the full legacy preimage (version + vins + vouts + locktime +
+  // hashtype) through S and return the finalized 32-byte first-round digest.
+  syntax Bytes ::= #streamLegacyPreimageHash(Bytes, Int, Bytes, Int) [function]
+  rule #streamLegacyPreimageHash(TX, IDX, SC, HT) =>
+         Sha256Final(
+           Sha256Update(
+             Sha256Update(
+               #streamLegacyVoutsBlock(
+                 #streamLegacyVinsBlock(
+                   Sha256Update(Sha256Init(),
+                                Int2Bytes(4, #txVersion(TX), LE)),
+                   TX, IDX, SC, HT),
+                 TX, IDX, HT),
+               Int2Bytes(4, #txLocktime(TX), LE)),
+             Int2Bytes(4, HT, LE)))
 
   // FindAndDelete(OP_CODESEPARATOR) — script-aware removal of codesep
   // opcodes. The old implementation did a byte-level scan which would
@@ -648,12 +828,16 @@ module SCRIPT-SIGHASH
         orBool substrBytes(S, I, I +Int lengthBytes(P)) =/=K P)
 
   // Legacy sighash with SIGHASH_SINGLE out-of-bounds special case.
+  // Uses streaming SHA-256 for the first round: #streamLegacyPreimageHash
+  // walks the preimage fields directly into a SHA-256 midstate instead of
+  // materializing the concatenation in K Bytes (which would be O(tx_size²)
+  // on large txs). The second SHA-256 wrap is then a fixed 32-byte input.
   syntax Bytes ::= #legacySighash(Bytes, Int, Bytes, Int) [function]
   rule #legacySighash(TX, IDX, _SC, HT) =>
            Int2Bytes(32, 1, LE)
     requires (HT &Int 31) ==Int 3 andBool IDX >=Int #txVoutCount(TX)
   rule #legacySighash(TX, IDX, SC, HT) =>
-           #doubleSha256(#legacyPreimage(TX, IDX, #dropCodeseps(SC), HT))
+           Sha256raw(#streamLegacyPreimageHash(TX, IDX, #dropCodeseps(SC), HT))
     requires (HT &Int 31) =/=Int 3 orBool IDX <Int #txVoutCount(TX)
 
   // =========================================================================

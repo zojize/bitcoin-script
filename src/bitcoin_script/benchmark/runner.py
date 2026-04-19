@@ -73,32 +73,19 @@ def _verify_with_k(
     from bitcoin_script.script_utils import encode_witness_blob  # type: ignore[import-not-found]
 
     witness_blob = encode_witness_blob(inp.witness) if inp.witness else b""
-
-    # Only pass tx/prevouts to K when needed for K-side sighash (taproot
-    # witness-v1). For legacy + witness-v0, the precomputed sighash blob
-    # is used and the raw tx/prevouts bytes would just add per-call
-    # serialization overhead — significant for large stress-block txs
-    # (1MB tx → ~500ms/input vs ~1ms with blob).
-    is_taproot = len(inp.script_pubkey) == 34 and inp.script_pubkey[:2] == b"\x51\x20"
-    if is_taproot:
-        prevouts_blob = b""
-        if (
-            inp.all_prevout_scriptpubkeys is not None
-            and inp.all_prevout_amounts is not None
+    # Serialize per-tx prevouts (<8 LE amount><cs len><spk>, concatenated)
+    # for BIP-341/BIP-342 K-side sighash. Empty when not all prevouts were
+    # resolved at extraction time; the K dispatcher falls back to the blob.
+    prevouts_blob = b""
+    if (
+        inp.all_prevout_scriptpubkeys is not None
+        and inp.all_prevout_amounts is not None
+    ):
+        for spk, amt in zip(
+            inp.all_prevout_scriptpubkeys, inp.all_prevout_amounts, strict=True
         ):
-            for spk, amt in zip(
-                inp.all_prevout_scriptpubkeys, inp.all_prevout_amounts, strict=True
-            ):
-                prevouts_blob += amt.to_bytes(8, "little")
-                prevouts_blob += _cs(len(spk)) + spk
-        tx_bytes = inp.tx_serialized
-        amount_val = inp.amount
-        input_index_val = inp.input_index
-    else:
-        prevouts_blob = b""
-        tx_bytes = b""
-        amount_val = 0
-        input_index_val = 0
+            prevouts_blob += amt.to_bytes(8, "little")
+            prevouts_blob += _cs(len(spk)) + spk
 
     timings: list[int] = []
     success = True
@@ -115,9 +102,9 @@ def _verify_with_k(
             tx_version=inp.tx_version,
             n_locktime=inp.n_locktime,
             n_sequence=inp.n_sequence,
-            tx=tx_bytes,
-            input_index=input_index_val,
-            amount=amount_val,
+            tx=inp.tx_serialized,
+            input_index=inp.input_index,
+            amount=inp.amount,
             prevouts=prevouts_blob,
         )
         elapsed = time.perf_counter_ns() - t0
