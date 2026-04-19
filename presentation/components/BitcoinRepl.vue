@@ -22,9 +22,27 @@ const history = ref<HistoryEntry[]>([
 ])
 const inputValue = ref('')
 const asmTokens = ref<string[]>([])
+const sigTokens = ref<string[]>([])
+const flagsMask = ref(0)
 const isLoading = ref(false)
 const historyEl = ref<HTMLElement | null>(null)
 const lastResult = ref<LastResult | null>(null)
+
+const FLAGS: Record<string, number> = {
+  p2sh: 1,
+  strictenc: 2,
+  dersig: 4,
+  low_s: 8,
+  nulldummy: 16,
+  sigpushonly: 32,
+  minimaldata: 64,
+  cleanstack: 256,
+  cltv: 512,
+  csv: 1024,
+  witness: 2048,
+  minimalif: 8192,
+  nullfail: 16384,
+}
 const backendAvailable = ref<boolean | null>(null)
 const activeBackend = ref('local')       // 'local' | 'python' | 'k'
 const availableBackends = ref<string[]>([])
@@ -38,6 +56,11 @@ const backendLabel = computed(() => {
 })
 
 const currentScript = computed(() => asmTokens.value.join(' '))
+const currentSig = computed(() => sigTokens.value.join(' '))
+const flagsLabel = computed(() => {
+  const active = Object.entries(FLAGS).filter(([_, v]) => (flagsMask.value & v) !== 0).map(([n]) => n.toUpperCase())
+  return active.length > 0 ? active.join('|') : 'none'
+})
 
 // Check if backend is available on mount
 async function checkBackend() {
@@ -107,8 +130,57 @@ async function handleSubmit() {
     const cmd = line.split(/\s+/)[0].toLowerCase()
     if (cmd === '.reset') {
       asmTokens.value = []
+      sigTokens.value = []
       lastResult.value = null
-      addEntry('info', 'Script cleared.')
+      addEntry('info', 'Script cleared (scriptSig and scriptPubKey).')
+    } else if (cmd === '.sig') {
+      // .sig                  -> show current sig
+      // .sig OP_1 OP_2        -> push tokens to sig buffer
+      // .sig clear            -> clear sig
+      const args = line.split(/\s+/).slice(1)
+      if (args.length === 0) {
+        addEntry('info', `scriptSig: ${sigTokens.value.length ? currentSig.value : '(empty)'}`)
+      } else if (args[0].toLowerCase() === 'clear') {
+        sigTokens.value = []
+        addEntry('info', 'scriptSig cleared.')
+      } else {
+        sigTokens.value.push(...args)
+        addEntry('info', `  scriptSig: ${currentSig.value}`)
+      }
+    } else if (cmd === '.flags') {
+      // .flags                -> show
+      // .flags p2sh,cltv      -> set by name
+      // .flags 5              -> set numeric
+      // .flags clear          -> reset to 0
+      const args = line.split(/\s+/).slice(1)
+      if (args.length === 0) {
+        addEntry('info', `flags: ${flagsMask.value} (${flagsLabel.value})`)
+        addEntry('info', `available: ${Object.keys(FLAGS).join(', ')}`)
+      } else if (args[0].toLowerCase() === 'clear') {
+        flagsMask.value = 0
+        addEntry('info', 'flags cleared.')
+      } else {
+        const arg = args.join('').toLowerCase()
+        if (/^(0x)?[0-9a-f]+$/i.test(arg) && !isNaN(parseInt(arg))) {
+          flagsMask.value = parseInt(arg, arg.startsWith('0x') ? 16 : 10)
+        } else {
+          let mask = 0
+          for (const name of arg.split(/[,|+]/)) {
+            const v = FLAGS[name.trim()]
+            if (v === undefined) {
+              addEntry('error', `unknown flag: ${name}`)
+              return
+            }
+            mask |= v
+          }
+          flagsMask.value = mask
+        }
+        addEntry('info', `flags: ${flagsMask.value} (${flagsLabel.value})`)
+      }
+    } else if (cmd === '.scripthash') {
+      await scriptHash()
+    } else if (cmd === '.example') {
+      loadP2SHExample()
     } else if (cmd === '.script') {
       if (asmTokens.value.length === 0) {
         addEntry('info', 'Script is empty.')
@@ -144,11 +216,15 @@ async function handleSubmit() {
       addEntry('info', 'Commands:')
       addEntry('info', '  .run          Execute script')
       addEntry('info', '  .stack        Show stack from last execution')
-      addEntry('info', '  .reset        Clear the script buffer')
+      addEntry('info', '  .reset        Clear scriptPubKey + scriptSig')
       addEntry('info', '  .script       Show current script (hex)')
       addEntry('info', '  .asm          Show current script (ASM tokens)')
+      addEntry('info', '  .sig [...]    Push scriptSig tokens, clear, or show')
+      addEntry('info', '  .flags [...]  Set/show verification flags')
+      addEntry('info', '  .scripthash   HASH160 of current scriptPubKey buffer')
+      addEntry('info', '  .example      Load a P2SH math puzzle demo')
       addEntry('info', '  .help         Show this help')
-      addEntry('info', 'Input: OP_1, OP_DUP, OP_ADD, OP_CHECKSIG, ...')
+      addEntry('info', 'Input: OP_1, OP_DUP, OP_ADD, OP_CHECKSIG, 0xHEX, ...')
     } else if (cmd === '.run') {
       await executeScript()
     } else {
@@ -189,7 +265,12 @@ async function executeScript() {
     const res = await fetch(`${API_BASE}/execute`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ asm: currentScript.value, backend: activeBackend.value }),
+      body: JSON.stringify({
+        asm: currentScript.value,
+        script_sig: currentSig.value,
+        flags: flagsMask.value,
+        backend: activeBackend.value,
+      }),
     })
     const data = await res.json()
 
@@ -223,6 +304,51 @@ async function executeScript() {
     isLoading.value = false
   }
   asmTokens.value = []
+}
+
+async function scriptHash() {
+  if (asmTokens.value.length === 0) {
+    addEntry('info', 'scriptPubKey buffer is empty.')
+    return
+  }
+  if (activeBackend.value === 'local') {
+    addEntry('error', '.scripthash requires a backend (Python or K).')
+    return
+  }
+  try {
+    const res = await fetch(`${API_BASE}/hash160`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ asm: currentScript.value }),
+    })
+    const data = await res.json()
+    if (data.error) {
+      addEntry('error', `Error: ${data.error}`)
+    } else {
+      addEntry('info', `script hex: 0x${data.script_hex}`)
+      addEntry('output', `HASH160:    0x${data.hash160}`)
+    }
+  } catch {
+    addEntry('error', 'Connection error')
+  }
+}
+
+function loadP2SHExample() {
+  // Math puzzle: redeemScript requires a 3 on the stack to pass.
+  // redeemScript = OP_3 OP_ADD OP_5 OP_EQUAL  →  hex: 53 93 55 87
+  // Wait — I want: push X; X + 2 == 5. So OP_2 OP_ADD OP_5 OP_EQUAL = 52 93 55 87
+  // hash160(52 93 55 87) = 8e9a55016b5f68f07aa9f1d8bef929b1f0b48547
+  asmTokens.value = ['OP_HASH160', '0x8e9a55016b5f68f07aa9f1d8bef929b1f0b48547', 'OP_EQUAL']
+  sigTokens.value = ['OP_3', '0x52935587']
+  flagsMask.value = 1  // FLAG_P2SH
+  lastResult.value = null
+  addEntry('info', '── P2SH math puzzle example ──')
+  addEntry('info', 'redeemScript: OP_2 OP_ADD OP_5 OP_EQUAL  (X+2==5, so X=3)')
+  addEntry('info', 'scriptSig: OP_3 <redeemScript>')
+  addEntry('info', 'scriptPubKey: OP_HASH160 <h160(redeemScript)> OP_EQUAL')
+  addEntry('info', 'flags: P2SH')
+  addEntry('info', 'Type .run to execute (should PASS)')
+  addEntry('info', 'Try .sig clear, then .sig OP_2 0x52935587, .run → FAIL')
 }
 
 function simulateExecution() {
@@ -363,6 +489,8 @@ function insertOp(op: string) {
     <!-- Status bar -->
     <div class="status-bar">
       <span class="status-label">BITCOIN SCRIPT REPL</span>
+      <span v-if="sigTokens.length > 0" class="status-chip" title="scriptSig buffer has tokens">SIG</span>
+      <span v-if="flagsMask > 0" class="status-chip" :title="`flags: ${flagsLabel}`">{{ flagsLabel }}</span>
       <button class="backend-toggle" @click="cycleBackend" :title="`Click to switch backend (${availableBackends.length ? availableBackends.join(', ') + ', local' : 'local only'})`">
         <span class="status-dot" :class="activeBackend === 'k' ? 'dot-blue' : activeBackend === 'python' ? 'dot-green' : 'dot-amber'"></span>
         <span class="status-text">{{ backendLabel }}</span>
@@ -388,8 +516,10 @@ function insertOp(op: string) {
         class="op-btn"
         @click="insertOp(op)"
       >{{ op.replace('OP_', '') }}</button>
+      <button class="op-btn op-btn-special" @click="scriptHash" title="HASH160 of current scriptPubKey buffer">HASH160</button>
+      <button class="op-btn op-btn-special" @click="loadP2SHExample" title="Load a P2SH math puzzle demo">.example</button>
       <button class="op-btn op-btn-run" @click="executeScript">.run</button>
-      <button class="op-btn op-btn-reset" @click="asmTokens = []; addEntry('info', 'Script cleared.')">.reset</button>
+      <button class="op-btn op-btn-reset" @click="asmTokens = []; sigTokens = []; addEntry('info', 'Script cleared.')">.reset</button>
     </div>
 
     <!-- Input -->
@@ -436,6 +566,15 @@ function insertOp(op: string) {
 }
 
 .status-label { color: rgba(255, 255, 255, 0.4); }
+.status-chip {
+  padding: 1px 6px;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  background: rgba(245, 158, 11, 0.1);
+  color: #f59e0b;
+  border-radius: 3px;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+}
 .backend-toggle {
   display: flex;
   align-items: center;
@@ -507,6 +646,15 @@ function insertOp(op: string) {
   border-color: rgba(245, 158, 11, 0.4);
   color: #f59e0b;
   background: rgba(245, 158, 11, 0.08);
+}
+.op-btn-special {
+  border-color: rgba(59, 130, 246, 0.3);
+  color: rgba(59, 130, 246, 0.8);
+}
+.op-btn-special:hover {
+  border-color: #3b82f6;
+  color: #3b82f6;
+  background: rgba(59, 130, 246, 0.1);
 }
 .op-btn-run {
   border-color: rgba(34, 197, 94, 0.3);

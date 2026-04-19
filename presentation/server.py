@@ -148,14 +148,30 @@ class ReplHandler(BaseHTTPRequestHandler):
             if not asm_str:
                 self._json_response(400, {"error": "empty script"})
                 return
+            script_sig = body.get("script_sig", "").strip()
+            flags = int(body.get("flags", 0))
             backend = body.get("backend", _active_backend)
             try:
                 if backend == "k":
-                    result = execute_asm_k(asm_str)
+                    result = execute_asm_k(asm_str, script_sig=script_sig, flags=flags)
                 else:
-                    result = execute_asm_python(asm_str)
+                    result = execute_asm_python(asm_str, script_sig=script_sig, flags=flags)
                 result["backend"] = backend
                 self._json_response(200, result)
+            except Exception as e:
+                self._json_response(500, {"error": str(e)})
+
+        elif self.path == "/hash160":
+            asm_str = body.get("asm", "").strip()
+            if not asm_str:
+                self._json_response(400, {"error": "empty script"})
+                return
+            try:
+                from bitcoin_script.asm import parse_asm
+                import hashlib
+                raw = parse_asm(asm_str)
+                h = hashlib.new("ripemd160", hashlib.sha256(raw).digest()).digest()
+                self._json_response(200, {"hash160": h.hex(), "script_hex": raw.hex()})
             except Exception as e:
                 self._json_response(500, {"error": str(e)})
 
@@ -211,18 +227,23 @@ def _available_backends() -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def execute_asm_k(asm: str) -> dict:
+def execute_asm_k(asm: str, *, script_sig: str = "", flags: int = 0) -> dict:
     """Execute an ASM script via K Framework formal semantics."""
     from bitcoin_script.asm import parse_asm
 
     try:
         raw_script = parse_asm(asm)
+        raw_sig = parse_asm(script_sig) if script_sig else b""
     except Exception as e:
         return {"error": f"Parse error: {e}", "result": "FAIL", "stack": []}
 
     try:
         k = _get_k()
-        result = k.verify_script(script_pubkey=raw_script, flags=0)  # type: ignore[union-attr]
+        result = k.verify_script(  # type: ignore[union-attr]
+            script_pubkey=raw_script,
+            script_sig=raw_sig,
+            flags=flags,
+        )
 
         err = k.error(result)  # type: ignore[union-attr]
         stuck = k.is_stuck(result)  # type: ignore[union-attr]
@@ -255,25 +276,69 @@ def execute_asm_k(asm: str) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def execute_asm_python(asm: str) -> dict:
+def execute_asm_python(asm: str, *, script_sig: str = "", flags: int = 0) -> dict:
     """Execute an ASM script string via a simple stack machine.
 
-    Uses a standalone interpreter to avoid engine bugs with CScript iteration.
-    Supports arithmetic, stack ops, and basic flow control — enough for demos.
+    If script_sig is provided, it's executed first to pre-populate the stack.
+    With flags & 1 (P2SH), after scriptPubKey passes, the last stack item is
+    re-interpreted as a redeemScript and executed.
     """
     from bitcoin_script.asm import parse_asm
 
     try:
-        raw_script = parse_asm(asm)
+        raw_pubkey = parse_asm(asm)
+        raw_sig = parse_asm(script_sig) if script_sig else b""
     except Exception as e:
         return {"error": f"Parse error: {e}", "result": "FAIL", "stack": []}
 
+    stack: list[bytes] = []
+
+    # 1. scriptSig phase
+    if raw_sig:
+        err = _run_bytes(raw_sig, stack)
+        if err:
+            return {"error": f"scriptSig: {err}", "result": "FAIL", "stack": [_format_item(s) for s in stack]}
+
+    # Save stack for P2SH
+    saved_stack = list(stack)
+
+    # 2. scriptPubKey phase
+    err = _run_bytes(raw_pubkey, stack)
+    if err:
+        return {"error": err, "result": "FAIL", "stack": [_format_item(s) for s in stack]}
+
+    ok = len(stack) > 0 and _is_truthy(stack[-1])
+
+    # 3. P2SH phase: if FLAG_P2SH set, scriptPubKey is a P2SH pattern, and top of stack is truthy
+    is_p2sh_pattern = (
+        len(raw_pubkey) == 23
+        and raw_pubkey[0] == 0xA9  # OP_HASH160
+        and raw_pubkey[1] == 0x14  # push 20 bytes
+        and raw_pubkey[22] == 0x87  # OP_EQUAL
+    )
+    if ok and (flags & 1) and is_p2sh_pattern and saved_stack:
+        redeem_script = saved_stack[-1]
+        stack = saved_stack[:-1]
+        err = _run_bytes(redeem_script, stack)
+        if err:
+            return {"error": f"P2SH redeem: {err}", "result": "FAIL", "stack": [_format_item(s) for s in stack]}
+        ok = len(stack) > 0 and _is_truthy(stack[-1])
+
+    stack_items = [_format_item(s) for s in stack]
+    return {
+        "result": "PASS" if ok else "FAIL",
+        "stack": stack_items,
+        "hex": raw_pubkey.hex(),
+        "size": len(raw_pubkey),
+    }
+
+
+def _run_bytes(raw: bytes, stack: list[bytes]) -> str:
+    """Run raw script bytes against a stack. Returns error string or empty."""
     from bitcoin.core.script import CScript, CScriptOp
 
-    script = CScript(raw_script)
-    stack: list[bytes] = []
+    script = CScript(raw)
     error = ""
-
     try:
         for opcode, data, _idx in script.raw_iter():
             if data is not None:
@@ -393,18 +458,7 @@ def execute_asm_python(asm: str) -> dict:
                 break
     except (IndexError, ValueError) as e:
         error = str(e) if str(e) else "stack underflow"
-
-    stack_items = [_format_item(s) for s in stack]
-    if error:
-        return {"error": error, "result": "FAIL", "stack": stack_items}
-
-    ok = len(stack) > 0 and _is_truthy(stack[-1])
-    return {
-        "result": "PASS" if ok else "FAIL",
-        "stack": stack_items,
-        "hex": raw_script.hex(),
-        "size": len(raw_script),
-    }
+    return error
 
 
 # ---------------------------------------------------------------------------
