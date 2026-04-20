@@ -328,8 +328,26 @@ def run_benchmark(
     results: list[InputResult] = []
     total = len(dataset.inputs)
 
+    # Periodically recreate K to release accumulated interpreter memory.
+    # The LLVM-backend FFI allocator grows without bound across calls
+    # (each K rewrite allocates fresh kore_alloc_token, no GC hook from
+    # Python); on 1 MB-tx stress blocks this pushes RSS past 5 GB and
+    # macOS jetsam kills the process. Refreshing every N inputs keeps
+    # peak RSS bounded. Tuned for the v3 dataset: 2000 inputs ≈ 1-2 GB
+    # depending on tx sizes.
+    K_REFRESH_EVERY = 2000
+
     for i, inp in enumerate(dataset.inputs):
         is_warmup = i < WARMUP_COUNT
+
+        if run_k and i > 0 and i % K_REFRESH_EVERY == 0:
+            from bitcoin_script.k_semantics import KBitcoinScript  # type: ignore[import-not-found]
+
+            del k
+            import gc
+
+            gc.collect()
+            k = KBitcoinScript()
 
         k_ns: int | None = None
         k_success: bool | None = None
