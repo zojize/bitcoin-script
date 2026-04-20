@@ -126,18 +126,18 @@ configuration
 
 </div>
     <div class="col-span-2 flex flex-col justify-center">
-      <div class="font-mono text-xs op-50 mb-4 uppercase tracking-wider">Modules</div>
-      <div class="space-y-2 font-mono text-sm">
-        <div v-click class="p-2 border border-white/10 rounded"><span class="text-amber">script-semantics</span> config + phases</div>
-        <div v-click class="p-2 border border-white/10 rounded"><span class="text-amber">script-sig</span> CHECKSIG/MULTISIG</div>
-        <div v-click class="p-2 border border-white/10 rounded"><span class="text-amber">script-crypto</span> DER, sighash, ECDSA</div>
-        <div v-click class="p-2 border border-white/10 rounded"><span class="text-amber">script-flow</span> IF/ELSE, CLTV/CSV</div>
-        <div v-click class="p-2 border border-white/10 rounded"><span class="text-amber">script-decode</span> byte-level decoder</div>
-        <div v-click class="p-2 border border-white/10 rounded"><span class="text-amber">script-arith</span> arithmetic opcodes</div>
-        <div v-click class="p-2 border border-white/10 rounded"><span class="text-amber">script-stack</span> stack manipulation</div>
-        <div v-click class="p-2 border border-white/10 rounded"><span class="text-amber">script-num</span> CScriptNum encoding</div>
+      <div class="font-mono text-xs op-50 mb-2 uppercase tracking-wider">Modules</div>
+      <div class="space-y-1 font-mono text-sm">
+        <div v-click class="px-2 py-1 border border-white/10 rounded"><span class="text-amber">script-semantics</span> config + phases</div>
+        <div v-click class="px-2 py-1 border border-white/10 rounded"><span class="text-amber">script-sig</span> CHECKSIG/MULTISIG</div>
+        <div v-click class="px-2 py-1 border border-white/10 rounded"><span class="text-amber">script-crypto</span> DER, sighash, ECDSA</div>
+        <div v-click class="px-2 py-1 border border-white/10 rounded"><span class="text-amber">script-flow</span> IF/ELSE, CLTV/CSV</div>
+        <div v-click class="px-2 py-1 border border-white/10 rounded"><span class="text-amber">script-decode</span> byte-level decoder</div>
+        <div v-click class="px-2 py-1 border border-white/10 rounded"><span class="text-amber">script-arith</span> arithmetic opcodes</div>
+        <div v-click class="px-2 py-1 border border-white/10 rounded"><span class="text-amber">script-stack</span> stack manipulation</div>
+        <div v-click class="px-2 py-1 border border-white/10 rounded"><span class="text-amber">script-num</span> CScriptNum encoding</div>
       </div>
-      <div v-click class="mt-4 p-2 border border-amber/30 rounded font-mono text-xs text-amber">
+      <div v-click class="mt-2 px-2 py-1 border border-amber/30 rounded font-mono text-xs text-amber">
         4 phases: scriptSig → scriptPubKey → p2sh-redeem → witness-v0
       </div>
     </div>
