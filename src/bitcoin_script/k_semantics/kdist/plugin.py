@@ -12,6 +12,7 @@ from pyk.ktool.kompile import LLVMKompileType, PykBackend, kompile
 
 
 PLUGIN_DIR: Final = Path(__file__).parent / "plugin"
+BITCOIN_SIGHASH_PLUGIN_DIR: Final = Path(__file__).parent / "bitcoin-sighash-plugin"
 
 
 def _find_boost_prefix() -> str | None:
@@ -67,8 +68,19 @@ class SourceTarget(Target):
         plugin_out.mkdir(parents=True, exist_ok=True)
         shutil.copy(PLUGIN_DIR / "plugin" / "krypto.md", plugin_out / "krypto.md")
 
+        # Copy bitcoin-sighash-plugin hook declarations alongside.
+        bsp_out = output_dir / "bitcoin-sighash-plugin"
+        bsp_out.mkdir(parents=True, exist_ok=True)
+        shutil.copy(
+            BITCOIN_SIGHASH_PLUGIN_DIR / "k" / "bitcoin-sighash.md",
+            bsp_out / "bitcoin-sighash.md",
+        )
+
     def source(self) -> tuple[Path, ...]:
-        return (self.SRC_DIR,)
+        return (
+            self.SRC_DIR,
+            BITCOIN_SIGHASH_PLUGIN_DIR / "k",
+        )
 
 
 class PluginTarget(Target):
@@ -148,10 +160,63 @@ class PluginTarget(Target):
         return (PLUGIN_DIR,)
 
 
-def _lib_ccopts(plugin_dir: Path) -> list[str]:
-    """Compiler options needed to link the crypto plugin into the LLVM backend."""
+class BitcoinSighashPluginTarget(Target):
+    """Build the in-tree bitcoin-sighash-plugin (C++ SHA-256 streaming hooks).
+
+    Produces a single static library (bitcoin_sighash.a) that gets linked
+    into the LLVM backend interpreter alongside blockchain-k-plugin's
+    krypto.a. Namespace: BITCOIN.
+    """
+
+    def build(
+        self,
+        output_dir: Path,
+        deps: dict[str, Path],
+        args: dict[str, Any],
+        verbose: bool,
+    ) -> None:
+        import os
+
+        build_dir = output_dir / "_build"
+        shutil.copytree(
+            str(BITCOIN_SIGHASH_PLUGIN_DIR), str(build_dir), dirs_exist_ok=True
+        )
+
+        env = dict(os.environ)
+        make_args: list[str] = []
+        openssl_prefix = _find_nix_or_brew("openssl", nix_pattern="*-openssl-*-dev")
+        if openssl_prefix:
+            make_args.append(f"OPENSSL_PREFIX={openssl_prefix}")
+        gmp_prefix = _find_nix_or_brew("gmp", nix_pattern="*-gmp-*-dev")
+        if gmp_prefix:
+            make_args.append(f"GMP_PREFIX={gmp_prefix}")
+
+        make_cmd = ["make", "-C", str(build_dir), "-j4", *make_args]
+        if verbose:
+            subprocess.run(make_cmd, check=True, env=env)
+        else:
+            subprocess.run(
+                make_cmd,
+                check=True,
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+        lib_path = build_dir / "build" / "bitcoin_sighash.a"
+        shutil.copy(str(lib_path), str(output_dir / "bitcoin_sighash.a"))
+
+        shutil.rmtree(str(build_dir))
+
+    def source(self) -> tuple[Path, ...]:
+        return (BITCOIN_SIGHASH_PLUGIN_DIR,)
+
+
+def _lib_ccopts(plugin_dir: Path, bitcoin_sighash_dir: Path) -> list[str]:
+    """Compiler options needed to link the crypto plugins into the LLVM backend."""
     ccopts = ["-std=c++20"]
     ccopts += [str(plugin_dir / "krypto.a")]
+    ccopts += [str(bitcoin_sighash_dir / "bitcoin_sighash.a")]
     ccopts += ["-lssl", "-lcrypto", "-lsecp256k1"]
 
     # Add library search paths for nix/brew-installed dependencies
@@ -171,9 +236,11 @@ def _lib_ccopts(plugin_dir: Path) -> list[str]:
 
 @final
 class KompileTarget(Target):
-    _kompile_args: Callable[[Path, Path], Mapping[str, Any]]
+    _kompile_args: Callable[[Path, Path, Path], Mapping[str, Any]]
 
-    def __init__(self, kompile_args: Callable[[Path, Path], Mapping[str, Any]]) -> None:
+    def __init__(
+        self, kompile_args: Callable[[Path, Path, Path], Mapping[str, Any]]
+    ) -> None:
         self._kompile_args = kompile_args
 
     def build(
@@ -186,6 +253,7 @@ class KompileTarget(Target):
         kompile_args = self._kompile_args(
             deps["bitcoin-script-semantics.source"],
             deps["bitcoin-script-semantics.plugin"],
+            deps["bitcoin-script-semantics.bitcoin-sighash-plugin"],
         )
         kompile(output_dir=output_dir, verbose=verbose, **kompile_args)
 
@@ -196,6 +264,7 @@ class KompileTarget(Target):
         return (
             "bitcoin-script-semantics.source",
             "bitcoin-script-semantics.plugin",
+            "bitcoin-script-semantics.bitcoin-sighash-plugin",
         )
 
 
@@ -217,6 +286,7 @@ class HaskellKompileTarget(Target):
     ) -> None:
         src_dir = deps["bitcoin-script-semantics.source"]
         plugin_dir = deps["bitcoin-script-semantics.plugin"]
+        bsp_dir = deps["bitcoin-script-semantics.bitcoin-sighash-plugin"]
 
         # Build Haskell definition
         kompile(
@@ -227,7 +297,7 @@ class HaskellKompileTarget(Target):
             main_module="SCRIPT-VERIFICATION",
             syntax_module="SCRIPT-VERIFICATION",
             include_dirs=(src_dir,),
-            hook_namespaces=("KRYPTO",),
+            hook_namespaces=("KRYPTO", "BITCOIN"),
             warnings_to_errors=True,
         )
 
@@ -240,8 +310,8 @@ class HaskellKompileTarget(Target):
             main_module="SCRIPT-VERIFICATION",
             syntax_module="SCRIPT-VERIFICATION",
             include_dirs=(src_dir,),
-            hook_namespaces=("KRYPTO",),
-            ccopts=_lib_ccopts(plugin_dir),
+            hook_namespaces=("KRYPTO", "BITCOIN"),
+            ccopts=_lib_ccopts(plugin_dir, bsp_dir),
             llvm_kompile_type=LLVMKompileType.C,
             warnings_to_errors=True,
             opt_level=3,
@@ -254,31 +324,33 @@ class HaskellKompileTarget(Target):
         return (
             "bitcoin-script-semantics.source",
             "bitcoin-script-semantics.plugin",
+            "bitcoin-script-semantics.bitcoin-sighash-plugin",
         )
 
 
 __TARGETS__: Final = {
     "source": SourceTarget(),
     "plugin": PluginTarget(),
+    "bitcoin-sighash-plugin": BitcoinSighashPluginTarget(),
     "llvm": KompileTarget(
-        lambda src_dir, plugin_dir: {
+        lambda src_dir, plugin_dir, bsp_dir: {
             "backend": PykBackend.LLVM,
             "main_file": src_dir / "script-semantics/script.k",
             "include_dirs": (src_dir,),
-            "hook_namespaces": ("KRYPTO",),
-            "ccopts": _lib_ccopts(plugin_dir),
+            "hook_namespaces": ("KRYPTO", "BITCOIN"),
+            "ccopts": _lib_ccopts(plugin_dir, bsp_dir),
             "warnings_to_errors": True,
             "gen_glr_bison_parser": True,
             "opt_level": 3,
         },
     ),
     "llvm-lib": KompileTarget(
-        lambda src_dir, plugin_dir: {
+        lambda src_dir, plugin_dir, bsp_dir: {
             "backend": PykBackend.LLVM,
             "main_file": src_dir / "script-semantics/script.k",
             "include_dirs": (src_dir,),
-            "hook_namespaces": ("KRYPTO",),
-            "ccopts": _lib_ccopts(plugin_dir),
+            "hook_namespaces": ("KRYPTO", "BITCOIN"),
+            "ccopts": _lib_ccopts(plugin_dir, bsp_dir),
             "llvm_kompile_type": LLVMKompileType.C,
             "warnings_to_errors": True,
             "opt_level": 3,

@@ -1,6 +1,7 @@
 requires "script-tx.k"
 requires "script-crypto.k"
 requires "plugin/krypto.md"
+requires "bitcoin-sighash-plugin/bitcoin-sighash.md"
 
 // K-side sighash computation.
 //
@@ -21,6 +22,7 @@ module SCRIPT-SIGHASH
   imports SCRIPT-TX
   imports SCRIPT-CRYPTO
   imports KRYPTO
+  imports BITCOIN-SIGHASH
   imports BYTES
   imports INT
   imports BOOL
@@ -64,51 +66,75 @@ module SCRIPT-SIGHASH
   // get the 32-byte digest.
   // =========================================================================
 
-  // Stream every 36-byte vin outpoint through S. Threads the running byte
-  // offset O so we advance through the tx linearly — avoids the O(n²)
-  // cost of #txVinAt re-walking from vin[0] on every call.
+  // Stream walkers. Each public `#stream*` wrapper delegates to its
+  // corresponding bitcoin-sighash-plugin hook, which iterates in C and
+  // calls SHA256_Update per record. The `Pure` variants preserve the
+  // pure-K recursive definition so the Haskell prover can reason about
+  // them inductively; a [simplification] lemma in lemmas.k asserts
+  // `BitcoinXStream(...) === #streamXPure(...)`.
+  //
+  // For per-step K overhead reasons (each K rewrite step through the
+  // LLVM backend is ~90 µs, swamping the ~1 ns actual SHA-256 work),
+  // running the pure walker on a 5000-vin stress tx costs ~500 ms.
+  // The bulk hook drops that to ~5 µs.
+
+  // ---- #streamOutpoints: delegate + pure version ----
   syntax Bytes ::= #streamOutpoints(Bytes, Bytes, Int, Int) [function]
   // args: state, tx, current-vin-offset, vins-remaining
-  rule #streamOutpoints(S, _, _, 0) => S
-  rule #streamOutpoints(S, TX, O, N) =>
-           #streamOutpoints(Sha256Update(S, #txVinOutpointAtOffset(TX, O)),
-                            TX, O +Int #vinLen(TX, O), N -Int 1)
+  rule #streamOutpoints(S, TX, O, N) => BitcoinOutpointsStream(S, TX, O, N)
+
+  syntax Bytes ::= #streamOutpointsPure(Bytes, Bytes, Int, Int) [function]
+  rule #streamOutpointsPure(S, _, _, 0) => S
+  rule #streamOutpointsPure(S, TX, O, N) =>
+           #streamOutpointsPure(Sha256Update(S, #txVinOutpointAtOffset(TX, O)),
+                                TX, O +Int #vinLen(TX, O), N -Int 1)
     requires N >Int 0
 
-  // Stream every 4-byte LE vin sequence through S (offset-threaded).
+  // ---- #streamSequences ----
   syntax Bytes ::= #streamSequences(Bytes, Bytes, Int, Int) [function]
-  rule #streamSequences(S, _, _, 0) => S
-  rule #streamSequences(S, TX, O, N) =>
-           #streamSequences(
+  rule #streamSequences(S, TX, O, N) => BitcoinSequencesStream(S, TX, O, N)
+
+  syntax Bytes ::= #streamSequencesPure(Bytes, Bytes, Int, Int) [function]
+  rule #streamSequencesPure(S, _, _, 0) => S
+  rule #streamSequencesPure(S, TX, O, N) =>
+           #streamSequencesPure(
                Sha256Update(S, Int2Bytes(4, #txVinSequenceAtOffset(TX, O), LE)),
                TX, O +Int #vinLen(TX, O), N -Int 1)
     requires N >Int 0
 
-  // Stream every serialized vout (amount||cs_len||script) through S
-  // (offset-threaded).
+  // ---- #streamVouts ----
   syntax Bytes ::= #streamVouts(Bytes, Bytes, Int, Int) [function]
-  rule #streamVouts(S, _, _, 0) => S
-  rule #streamVouts(S, TX, O, N) =>
-           #streamVouts(Sha256Update(S, #txVoutSerializedAtOffset(TX, O)),
-                        TX, O +Int #voutLen(TX, O), N -Int 1)
+  rule #streamVouts(S, TX, O, N) => BitcoinVoutsStream(S, TX, O, N)
+
+  syntax Bytes ::= #streamVoutsPure(Bytes, Bytes, Int, Int) [function]
+  rule #streamVoutsPure(S, _, _, 0) => S
+  rule #streamVoutsPure(S, TX, O, N) =>
+           #streamVoutsPure(Sha256Update(S, #txVoutSerializedAtOffset(TX, O)),
+                            TX, O +Int #voutLen(TX, O), N -Int 1)
     requires N >Int 0
 
-  // Stream every 8-byte LE prevout amount through S (offset-threaded).
-  // Prevout records have the same layout as vouts, so #voutLen applies.
-  syntax Bytes ::= #streamPrevoutAmounts(Bytes, Bytes, Int, Int) [function]
-  rule #streamPrevoutAmounts(S, _, _, 0) => S
-  rule #streamPrevoutAmounts(S, P, O, N) =>
-           #streamPrevoutAmounts(
+  // ---- #streamPrevoutAmounts ----
+  // Prevouts blob has no tx header: offset 0 is the first prevout. The
+  // bulk hook only needs the count.
+  syntax Bytes ::= #streamPrevoutAmounts(Bytes, Bytes, Int) [function]
+  rule #streamPrevoutAmounts(S, P, N) => BitcoinPrevoutAmountsStream(S, P, N)
+
+  syntax Bytes ::= #streamPrevoutAmountsPure(Bytes, Bytes, Int, Int) [function]
+  rule #streamPrevoutAmountsPure(S, _, _, 0) => S
+  rule #streamPrevoutAmountsPure(S, P, O, N) =>
+           #streamPrevoutAmountsPure(
                Sha256Update(S, Int2Bytes(8, #prevoutAmountAtOffset(P, O), LE)),
                P, O +Int #voutLen(P, O), N -Int 1)
     requires N >Int 0
 
-  // Stream every prevout scriptPubKey (cs_len || spk_bytes) through S
-  // (offset-threaded).
-  syntax Bytes ::= #streamPrevoutScripts(Bytes, Bytes, Int, Int) [function]
-  rule #streamPrevoutScripts(S, _, _, 0) => S
-  rule #streamPrevoutScripts(S, P, O, N) =>
-           #streamPrevoutScripts(
+  // ---- #streamPrevoutScripts ----
+  syntax Bytes ::= #streamPrevoutScripts(Bytes, Bytes, Int) [function]
+  rule #streamPrevoutScripts(S, P, N) => BitcoinPrevoutScriptsStream(S, P, N)
+
+  syntax Bytes ::= #streamPrevoutScriptsPure(Bytes, Bytes, Int, Int) [function]
+  rule #streamPrevoutScriptsPure(S, _, _, 0) => S
+  rule #streamPrevoutScriptsPure(S, P, O, N) =>
+           #streamPrevoutScriptsPure(
                Sha256Update(S, #prevoutScriptSerializedAtOffset(P, O)),
                P, O +Int #voutLen(P, O), N -Int 1)
     requires N >Int 0
@@ -302,11 +328,11 @@ module SCRIPT-SIGHASH
   // Prevouts blob has no tx header; vin[0] is at offset 0.
   syntax Bytes ::= #bip341ShaAmounts(Bytes, Int) [function]
   rule #bip341ShaAmounts(P, N) =>
-           Sha256Final(#streamPrevoutAmounts(Sha256Init(), P, 0, N))
+           Sha256Final(#streamPrevoutAmounts(Sha256Init(), P, N))
 
   syntax Bytes ::= #bip341ShaScriptpubkeys(Bytes, Int) [function]
   rule #bip341ShaScriptpubkeys(P, N) =>
-           Sha256Final(#streamPrevoutScripts(Sha256Init(), P, 0, N))
+           Sha256Final(#streamPrevoutScripts(Sha256Init(), P, N))
 
   syntax Bytes ::= #bip341ShaSequences(Bytes) [function]
   rule #bip341ShaSequences(TX) =>
@@ -651,12 +677,26 @@ module SCRIPT-SIGHASH
     requires I <Int N
 
   // Stream the full vins block (count prefix + vins) through S.
+  // Delegates to the bitcoin-sighash-plugin hook which emits the count
+  // prefix + walks the vins in C.
   syntax Bytes ::= #streamLegacyVinsBlock(Bytes, Bytes, Int, Bytes, Int) [function]
+  // ANYONECANPAY: include only the target vin (n=1, scoped to IDX's offset).
   rule #streamLegacyVinsBlock(S, TX, IDX, SC, HT) =>
+           BitcoinLegacyVinsBlockStream(S, TX, #txVinAt(TX, IDX), 1, 0, SC, HT)
+    requires HT &Int 128 =/=Int 0
+  // Normal: include all vins.
+  rule #streamLegacyVinsBlock(S, TX, IDX, SC, HT) =>
+           BitcoinLegacyVinsBlockStream(S, TX, #txVin0Offset(TX),
+                                        #txVinCount(TX), IDX, SC, HT)
+    requires HT &Int 128 ==Int 0
+
+  // Pure K version for Haskell-prover reasoning.
+  syntax Bytes ::= #streamLegacyVinsBlockPure(Bytes, Bytes, Int, Bytes, Int) [function]
+  rule #streamLegacyVinsBlockPure(S, TX, IDX, SC, HT) =>
            #streamLegacyVinAtOffset(Sha256Update(S, #bip143CompactSize(1)),
                             TX, #txVinAt(TX, IDX), IDX, IDX, SC, HT)
     requires HT &Int 128 =/=Int 0
-  rule #streamLegacyVinsBlock(S, TX, IDX, SC, HT) =>
+  rule #streamLegacyVinsBlockPure(S, TX, IDX, SC, HT) =>
            #streamLegacyVins(Sha256Update(S, #bip143CompactSize(#txVinCount(TX))),
                              TX, #txVin0Offset(TX), 0, #txVinCount(TX), IDX, SC, HT)
     requires HT &Int 128 ==Int 0
@@ -690,8 +730,17 @@ module SCRIPT-SIGHASH
     requires J <Int N
 
   // Stream the full vouts block (count prefix + modified vouts) through S.
+  // Delegates to the bitcoin-sighash-plugin hook which emits the count
+  // prefix + walks the vouts in C (including SIGHASH_SINGLE placeholders).
   syntax Bytes ::= #streamLegacyVoutsBlock(Bytes, Bytes, Int, Int) [function]
   rule #streamLegacyVoutsBlock(S, TX, IDX, HT) =>
+           BitcoinLegacyVoutsBlockStream(S, TX, #txVout0Offset(TX),
+                                         #legacyVoutCount(TX, IDX, HT),
+                                         IDX, HT)
+
+  // Pure K version for Haskell-prover reasoning.
+  syntax Bytes ::= #streamLegacyVoutsBlockPure(Bytes, Bytes, Int, Int) [function]
+  rule #streamLegacyVoutsBlockPure(S, TX, IDX, HT) =>
            #streamLegacyVouts(
                Sha256Update(S, #bip143CompactSize(#legacyVoutCount(TX, IDX, HT))),
                TX, #txVout0Offset(TX), 0,
