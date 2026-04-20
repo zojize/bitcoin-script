@@ -421,6 +421,36 @@ class KBitcoinScript:
         Returns:
             The final KORE pattern after execution.
         """
+        rt = self._runtime
+        if rt is not None:
+            import sys
+
+            from pyk.kore.parser import KoreParser
+
+            budget = sigops_budget if sigops_budget is not None else 2_000_000_000
+            config_vars: dict[str, tuple[str, bytes | int]] = {
+                "$SCRIPTSIG": ("SortBytes", script_sig),
+                "$SCRIPTPUBKEY": ("SortBytes", script_pubkey),
+                "$SIGHASH": ("SortBytes", sighash),
+                "$WITNESS": ("SortBytes", witness),
+                "$FLAGS": ("SortInt", flags),
+                "$TXVERSION": ("SortInt", tx_version),
+                "$NLOCKTIME": ("SortInt", n_locktime),
+                "$NSEQUENCE": ("SortInt", n_sequence),
+                "$SIGOPSBUDGET": ("SortInt", budget),
+                "$TX": ("SortBytes", tx),
+                "$PREVOUTS": ("SortBytes", prevouts),
+                "$INPUTINDEX": ("SortInt", input_index),
+                "$AMOUNT": ("SortInt", amount),
+            }
+            result_text = rt.run_binary(config_vars)
+            old_limit = sys.getrecursionlimit()
+            sys.setrecursionlimit(max(old_limit, 50_000))
+            try:
+                return KoreParser(result_text).pattern()
+            finally:
+                sys.setrecursionlimit(old_limit)
+
         pat = self.pattern(
             script_sig=script_sig,
             script_pubkey=script_pubkey,
