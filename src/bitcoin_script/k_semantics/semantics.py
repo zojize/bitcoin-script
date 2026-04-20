@@ -44,6 +44,30 @@ class _KRuntime:
         L.kore_pattern_free.argtypes = [ctypes.c_void_p]
         L.free_all_kore_mem.restype = None
         L.free_all_kore_mem.argtypes = []
+        # Binary-construction API (avoids text serialization of large Bytes DVs).
+        L.kore_composite_sort_new.restype = ctypes.c_void_p
+        L.kore_composite_sort_new.argtypes = [ctypes.c_char_p]
+        L.kore_sort_free.restype = None
+        L.kore_sort_free.argtypes = [ctypes.c_void_p]
+        L.kore_pattern_new_token_with_len.restype = ctypes.c_void_p
+        L.kore_pattern_new_token_with_len.argtypes = [
+            ctypes.c_char_p,
+            ctypes.c_size_t,
+            ctypes.c_void_p,
+        ]
+        L.kore_composite_pattern_new.restype = ctypes.c_void_p
+        L.kore_composite_pattern_new.argtypes = [ctypes.c_char_p]
+        L.kore_composite_pattern_add_argument.restype = None
+        L.kore_composite_pattern_add_argument.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+        ]
+        L.kore_pattern_new_injection.restype = ctypes.c_void_p
+        L.kore_pattern_new_injection.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+        ]
 
     def run(self, kore_text: str, *, depth: int = -1) -> str:
         """Parse KORE text, execute, return result KORE text."""
@@ -55,6 +79,87 @@ class _KRuntime:
         self._lib.kore_pattern_free(parsed)
         self._lib.kore_pattern_free(result_pat)
         self._lib.free_all_kore_mem()
+        return result_bytes.decode("utf-8")
+
+    def run_binary(
+        self,
+        config_vars: dict[str, tuple[str, bytes | int]],
+        *,
+        depth: int = -1,
+    ) -> str:
+        """Build the initial top-cell configuration via the binary KORE C API
+        (no text serialization of DVs), execute, and return the result as
+        KORE text.
+
+        ``config_vars`` maps each ``$NAME`` variable to a ``(sort, value)``
+        pair, e.g. ``{"$SCRIPTSIG": ("SortBytes", b"..."),
+        "$FLAGS": ("SortInt", 0)}``. ``SortBytes`` values are passed as raw
+        bytes; ``SortInt`` values are stringified before being handed to the
+        token constructor.
+
+        The pattern shape mirrors what ``pyk.kore.prelude.top_cell_initializer``
+        emits as text — a ``LblinitGeneratedTopCell`` with a single Map
+        argument whose entries are ``key |-> kitem`` pairs. The Map is built
+        as a left-folded chain of binary ``_Map_`` applications instead of a
+        single ``\\left-assoc`` wrapper; the LLVM backend treats them
+        equivalently.
+        """
+        L = self._lib
+
+        sort_kitem = L.kore_composite_sort_new(b"SortKItem")
+        sort_kconfigvar = L.kore_composite_sort_new(b"SortKConfigVar")
+        sort_cache: dict[str, int] = {}
+
+        def get_sort(name: str) -> int:
+            if name not in sort_cache:
+                sort_cache[name] = L.kore_composite_sort_new(name.encode("ascii"))
+            return sort_cache[name]
+
+        def make_token(value: bytes | int, sort_name: str) -> int:
+            sort = get_sort(sort_name)
+            data = value if isinstance(value, bytes) else str(value).encode("ascii")
+            dv = L.kore_pattern_new_token_with_len(data, len(data), sort)
+            return L.kore_pattern_new_injection(dv, sort, sort_kitem)
+
+        entries: list[int] = []
+        for var_name, (sort_name, value) in config_vars.items():
+            key_dv = L.kore_pattern_new_token_with_len(
+                var_name.encode("ascii"),
+                len(var_name),
+                sort_kconfigvar,
+            )
+            key_inj = L.kore_pattern_new_injection(key_dv, sort_kconfigvar, sort_kitem)
+            val_inj = make_token(value, sort_name)
+            entry = L.kore_composite_pattern_new(b"Lbl'UndsPipe'-'-GT-Unds'")
+            L.kore_composite_pattern_add_argument(entry, key_inj)
+            L.kore_composite_pattern_add_argument(entry, val_inj)
+            entries.append(entry)
+
+        if not entries:
+            raise ValueError("config_vars must not be empty")
+
+        folded = entries[0]
+        for entry in entries[1:]:
+            new_map = L.kore_composite_pattern_new(b"Lbl'Unds'Map'Unds'")
+            L.kore_composite_pattern_add_argument(new_map, folded)
+            L.kore_composite_pattern_add_argument(new_map, entry)
+            folded = new_map
+
+        top = L.kore_composite_pattern_new(b"LblinitGeneratedTopCell")
+        L.kore_composite_pattern_add_argument(top, folded)
+
+        block = L.kore_pattern_construct(top)
+        result_block = L.take_steps(depth, block)
+        result_pat = L.kore_pattern_from_block(result_block)
+        result_bytes: bytes = L.kore_pattern_dump(result_pat)
+
+        L.kore_pattern_free(top)
+        L.kore_pattern_free(result_pat)
+        L.kore_sort_free(sort_kitem)
+        L.kore_sort_free(sort_kconfigvar)
+        for s in sort_cache.values():
+            L.kore_sort_free(s)
+        L.free_all_kore_mem()
         return result_bytes.decode("utf-8")
 
 
