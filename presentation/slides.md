@@ -49,7 +49,7 @@ drawings:
         <li v-click>Multi-phase execution: scriptSig, scriptPubKey, P2SH redeem, witness</li>
         <li v-click>16 consensus flags with complex interactions</li>
         <li v-click>Subtle encodings: CScriptNum, DER signatures, sighash variants</li>
-        <li v-click>Bitcoin Core's C++ is the <em>de facto</em> spec — no independent reference</li>
+        <li v-click>Historical consensus bugs that can't be fixed without a chain split</li>
       </ul>
     </div>
   </div>
@@ -180,11 +180,13 @@ configuration
 <div class="h-full flex flex-col justify-center px-12">
   <h2 class="!text-3xl font-mono !mb-6"><span class="text-amber">#</span> Formal Proofs</h2>
 
-  <div class="grid grid-cols-2 gap-10">
-    <div>
+  <div class="grid grid-cols-5 gap-8">
+    <div class="col-span-3">
 
-```k
-// CScriptNum roundtrip lemma
+```haskell {maxHeight:'320px'}
+// CScriptNum roundtrip — key lemma for symbolic arithmetic
+// Lets the prover reason about OP_ADD/OP_SUB/OP_NEGATE
+// for ALL valid inputs, not just concrete test cases
 rule scriptNumToInt(intToScriptNum(N)) => N
   requires N >=Int -2147483647
    andBool N <=Int 2147483647
@@ -195,26 +197,18 @@ rule validNumFlags(intToScriptNum(0 -Int N), _F) => true
   requires N >=Int -2147483647
    andBool N <=Int 2147483647
   [simplification]
-
-// intToScriptNum is injective
-rule { intToScriptNum(A) #Equals intToScriptNum(B) }
-  => { A #Equals B }
-  [simplification]
 ```
 
 </div>
-    <div class="flex flex-col justify-center space-y-4">
-      <div v-click class="p-3 border border-white/10 rounded text-sm">
-        <span class="text-amber font-mono">Haskell backend</span> enables symbolic execution over all possible inputs — not just concrete test cases
-      </div>
-      <div v-click class="p-3 border border-white/10 rounded text-sm">
-        These lemmas let the prover reason about <span class="text-amber font-mono">OP_ADD</span>, <span class="text-amber font-mono">OP_SUB</span>, <span class="text-amber font-mono">OP_NEGATE</span> etc. for any valid integer N
-      </div>
-      <div v-click class="p-3 border border-white/10 rounded text-sm">
-        Concrete script proofs (timelocks, HTLCs) work without lemmas — the Haskell backend evaluates byte literals natively
-      </div>
-      <div v-click class="p-3 border border-amber/20 rounded text-sm text-amber font-mono">
-        → The same K definition runs tests <em>and</em> drives the prover
+    <div class="col-span-2 flex flex-col justify-center space-y-3">
+      <div class="font-mono text-xs op-50 mb-1 uppercase tracking-wider">34 claims proven across 9 spec files</div>
+      <div v-click class="p-2 border border-white/10 rounded font-mono text-xs"><span class="text-amber">arithmetic</span> · <span class="op-60">OP_ADD, OP_NEGATE for all valid N</span></div>
+      <div v-click class="p-2 border border-white/10 rounded font-mono text-xs"><span class="text-amber">symbolic</span> · <span class="op-60">OP_EQUAL, OP_NOT, OP_WITHIN</span></div>
+      <div v-click class="p-2 border border-white/10 rounded font-mono text-xs"><span class="text-amber">timelock / htlc</span> · <span class="op-60">CLTV pass/fail, HTLC expiry paths</span></div>
+      <div v-click class="p-2 border border-white/10 rounded font-mono text-xs"><span class="text-amber">phase / limits</span> · <span class="op-60">stack passing, CLEANSTACK, SIGPUSHONLY</span></div>
+      <div v-click class="p-2 border border-white/10 rounded font-mono text-xs"><span class="text-amber">historical-bugs</span> · <span class="op-60">MINIMALDATA, NULLDUMMY before/after flag activation</span></div>
+      <div v-click class="mt-2 p-2 border border-amber/30 rounded font-mono text-xs text-amber">
+        → Same K definition runs tests and drives the prover
       </div>
     </div>
   </div>
@@ -453,8 +447,8 @@ Result: PASS
         <div v-click class="flex items-start gap-3">
           <div class="w-2 h-2 rounded-full bg-white/30 mt-2 shrink-0"></div>
           <div>
-            <div class="font-mono">Formal proofs of script properties</div>
-            <div class="text-sm op-40">Prove invariants about timelock, HTLC, and multisig scripts using K's Haskell backend</div>
+            <div class="font-mono">End-to-end proofs with crypto hooks</div>
+            <div class="text-sm op-40">P2PKH and P2WSH full-path proofs currently blocked on kore-rpc-booster support for ECDSA and hash function hooks</div>
           </div>
         </div>
       </div>
