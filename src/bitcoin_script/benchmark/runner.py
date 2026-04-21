@@ -66,6 +66,22 @@ def _cs(n: int) -> bytes:
     return b"\xff" + n.to_bytes(8, "little")
 
 
+def _build_prevouts_blob(
+    scriptpubkeys: list[bytes] | None, amounts: list[int] | None
+) -> bytes:
+    """Assemble the per-tx prevouts blob (<8 LE amount><cs len><spk>)* used by
+    BIP-341/BIP-342 sighash on the K side. Uses b"".join over a chunk list to
+    avoid O(n^2) bytes concatenation on stress txs with thousands of prevouts."""
+    if scriptpubkeys is None or amounts is None:
+        return b""
+    chunks: list[bytes] = []
+    for spk, amt in zip(scriptpubkeys, amounts, strict=True):
+        chunks.append(amt.to_bytes(8, "little"))
+        chunks.append(_cs(len(spk)))
+        chunks.append(spk)
+    return b"".join(chunks)
+
+
 def _verify_with_k(
     k: object, inp: BenchmarkInput, iterations: int
 ) -> tuple[int, bool, str | None]:
@@ -81,16 +97,9 @@ def _verify_with_k(
     # Serialize per-tx prevouts (<8 LE amount><cs len><spk>, concatenated)
     # for BIP-341/BIP-342 K-side sighash. Empty when not all prevouts were
     # resolved at extraction time; the K dispatcher falls back to the blob.
-    prevouts_blob = b""
-    if (
-        inp.all_prevout_scriptpubkeys is not None
-        and inp.all_prevout_amounts is not None
-    ):
-        for spk, amt in zip(
-            inp.all_prevout_scriptpubkeys, inp.all_prevout_amounts, strict=True
-        ):
-            prevouts_blob += amt.to_bytes(8, "little")
-            prevouts_blob += _cs(len(spk)) + spk
+    prevouts_blob = _build_prevouts_blob(
+        inp.all_prevout_scriptpubkeys, inp.all_prevout_amounts
+    )
 
     # Build and serialise the initial KORE config once; reuse the text for all
     # iterations so the pyk Python overhead is paid exactly once per input.
