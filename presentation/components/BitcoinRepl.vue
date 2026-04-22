@@ -542,7 +542,7 @@ function insertOp(op: string) {
       <button class="op-btn op-btn-special" @click="encodeScript" title="Encode current buffer to raw bytes (for pushing as a redeemScript)">ENCODE</button>
       <button class="op-btn op-btn-special" @click="scriptHash" title="HASH160 of current scriptPubKey buffer">HASH160</button>
       <button class="op-btn op-btn-run" @click="executeScript">.run</button>
-      <button class="op-btn op-btn-reset" @click="asmTokens = []; sigTokens = []; addEntry('info', 'Script cleared.')">.reset</button>
+      <button class="op-btn op-btn-reset" @click="asmTokens = []; sigTokens = []; lastResult = null; addEntry('info', 'Script cleared.')">.reset</button>
     </div>
 
     <!-- Input -->
