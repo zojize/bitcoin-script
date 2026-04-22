@@ -82,7 +82,7 @@ different behavior. Bitcoin integers use a custom sign-magnitude encoding.
 And there are historical bugs — like CHECKMULTISIG eating an extra stack
 item — that can never be fixed because doing so would split the chain.
 That combination of "small language" and "subtle behavior" is exactly where
-formal semantics earns its keep.
+formal semantics are valuable.
 -->
 
 ---
@@ -267,19 +267,21 @@ verification from raw transaction bytes.
     <div class="col-span-3">
 
 ```haskell {maxHeight:'320px'}
-// CScriptNum roundtrip — key lemma for symbolic arithmetic
-// Lets the prover reason about OP_ADD/OP_SUB/OP_NEGATE
-// for ALL valid inputs, not just concrete test cases
-rule scriptNumToInt(intToScriptNum(N)) => N
-  requires N >=Int -2147483647
-   andBool N <=Int 2147483647
-  [simplification]
-
-// Validity preservation under negation
-rule validNumFlags(intToScriptNum(0 -Int N), _F) => true
-  requires N >=Int -2147483647
-   andBool N <=Int 2147483647
-  [simplification]
+// Proved: OP_ADD produces A+B for ALL valid inputs,
+// not just specific test cases.
+claim [add-correct]:
+    <k> OP_ADD => .K ... </k>
+    <stack>
+      ListItem(intToScriptNum(A))
+      ListItem(intToScriptNum(B)) REST
+        =>
+      ListItem(intToScriptNum(A +Int B)) REST
+    </stack>
+    <flags> _F </flags>
+  requires A >=Int -2147483647
+   andBool A <=Int  2147483647
+   andBool B >=Int -2147483647
+   andBool B <=Int  2147483647
 ```
 
 </div>
@@ -306,16 +308,16 @@ rule validNumFlags(intToScriptNum(0 -Int N), _F) => true
 
 <!--
 Because the semantics are in K, we get symbolic reasoning for free. On the
-left is a real proof rule — the roundtrip lemma for CScriptNum. It says:
-if you convert an integer to its byte encoding and back, you get the same
-integer, for any N in the valid range. The prover uses this as a
-simplification rule, which lets us reason about arithmetic opcodes for ALL
-valid inputs symbolically, not just specific test cases.
+left is an actual proof claim we verified — it states that OP_ADD,
+operating on two encoded script numbers A and B, produces the encoding of
+A+B, for ALL valid A and B in the 32-bit signed range. The K prover
+discharges this claim symbolically, so we know OP_ADD is correct for
+every possible input, not just the few we could think to test.
 
-[click] We've proven 34 claims across 9 specification files, covering
-arithmetic, symbolic properties, timelock and HTLC scripts, phase
-transitions and consensus limits, and even historical bugs like
-MINIMALDATA's behavior before and after flag activation.
+[click] We've proven 34 such claims across 9 specification files — covering
+arithmetic, symbolic properties like OP_EQUAL and OP_WITHIN, timelock and
+HTLC scripts, phase transitions and consensus limits, and even historical
+bugs like MINIMALDATA's behavior before and after flag activation.
 
 [click] The key insight: the same K definition runs concrete tests AND
 drives the prover. One specification, two modes — concrete execution and
