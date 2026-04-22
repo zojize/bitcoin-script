@@ -488,16 +488,16 @@ This is viable for production use alongside a Bitcoin full node.
       <div class="font-mono text-sm op-50 mb-3 uppercase tracking-wider">REPL Features</div>
       <div v-click class="space-y-3">
         <div class="p-3 border border-white/10 rounded text-sm">
-          <span class="text-amber font-mono">3 backends</span> — K Framework, Python engine, or local simulation; switch at runtime
+          <span class="text-amber font-mono">K Framework backend</span> — runs through our formal semantics via direct FFI to the compiled LLVM interpreter
         </div>
         <div class="p-3 border border-white/10 rounded text-sm">
-          <span class="text-amber font-mono">.sig</span> — set scriptSig tokens separately for full P2PKH / P2SH verification
+          <span class="text-amber font-mono">.run / .stack</span> — execute the accumulated script, inspect the resulting stack
         </div>
         <div class="p-3 border border-white/10 rounded text-sm">
-          <span class="text-amber font-mono">.flags p2sh,witness</span> — toggle any of the 16 consensus flags by name or bitmask
+          <span class="text-amber font-mono">.script / .asm</span> — view current script as hex bytes or ASM tokens
         </div>
         <div class="p-3 border border-white/10 rounded text-sm">
-          <span class="text-amber font-mono">ENCODE / HASH160</span> — encode a script to bytes and compute its P2SH address hash
+          <span class="text-amber font-mono">.flags N</span> — set verification flags as a bitmask (P2SH, DERSIG, CLTV, etc.)
         </div>
       </div>
     </div>
@@ -534,17 +534,19 @@ Result: PASS
 </style>
 
 <!--
-Beyond the semantics, we built a REPL to make the system accessible.
+Beyond the semantics, we built a command-line REPL to make the system
+interactive. You launch it with "bitcoin-script repl" and it drops you
+into a prompt where you can type opcodes and explore.
 
-[click] Three backends that you can switch at runtime — the K Framework for
-formal guarantees, a pure Python engine for quick local testing, and a
-client-side simulator that runs even without a server.
-
-The REPL also supports full scriptSig and scriptPubKey separation via dot
-commands, toggleable consensus flags by name, and helper commands to
-encode a script to bytes or compute a P2SH address hash — which, as you'll
-see in a second, is exactly what you need to construct a P2SH transaction
-end to end.
+[click] Under the hood the REPL loads our compiled K interpreter via FFI,
+so every execution goes through the actual formal semantics — not a
+Python reimplementation. Dot commands let you drive it: .run executes the
+accumulated script, .stack inspects the result, .script and .asm show the
+current buffer in either hex or ASM form, and .flags lets you set the
+verification flag bitmask to enable features like P2SH or DERSIG. The
+right side shows what a session looks like — simple arithmetic on the
+stack. In the next slide we'll show something similar running in the
+browser.
 -->
 
 ---
