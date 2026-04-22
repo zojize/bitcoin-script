@@ -308,7 +308,6 @@ async function executeScript() {
   } finally {
     isLoading.value = false
   }
-  asmTokens.value = []
 }
 
 async function scriptHash() {
@@ -472,7 +471,6 @@ function simulateExecution() {
   }
   addEntry(pass ? 'output' : 'error', `Result: ${resultStr}`)
   addEntry('info', '(local simulation — start backend for full support)')
-  asmTokens.value = []
 }
 
 function handleKeydown(e: KeyboardEvent) {
