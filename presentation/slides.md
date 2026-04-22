@@ -669,8 +669,8 @@ and P2WSH verification paths rather than just the script-level pieces.
   <div class="flex items-center gap-12">
     <img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=https://bitcoin-script.onrender.com/&bgcolor=0a0a0a&color=f59e0b&format=svg" alt="QR code" class="w-36 h-36" />
     <div class="font-mono text-sm op-50 space-y-3 text-left">
-      <div><span class="text-amber">slides</span> bitcoin-script.onrender.com</div>
-      <div><span class="text-amber">source</span> github.com/zojize/bitcoin-script</div>
+      <div><span class="text-amber">slides</span> <a href="https://bitcoin-script.onrender.com" target="_blank">bitcoin-script.onrender.com</a></div>
+      <div><span class="text-amber">source</span> <a href="https://github.com/zojize/bitcoin-script" target="_blank">github.com/zojize/bitcoin-script</a></div>
     </div>
   </div>
 </div>

@@ -27,6 +27,11 @@ const sigTokens = ref<string[]>([])
 const flagsMask = ref(0)
 const isLoading = ref(false)
 const historyEl = ref<HTMLElement | null>(null)
+const inputEl = ref<HTMLInputElement | null>(null)
+
+function focusInput() {
+  nextTick(() => inputEl.value?.focus())
+}
 const lastResult = ref<LastResult | null>(null)
 
 const FLAGS: Record<string, number> = {
@@ -495,7 +500,7 @@ function insertOp(op: string) {
 </script>
 
 <template>
-  <div class="repl-container">
+  <div class="repl-container" @click="focusInput">
     <!-- Status bar -->
     <div class="status-bar">
       <span class="status-label">BITCOIN SCRIPT REPL</span>
@@ -544,6 +549,7 @@ function insertOp(op: string) {
     <div class="input-row">
       <span class="prompt">btc&gt;</span>
       <input
+        ref="inputEl"
         v-model="inputValue"
         class="repl-input"
         placeholder="OP_1 OP_2 OP_ADD"
