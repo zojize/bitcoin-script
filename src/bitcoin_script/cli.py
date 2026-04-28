@@ -500,28 +500,343 @@ def verify_chain(
             raise typer.Exit(1)
 
 
+@app.command(name="k-verify")
+def k_verify(
+    script_pubkey: Annotated[
+        Optional[str],
+        typer.Argument(
+            help="scriptPubKey in hex or ASM (e.g. 'OP_DUP OP_HASH160 ...')."
+        ),
+    ] = None,
+    script_sig: Annotated[
+        str,
+        typer.Option(
+            "--sig",
+            "-s",
+            help="scriptSig in hex or ASM. Defaults to empty (native segwit / single-script).",
+        ),
+    ] = "",
+    hex_input: Annotated[
+        bool,
+        typer.Option(
+            "--hex",
+            help="Treat script inputs as raw hex (otherwise auto-detect).",
+        ),
+    ] = False,
+    flag: Annotated[
+        Optional[list[str]],
+        typer.Option(
+            "--flag",
+            "-f",
+            help=(
+                "Verification flag name (repeatable; comma-separated also OK). "
+                "Use ALL for every flag, STANDARD for Bitcoin Core's "
+                "STANDARD_SCRIPT_VERIFY_FLAGS. Examples: -f P2SH -f WITNESS "
+                "or -f STANDARD."
+            ),
+        ),
+    ] = None,
+    flags_int: Annotated[
+        Optional[int],
+        typer.Option(
+            "--flags-int",
+            help=(
+                "Set the raw flags bitmask integer directly (overrides --flag). "
+                "Useful for reproducing exact Bitcoin Core SCRIPT_VERIFY_* combinations."
+            ),
+        ),
+    ] = None,
+    witness: Annotated[
+        Optional[list[str]],
+        typer.Option(
+            "--witness",
+            "-w",
+            help="Witness stack item (hex). Repeat for each item, top-of-stack last.",
+        ),
+    ] = None,
+    amount: Annotated[
+        int,
+        typer.Option(
+            "--amount", help="Spent-output amount in satoshis (BIP-143 sighash)."
+        ),
+    ] = 0,
+    tx_hex: Annotated[
+        Optional[str],
+        typer.Option(
+            "--tx",
+            help=(
+                "Raw spending transaction hex. Required for K-native sighash "
+                "(BIP-143 / BIP-341 / legacy)."
+            ),
+        ),
+    ] = None,
+    input_index: Annotated[
+        int,
+        typer.Option(
+            "--input-index",
+            help="Index of the input being verified (used with --tx).",
+        ),
+    ] = 0,
+    prevout: Annotated[
+        Optional[list[str]],
+        typer.Option(
+            "--prevout",
+            help=(
+                "Spent-output as 'AMOUNT:SCRIPTPUBKEY_HEX' (e.g. "
+                "'100000:00208d7a...'), repeated in vin order. Required for "
+                "BIP-341 taproot sighash."
+            ),
+        ),
+    ] = None,
+    sighash_blob: Annotated[
+        Optional[str],
+        typer.Option(
+            "--sighash",
+            help=(
+                "Pre-computed sighash blob (hex). Used for legacy paths when "
+                "--tx is not supplied; otherwise K computes sighash natively."
+            ),
+        ),
+    ] = None,
+    tx_version: Annotated[
+        int,
+        typer.Option("--tx-version", help="Spending tx version (BIP-68 CSV)."),
+    ] = 1,
+    n_locktime: Annotated[
+        int,
+        typer.Option(
+            "--locktime",
+            help="Spending tx nLockTime (BIP-65 CLTV).",
+        ),
+    ] = 0,
+    n_sequence: Annotated[
+        int,
+        typer.Option(
+            "--sequence",
+            help="Input nSequence (BIP-65 CLTV / BIP-68 CSV).",
+        ),
+    ] = 0xFFFFFFFF,
+    sigops_budget: Annotated[
+        Optional[int],
+        typer.Option(
+            "--sigops-budget",
+            help="BIP-342 signature validation weight budget (default unlimited).",
+        ),
+    ] = None,
+    list_flags: Annotated[
+        bool,
+        typer.Option(
+            "--list-flags",
+            help="Print all supported flag names and bit values, then exit.",
+        ),
+    ] = False,
+    show_flags: Annotated[
+        bool,
+        typer.Option(
+            "--show-flags",
+            help="Print the resolved flag set before running.",
+        ),
+    ] = False,
+) -> None:
+    """Verify a script through the K Framework formal semantics with full state.
+
+    Exposes every K config cell so users can drive the semantics exactly as
+    a node would. Flags can be passed by name (recommended) or as an
+    integer bitmask.
+
+    Examples:
+
+        # Pure script execution, no flags:
+        bitcoin-script k-verify "OP_1 OP_2 OP_ADD"
+
+        # P2PKH spend with sighash blob:
+        bitcoin-script k-verify --sig <sig_hex> <p2pkh_hex> --hex \\
+            -f STANDARD --sighash <32-byte-hex>
+
+        # Full BIP-341 taproot key-path verify:
+        bitcoin-script k-verify --tx <tx_hex> --input-index 0 \\
+            --prevout '100000:00208d7a...' --amount 100000 \\
+            -f STANDARD,TAPROOT --witness <schnorr_sig_hex> \\
+            <p2tr_hex> --hex
+    """
+    if list_flags:
+        typer.echo("Supported flag names (use with --flag / -f):")
+        max_w = max(len(m.name or "") for m in ScriptVerifyFlag if m.name)
+        for m in ScriptVerifyFlag:
+            if m and m.name:
+                typer.echo(
+                    f"  {m.name:<{max_w}}  bit {int(m).bit_length() - 1}  (0x{int(m):x})"
+                )
+        typer.echo("\nAliases:")
+        typer.echo("  ALL       — every flag")
+        typer.echo(
+            "  STANDARD  — Bitcoin Core's STANDARD_SCRIPT_VERIFY_FLAGS (mempool/relay)"
+        )
+        return
+
+    if script_pubkey is None:
+        typer.echo(
+            "Error: SCRIPT_PUBKEY argument required (use --list-flags to see flag names).",
+            err=True,
+        )
+        raise typer.Exit(2)
+
+    from bitcoin_script.k_semantics import KBitcoinScript
+    from bitcoin_script.script_utils import encode_witness_blob
+
+    # Resolve flags
+    if flags_int is not None:
+        active_flags = ScriptVerifyFlag(flags_int)
+    elif flag:
+        try:
+            active_flags = ScriptVerifyFlag.from_names(flag)
+        except ValueError as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(2) from exc
+    else:
+        active_flags = ScriptVerifyFlag.NONE
+
+    if show_flags:
+        names = active_flags.names() or ["NONE"]
+        typer.echo(f"Flags: 0x{int(active_flags):05x} ({', '.join(names)})")
+
+    # Parse scripts
+    try:
+        sig_bytes = bytes(_parse_script(script_sig, hex_input)) if script_sig else b""
+    except (ScriptError, ValueError) as exc:
+        typer.echo(f"Error: bad scriptSig: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    try:
+        spk_bytes = bytes(_parse_script(script_pubkey, hex_input))
+    except (ScriptError, ValueError) as exc:
+        typer.echo(f"Error: bad scriptPubKey: {exc}", err=True)
+        raise typer.Exit(2) from exc
+
+    # Witness
+    witness_blob = b""
+    if witness:
+        try:
+            witness_items = [bytes.fromhex(w) for w in witness]
+        except ValueError as exc:
+            typer.echo(f"Error: invalid witness hex: {exc}", err=True)
+            raise typer.Exit(2) from exc
+        witness_blob = encode_witness_blob(witness_items)
+
+    # tx + prevouts
+    tx_bytes = b""
+    if tx_hex is not None:
+        try:
+            tx_bytes = bytes.fromhex(tx_hex)
+        except ValueError as exc:
+            typer.echo(f"Error: invalid --tx hex: {exc}", err=True)
+            raise typer.Exit(2) from exc
+
+    prevouts_blob = b""
+    if prevout:
+        chunks: list[bytes] = []
+        for spec in prevout:
+            if ":" not in spec:
+                typer.echo(
+                    f"Error: --prevout must be 'AMOUNT:SCRIPTPUBKEY_HEX', got {spec!r}",
+                    err=True,
+                )
+                raise typer.Exit(2)
+            amt_str, spk_hex = spec.split(":", 1)
+            try:
+                amt = int(amt_str)
+                spk = bytes.fromhex(spk_hex)
+            except ValueError as exc:
+                typer.echo(f"Error: bad --prevout {spec!r}: {exc}", err=True)
+                raise typer.Exit(2) from exc
+            chunks.append(amt.to_bytes(8, "little"))
+            n = len(spk)
+            if n <= 252:
+                chunks.append(n.to_bytes(1, "little"))
+            elif n <= 0xFFFF:
+                chunks.append(b"\xfd" + n.to_bytes(2, "little"))
+            else:
+                chunks.append(b"\xfe" + n.to_bytes(4, "little"))
+            chunks.append(spk)
+        prevouts_blob = b"".join(chunks)
+
+    # sighash blob
+    if sighash_blob is not None:
+        try:
+            sighash_bytes = bytes.fromhex(sighash_blob)
+        except ValueError as exc:
+            typer.echo(f"Error: invalid --sighash hex: {exc}", err=True)
+            raise typer.Exit(2) from exc
+    else:
+        sighash_bytes = b""
+
+    # Run K
+    typer.echo("Loading K Framework semantics...", err=True)
+    try:
+        k = KBitcoinScript()
+    except Exception as exc:
+        typer.echo(f"Error: failed to load K runtime: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    pat = k.verify_script(
+        script_pubkey=spk_bytes,
+        script_sig=sig_bytes,
+        sighash=sighash_bytes,
+        witness=witness_blob,
+        flags=int(active_flags),
+        tx_version=tx_version,
+        n_locktime=n_locktime,
+        n_sequence=n_sequence,
+        sigops_budget=sigops_budget,
+        tx=tx_bytes,
+        prevouts=prevouts_blob,
+        input_index=input_index,
+        amount=amount,
+    )
+
+    err = k.error(pat)
+    ok = k.success(pat)
+    stack = k.stack(pat)
+
+    typer.echo(f"Result: {'PASS' if ok else 'FAIL'}")
+    if err:
+        typer.echo(f"Error: {err}")
+    elif not ok and k.is_stuck(pat):
+        typer.echo(
+            "Stuck: K rewrite halted on an unmatched pattern (likely an "
+            "implicit failure such as stack underflow)."
+        )
+    typer.echo(f"Stack ({len(stack)} item{'s' if len(stack) != 1 else ''}):")
+    for i, item in enumerate(stack):
+        typer.echo(f"  {i}: {_format_stack_item(item)}")
+
+    if not ok:
+        raise typer.Exit(1)
+
+
 @app.command()
 def repl(
     backend: Annotated[
         Backend, typer.Option("--backend", help="Execution backend.")
     ] = Backend.k,
 ) -> None:
-    """Interactive Bitcoin Script REPL.
+    """Interactive Bitcoin Script REPL with full K state.
 
-    Type opcodes and data to build a script, then execute it through the
-    K Framework formal semantics. Supports both OP_-prefixed and bare
+    Type opcodes and data to build a scriptPubKey, then execute it through
+    the K Framework formal semantics. Supports both OP_-prefixed and bare
     opcode names, hex data, quoted strings, and bare integers.
 
-    Commands:
+    The REPL exposes every K config cell so you can drive the semantics
+    exactly as a node would: scriptSig, witness items, flags by name, full
+    BIP-143/341 sighash context (tx + prevouts + amount + input_index).
 
-        .run          Execute the current script
-        .stack        Show the stack from the last execution
-        .reset        Clear the script buffer
-        .script       Show the current script (hex)
-        .asm          Show the current script (ASM tokens)
-        .flags N      Set verification flags bitmask
-        .help         Show this help
-        .quit         Exit the REPL
+    Top-level commands (use .help for full list):
+
+        .run, .stack, .reset, .help, .quit
+        .sig <hex|asm>            scriptSig
+        .witness <hex>            push a witness item
+        .flag NAME [...]          toggle flag(s) by name
+        .tx <hex>                 raw spending tx
+        .state                    show every K state cell
 
     Examples:
 
@@ -536,6 +851,7 @@ def repl(
 
     from bitcoin_script.asm import parse_asm
     from bitcoin_script.k_semantics import KBitcoinScript
+    from bitcoin_script.script_utils import encode_witness_blob
 
     console = Console()
     session: PromptSession[str] = PromptSession(history=InMemoryHistory())
@@ -546,7 +862,7 @@ def repl(
 
     console.print("[bold]Bitcoin Script REPL[/bold]")
     console.print(
-        "Type opcodes to build a script. Use .run to execute, .help for commands.\n"
+        "Type opcodes to build a scriptPubKey. Use .run to execute, .help for commands.\n"
     )
 
     console.print("Loading K Framework semantics...", style="dim")
@@ -560,12 +876,45 @@ def repl(
         raise typer.Exit(1) from e
     console.print("[green]Ready.[/green]\n")
 
+    # K state mirroring KBitcoinScript.verify_script's parameters.
     asm_tokens: list[str] = []
-    flags: int = 0
+    sig_bytes: bytes = b""
+    sig_repr: str = "(empty)"
+    witness_items: list[bytes] = []
+    flags = ScriptVerifyFlag.NONE
+    tx_bytes: bytes = b""
+    prevouts: list[tuple[int, bytes]] = []  # (amount, scriptPubKey)
+    input_index: int = 0
+    amount: int = 0
+    tx_version: int = 1
+    n_locktime: int = 0
+    n_sequence: int = 0xFFFFFFFF
+    sigops_budget: int | None = None
+    sighash_blob: bytes = b""
     last_result = None
 
+    def _parse_value_arg(s: str, *, want_hex: bool = False) -> bytes:
+        """Parse a token (hex with optional 0x, or ASM) into bytes."""
+        s = s.strip()
+        if want_hex or s.startswith("0x") or _looks_like_hex(s):
+            return bytes.fromhex(s.removeprefix("0x"))
+        return bytes(parse_asm(s))
+
+    def _prevouts_blob() -> bytes:
+        chunks: list[bytes] = []
+        for amt, spk in prevouts:
+            chunks.append(amt.to_bytes(8, "little"))
+            n = len(spk)
+            if n <= 252:
+                chunks.append(n.to_bytes(1, "little"))
+            elif n <= 0xFFFF:
+                chunks.append(b"\xfd" + n.to_bytes(2, "little"))
+            else:
+                chunks.append(b"\xfe" + n.to_bytes(4, "little"))
+            chunks.append(spk)
+        return b"".join(chunks)
+
     def _show_stack() -> None:
-        nonlocal last_result
         if last_result is None:
             console.print("[dim]No execution yet. Use .run first.[/dim]")
             return
@@ -588,23 +937,87 @@ def repl(
             f"Result: [{'green' if ok else 'red'}]{'PASS' if ok else 'FAIL'}[/]"
         )
 
+    def _show_state() -> None:
+        names = flags.names() or ["NONE"]
+        console.print(
+            f"[bold]flags[/bold]       0x{int(flags):05x} ({', '.join(names)})"
+        )
+        console.print(f"[bold]scriptSig[/bold]   {sig_repr} ({len(sig_bytes)} bytes)")
+        if asm_tokens:
+            try:
+                spk = parse_asm(" ".join(asm_tokens))
+                console.print(
+                    f"[bold]scriptPubKey[/bold] {spk.hex()} ({len(spk)} bytes)"
+                )
+            except Exception as e:
+                console.print(
+                    f"[bold]scriptPubKey[/bold] [yellow]parse error: {e}[/yellow]"
+                )
+        else:
+            console.print("[bold]scriptPubKey[/bold] (empty)")
+        console.print(f"[bold]witness[/bold]     {len(witness_items)} item(s)")
+        for i, w in enumerate(witness_items):
+            console.print(f"  [{i}] {w.hex() if w else '(empty)'}")
+        console.print(
+            f"[bold]tx[/bold]          {len(tx_bytes)} bytes (input_index={input_index})"
+        )
+        console.print(f"[bold]prevouts[/bold]    {len(prevouts)} entry(ies)")
+        for i, (amt, spk) in enumerate(prevouts):
+            console.print(
+                f"  [{i}] {amt} sat -> {spk.hex()[:40]}{'...' if len(spk) > 20 else ''}"
+            )
+        console.print(
+            f"[bold]amount[/bold]      {amount} sat   "
+            f"[bold]version[/bold] {tx_version}   "
+            f"[bold]locktime[/bold] {n_locktime}   "
+            f"[bold]sequence[/bold] 0x{n_sequence:08x}"
+        )
+        budget_str = "unlimited" if sigops_budget is None else str(sigops_budget)
+        console.print(f"[bold]sigops_budget[/bold] {budget_str}")
+        if sighash_blob:
+            console.print(
+                f"[bold]sighash_blob[/bold] {len(sighash_blob)} bytes (precomputed)"
+            )
+
     def _show_help() -> None:
-        console.print("[bold]Commands:[/bold]")
-        console.print("  .run          Execute script through K semantics")
-        console.print("  .stack        Show stack from last execution")
-        console.print("  .reset        Clear the script buffer")
-        console.print("  .script       Show current script (hex)")
-        console.print("  .asm          Show current script (ASM tokens)")
-        console.print("  .flags [N]    Show or set verification flags")
-        console.print("  .help         Show this help")
-        console.print("  .quit         Exit")
+        console.print("[bold]Execution & buffer:[/bold]")
+        console.print("  .run                Execute script through K semantics")
+        console.print("  .stack              Show stack from last execution")
+        console.print("  .state              Show every current state cell")
+        console.print("  .reset              Clear scriptPubKey buffer + last result")
+        console.print("  .reset-all          Clear ALL state (sig, witness, tx, etc.)")
+        console.print("  .script             Show current scriptPubKey (hex)")
+        console.print("  .asm                Show current scriptPubKey (ASM tokens)")
+        console.print("  .help               Show this help")
+        console.print("  .quit               Exit")
         console.print()
-        console.print("[bold]Input:[/bold]")
-        console.print("  OP_DUP, DUP       Opcodes (OP_ prefix optional)")
-        console.print("  0x1234             Hex data push")
-        console.print("  'hello'            String data push")
-        console.print("  42, -1             Integer push")
-        console.print("  OP_1 OP_2 OP_ADD   Multiple tokens per line")
+        console.print("[bold]Inputs to verify_script:[/bold]")
+        console.print("  .sig <hex|asm>      Set scriptSig (empty arg clears)")
+        console.print("  .witness <hex>      Append a witness stack item")
+        console.print("  .witness-clear      Clear all witness items")
+        console.print("  .flag NAME [NAME..] Toggle flag(s) by name (e.g. .flag P2SH)")
+        console.print("  .flag-clear         Clear all flags")
+        console.print("  .flag-set ALL|STANDARD  Apply preset")
+        console.print("  .flags-int [N]      Show or set raw bitmask")
+        console.print("  .flags-list         List all valid flag names")
+        console.print()
+        console.print("[bold]Sighash context (for K-native sighash):[/bold]")
+        console.print("  .tx <hex>           Set raw spending tx (empty clears)")
+        console.print("  .input-index N      Set input being verified")
+        console.print("  .amount N           Set spent-output amount (sat)")
+        console.print("  .prevout AMT:HEX    Append a prevout (BIP-341)")
+        console.print("  .prevout-clear      Clear prevouts")
+        console.print("  .version N          Set tx version")
+        console.print("  .locktime N         Set tx nLockTime")
+        console.print("  .sequence N         Set input nSequence")
+        console.print("  .sigops-budget N    Set BIP-342 sigops budget (or 'none')")
+        console.print("  .sighash <hex>      Set precomputed sighash blob")
+        console.print()
+        console.print("[bold]ScriptPubKey input:[/bold]")
+        console.print("  OP_DUP, DUP         Opcodes (OP_ prefix optional)")
+        console.print("  0x1234              Hex data push")
+        console.print("  'hello'             String data push")
+        console.print("  42, -1              Integer push")
 
     while True:
         try:
@@ -618,64 +1031,217 @@ def repl(
 
         # Dot commands
         if line.startswith("."):
-            cmd = line.split()[0].lower()
-            args = line.split()[1:]
+            parts = line.split()
+            cmd = parts[0].lower()
+            args = parts[1:]
 
-            if cmd in (".quit", ".exit", ".q"):
-                break
-            elif cmd == ".help":
-                _show_help()
-            elif cmd == ".reset":
-                asm_tokens.clear()
-                last_result = None
-                console.print("[dim]Script cleared.[/dim]")
-            elif cmd == ".script":
-                if not asm_tokens:
-                    console.print("[dim]Script is empty.[/dim]")
-                else:
-                    raw = parse_asm(" ".join(asm_tokens))
-                    console.print(f"[bold]Hex:[/bold] {raw.hex()}")
-                    console.print(f"[bold]Len:[/bold] {len(raw)} bytes")
-            elif cmd == ".asm":
-                if not asm_tokens:
-                    console.print("[dim]Script is empty.[/dim]")
-                else:
-                    console.print(" ".join(asm_tokens))
-            elif cmd == ".flags":
-                if args:
-                    try:
-                        flags = int(args[0], 0)
-                        console.print(f"Flags set to {flags} (0x{flags:x})")
-                    except ValueError:
-                        console.print("[red]Invalid flags value[/red]")
-                else:
-                    console.print(f"Flags: {flags} (0x{flags:x})")
-            elif cmd == ".stack":
-                _show_stack()
-            elif cmd == ".run":
-                if not asm_tokens:
+            try:
+                if cmd in (".quit", ".exit", ".q"):
+                    break
+                elif cmd == ".help":
+                    _show_help()
+                elif cmd == ".reset":
+                    asm_tokens.clear()
+                    last_result = None
+                    console.print("[dim]Script cleared (other state preserved).[/dim]")
+                elif cmd == ".reset-all":
+                    asm_tokens.clear()
+                    sig_bytes = b""
+                    sig_repr = "(empty)"
+                    witness_items.clear()
+                    flags = ScriptVerifyFlag.NONE
+                    tx_bytes = b""
+                    prevouts.clear()
+                    input_index = 0
+                    amount = 0
+                    tx_version = 1
+                    n_locktime = 0
+                    n_sequence = 0xFFFFFFFF
+                    sigops_budget = None
+                    sighash_blob = b""
+                    last_result = None
+                    console.print("[dim]All state cleared.[/dim]")
+                elif cmd == ".script":
+                    if not asm_tokens:
+                        console.print("[dim]Script is empty.[/dim]")
+                    else:
+                        raw = parse_asm(" ".join(asm_tokens))
+                        console.print(f"[bold]Hex:[/bold] {raw.hex()}")
+                        console.print(f"[bold]Len:[/bold] {len(raw)} bytes")
+                elif cmd == ".asm":
+                    if not asm_tokens:
+                        console.print("[dim]Script is empty.[/dim]")
+                    else:
+                        console.print(" ".join(asm_tokens))
+                elif cmd == ".state":
+                    _show_state()
+                elif cmd == ".sig":
+                    if not args:
+                        sig_bytes = b""
+                        sig_repr = "(empty)"
+                        console.print("[dim]scriptSig cleared.[/dim]")
+                    else:
+                        rest = line[len(".sig") :].strip()
+                        sig_bytes = _parse_value_arg(rest)
+                        sig_repr = sig_bytes.hex() or "(empty)"
+                        console.print(f"scriptSig: {sig_repr} ({len(sig_bytes)} bytes)")
+                elif cmd == ".witness":
+                    if not args:
+                        console.print("[red]usage: .witness <hex>[/red]")
+                    else:
+                        item = bytes.fromhex(args[0].removeprefix("0x"))
+                        witness_items.append(item)
+                        console.print(
+                            f"witness[{len(witness_items) - 1}] = {item.hex() or '(empty)'} "
+                            f"({len(item)} bytes)"
+                        )
+                elif cmd in (".witness-clear", ".clear-witness"):
+                    witness_items.clear()
+                    console.print("[dim]Witness cleared.[/dim]")
+                elif cmd == ".flag":
+                    if not args:
+                        console.print(
+                            f"flags: 0x{int(flags):05x} ({', '.join(flags.names()) or 'NONE'})"
+                        )
+                    else:
+                        new_bits = ScriptVerifyFlag.from_names(args)
+                        # Toggle: XOR each flag mentioned
+                        flags = ScriptVerifyFlag(int(flags) ^ int(new_bits))
+                        console.print(
+                            f"flags: 0x{int(flags):05x} ({', '.join(flags.names()) or 'NONE'})"
+                        )
+                elif cmd == ".flag-clear":
+                    flags = ScriptVerifyFlag.NONE
+                    console.print("flags: 0x00000 (NONE)")
+                elif cmd == ".flag-set":
+                    if not args:
+                        console.print(
+                            "[red]usage: .flag-set ALL|STANDARD|<NAMES>[/red]"
+                        )
+                    else:
+                        flags = ScriptVerifyFlag.from_names(args)
+                        console.print(
+                            f"flags: 0x{int(flags):05x} ({', '.join(flags.names()) or 'NONE'})"
+                        )
+                elif cmd == ".flags-int":
+                    if args:
+                        flags = ScriptVerifyFlag(int(args[0], 0))
                     console.print(
-                        "[dim]Script is empty. Type some opcodes first.[/dim]"
+                        f"flags: 0x{int(flags):05x} ({', '.join(flags.names()) or 'NONE'})"
                     )
-                    continue
-                asm_str = " ".join(asm_tokens)
-                try:
-                    raw = parse_asm(asm_str)
-                except Exception as e:
-                    console.print(f"[red]Parse error: {e}[/red]")
-                    continue
-                console.print(f"[dim]Executing {len(raw)} bytes...[/dim]")
-                try:
-                    last_result = k.verify_script(
-                        script_pubkey=raw,
-                        flags=flags,
+                elif cmd == ".flags-list":
+                    for m in ScriptVerifyFlag:
+                        if m and m.name:
+                            console.print(
+                                f"  {m.name}  (bit {int(m).bit_length() - 1}, 0x{int(m):x})"
+                            )
+                # Backward compat for old .flags command
+                elif cmd == ".flags":
+                    if args:
+                        flags = ScriptVerifyFlag(int(args[0], 0))
+                    console.print(
+                        f"flags: 0x{int(flags):05x} ({', '.join(flags.names()) or 'NONE'})"
                     )
-                except Exception as e:
-                    console.print(f"[red]K execution error: {e}[/red]")
-                    continue
-                _show_stack()
-            else:
-                console.print(f"[red]Unknown command: {cmd}[/red] (try .help)")
+                elif cmd == ".tx":
+                    if not args:
+                        tx_bytes = b""
+                        console.print("[dim]tx cleared.[/dim]")
+                    else:
+                        tx_bytes = bytes.fromhex(args[0].removeprefix("0x"))
+                        console.print(f"tx: {len(tx_bytes)} bytes")
+                elif cmd == ".input-index":
+                    input_index = int(args[0], 0) if args else 0
+                    console.print(f"input_index: {input_index}")
+                elif cmd == ".amount":
+                    amount = int(args[0], 0) if args else 0
+                    console.print(f"amount: {amount} sat")
+                elif cmd == ".prevout":
+                    if len(args) != 1 or ":" not in args[0]:
+                        console.print(
+                            "[red]usage: .prevout AMOUNT:SCRIPTPUBKEY_HEX[/red]"
+                        )
+                    else:
+                        amt_str, spk_hex = args[0].split(":", 1)
+                        prevouts.append(
+                            (int(amt_str), bytes.fromhex(spk_hex.removeprefix("0x")))
+                        )
+                        console.print(
+                            f"prevouts[{len(prevouts) - 1}] = {prevouts[-1][0]} sat / "
+                            f"{prevouts[-1][1].hex()[:32]}..."
+                        )
+                elif cmd in (".prevout-clear", ".prevouts-clear"):
+                    prevouts.clear()
+                    console.print("[dim]Prevouts cleared.[/dim]")
+                elif cmd == ".version":
+                    tx_version = int(args[0], 0) if args else 1
+                    console.print(f"tx_version: {tx_version}")
+                elif cmd == ".locktime":
+                    n_locktime = int(args[0], 0) if args else 0
+                    console.print(f"n_locktime: {n_locktime}")
+                elif cmd == ".sequence":
+                    n_sequence = int(args[0], 0) if args else 0xFFFFFFFF
+                    console.print(f"n_sequence: 0x{n_sequence:08x}")
+                elif cmd == ".sigops-budget":
+                    if args and args[0].lower() != "none":
+                        sigops_budget = int(args[0], 0)
+                        console.print(f"sigops_budget: {sigops_budget}")
+                    else:
+                        sigops_budget = None
+                        console.print("sigops_budget: unlimited")
+                elif cmd == ".sighash":
+                    if not args:
+                        sighash_blob = b""
+                        console.print("[dim]sighash cleared.[/dim]")
+                    else:
+                        sighash_blob = bytes.fromhex(args[0].removeprefix("0x"))
+                        console.print(f"sighash: {len(sighash_blob)} bytes")
+                elif cmd == ".stack":
+                    _show_stack()
+                elif cmd == ".run":
+                    if not asm_tokens:
+                        console.print(
+                            "[dim]ScriptPubKey is empty. Type some opcodes first.[/dim]"
+                        )
+                        continue
+                    asm_str = " ".join(asm_tokens)
+                    try:
+                        spk = parse_asm(asm_str)
+                    except Exception as e:
+                        console.print(f"[red]Parse error: {e}[/red]")
+                        continue
+                    witness_blob = (
+                        encode_witness_blob(witness_items) if witness_items else b""
+                    )
+                    console.print(
+                        f"[dim]Executing scriptPubKey={len(spk)}B sig={len(sig_bytes)}B "
+                        f"witness={len(witness_items)}items flags=0x{int(flags):05x}...[/dim]"
+                    )
+                    try:
+                        last_result = k.verify_script(
+                            script_pubkey=spk,
+                            script_sig=sig_bytes,
+                            sighash=sighash_blob,
+                            witness=witness_blob,
+                            flags=int(flags),
+                            tx_version=tx_version,
+                            n_locktime=n_locktime,
+                            n_sequence=n_sequence,
+                            sigops_budget=sigops_budget,
+                            tx=tx_bytes,
+                            prevouts=_prevouts_blob(),
+                            input_index=input_index,
+                            amount=amount,
+                        )
+                    except Exception as e:
+                        console.print(f"[red]K execution error: {e}[/red]")
+                        continue
+                    _show_stack()
+                else:
+                    console.print(f"[red]Unknown command: {cmd}[/red] (try .help)")
+            except ValueError as e:
+                console.print(f"[red]error: {e}[/red]")
+            except Exception as e:
+                console.print(f"[red]error: {e}[/red]")
             continue
 
         # Script input: accumulate tokens
