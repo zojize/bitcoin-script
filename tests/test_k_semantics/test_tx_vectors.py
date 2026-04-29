@@ -73,15 +73,20 @@ def _tx_id(i: int, v: list) -> str:
 
 _TX_XFAIL_FLAGS = {"BADTX"}  # Pure transaction-level checks (not script)
 
-# tx_invalid indices where the K-side legacy sighash doesn't yet match
-# Bitcoin Core:
+# tx_invalid indices where K's outcome diverges from Bitcoin Core's
+# expected `invalid` for reasons that are NOT a K bug:
 #
 #   * tx_188: scriptPubKey `IF CODESEPARATOR ENDIF <pk> CHECKSIGVERIFY
-#     CODESEPARATOR 1` with CONST_SCRIPTCODE excluded. The K verifies
-#     the sig against the post-CODESEP scriptCode slice (matching Core's
-#     documented behavior), but Core still marks this invalid — likely
-#     a vector written against older semantics where CODESEP in any
-#     executed IF was always rejected.
+#     CODESEPARATOR 1` with CONST_SCRIPTCODE excluded. K verifies the
+#     sig against the post-CODESEP scriptCode slice (matching the
+#     post-BIP-16 documented behavior). Core still marks this invalid —
+#     vector predates the spec and bakes in an older "CODESEP in any
+#     executed IF always rejects" policy. Deliberate spec disagreement.
+#
+# See also the dynamic xfail in `_verify_tx` for tx_19 / 100 / 126:
+# those vectors are "invalid" only under flags they themselves list
+# as excluded (P2SH / CLTV / CSV), so K's "valid" outcome is the
+# correct reading of the script under the active-flag set.
 _SIGHASH_XFAIL_VALID: set[int] = set()
 _SIGHASH_XFAIL_INVALID: set[int] = {188}
 
