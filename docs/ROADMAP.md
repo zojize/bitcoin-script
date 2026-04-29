@@ -109,7 +109,7 @@ Items flagged by the external audit of commit `e457812` that aren't solved by th
 ### Doc consistency
 
 - [x] **CLAUDE.md taproot status** — updated in concert with the benchmark caveat above. Now documents taproot as implemented, lists the remaining tx_188 edge case and the K legacy sighash O(n²) cost explicitly.
-- [ ] **Tx-vector claim** — `tests/test_k_semantics/bitcoin_core_vectors.py:212` xfails any vector with the TAPROOT flag, so the headline "174 of 214 tx vectors" excludes taproot entirely. Either remove the xfail (verify what actually passes with TAPROOT enabled) or change the headline to "174/214 non-taproot tx vectors" until the xfail is revisited post-sighash-formalization.
+- [x] **Tx-vector claim** — investigated 2026-04-28: the `if "TAPROOT" in flags: return "taproot not implemented"` branch in [tests/test_k_semantics/bitcoin_core_vectors.py:212](../tests/test_k_semantics/bitcoin_core_vectors.py#L212) was dead code; `test_tx_vectors.py` uses its own local `_classify_tx_vector` which never had a TAPROOT bypass. Real numbers are **201 / 214** with 13 expected xfails (9 BADTX + 4 CONST_SCRIPTCODE-excluded legacy sighash cases). Removed the dead branch.
 
 ### Methodology hygiene
 

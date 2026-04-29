@@ -1,6 +1,6 @@
 # Bitcoin Script
 
-Bitcoin Script interpreter and formal verification toolkit. The K Framework semantics implement **full BIP 341/342 Taproot/Tapscript support** including Schnorr signatures, key-path and script-path spending, OP_CHECKSIGADD, OP_SUCCESS opcodes, and signature validation weight budgets. The semantics pass **all 1,222 of Bitcoin Core's `script_tests.json` vectors** (including SegWit and Taproot), plus **174 of 214 transaction vectors**, and have been **benchmarked on 300,836 real mainnet inputs** from genesis through Taproot — including 14,058 actual P2TR spends — with zero errors.
+Bitcoin Script interpreter and formal verification toolkit. The K Framework semantics implement **full BIP 341/342 Taproot/Tapscript support** including Schnorr signatures, key-path and script-path spending, OP_CHECKSIGADD, OP_SUCCESS opcodes, and signature validation weight budgets. The semantics pass **all 1,222 of Bitcoin Core's `script_tests.json` vectors** (including SegWit and Taproot), plus **201 of 214 transaction vectors** (13 expected xfails: 9 BADTX malformed-tx + 4 legacy CONST_SCRIPTCODE-excluded sighash edge cases), and have been **benchmarked on 300,836 real mainnet inputs** from genesis through Taproot — including 14,058 actual P2TR spends — with zero errors.
 
 ## What this does
 
@@ -24,8 +24,8 @@ Requires a synced Bitcoin Core node (for local `.blk` files). See [Setup](#setup
 |-----------|---------|-------|-------|
 | script_tests.json (standard) | 1,109 | 1,109 | All opcodes, flags, edge cases |
 | script_tests.json (witness) | 113 | 113 | SegWit + Taproot (P2WSH/P2WPKH/P2TR) |
-| tx_valid.json | 115 | 121 | Real transaction verification |
-| tx_invalid.json | 59 | 93 | Invalid transaction rejection (9 BADTX, 25 xfailed) |
+| tx_valid.json | 121 | 121 | Real transaction verification |
+| tx_invalid.json | 80 | 93 | Invalid transaction rejection (9 BADTX + 4 legacy CONST_SCRIPTCODE xfailed) |
 | Tapscript opcodes | 9 | 9 | CHECKSIGADD, disabled CHECKMULTISIG, OP_SUCCESS |
 | Taproot coverage | 26 | 26 | Key-path sigs, control blocks, annex, Schnorr verify |
 | Sigops weight budget | 7 | 7 | BIP 342 resource accounting |
