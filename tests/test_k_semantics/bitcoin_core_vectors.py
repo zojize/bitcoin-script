@@ -209,8 +209,6 @@ def classify_tx_vector(entry: list) -> str | None:
 
     if "BADTX" in flags:
         return "BADTX: tests malformed tx deserialization"
-    if "TAPROOT" in flags:
-        return "taproot not implemented"
     return None
 
 

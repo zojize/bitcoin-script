@@ -1,6 +1,6 @@
 # Bitcoin Script
 
-Bitcoin Script interpreter and formal verification toolkit. The K Framework semantics pass 1,672 tests (1,222 of Bitcoin Core's script_tests.json including SegWit + Taproot, 216 of tx_valid/tx_invalid.json with 13 xfails for out-of-scope BADTX/flag-exclusion cases, 22 K-proof specs, 2 LLVM-backed HTLC proofs, plus coverage tests). Mainnet verification runs clean on 100,000+ blocks. All four sighash variants (legacy, BIP-143, BIP-341 key-path, BIP-342 tapscript) are computed K-natively; the blockchain-k-plugin supplies the SHA/ECDSA/Schnorr/secp256k1 primitives.
+Bitcoin Script interpreter and formal verification toolkit. The K Framework semantics pass 1,672 tests (1,222 of Bitcoin Core's script_tests.json including SegWit + Taproot, 201 of 214 tx_valid/tx_invalid.json (121/121 valid + 80/93 invalid; 13 expected xfails: 9 BADTX + 4 legacy CONST_SCRIPTCODE-excluded sighash cases), 22 K-proof specs, 2 LLVM-backed HTLC proofs, plus coverage tests). Mainnet verification runs clean on 100,000+ blocks. All four sighash variants (legacy, BIP-143, BIP-341 key-path, BIP-342 tapscript) are computed K-natively; the blockchain-k-plugin supplies the SHA/ECDSA/Schnorr/secp256k1 primitives.
 
 ## Folder structure
 
@@ -34,7 +34,7 @@ src/bitcoin_script/
 tests/
   test_k_semantics/   # K semantics tests (marked @pytest.mark.k)
     test_script_vectors.py  # Bitcoin Core script_tests.json (1,217 passing, 5 taproot xfail)
-    test_tx_vectors.py      # Bitcoin Core tx_valid/tx_invalid (133 passing, 81 xfail)
+    test_tx_vectors.py      # Bitcoin Core tx_valid/tx_invalid (201 passing, 13 xfail)
     tx_sighash.py           # Sighash computation for real transactions
     conftest.py             # Session fixtures, sighash for test vectors
     bitcoin_core_vectors.py # ASM parser, xfail classifier
