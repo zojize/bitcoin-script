@@ -63,6 +63,11 @@ module LEMMAS
   rule absInt(N) <=Int 2147483647 => true
     requires N >=Int -2147483647 andBool N <=Int 2147483647 [simplification, smt-lemma]
 
+  // OP_ABS of negative N: unify intToScriptNum(absInt(N)) with the claim RHS
+  // intToScriptNum(0 -Int N) before the prover tries to branch on intToScriptNumAbs.
+  rule intToScriptNum(absInt(N)) => intToScriptNum(0 -Int N)
+    requires N <Int 0 [simplification]
+
   // =========================================================================
   // intToScriptNum is injective
   // =========================================================================

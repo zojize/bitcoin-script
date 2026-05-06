@@ -38,9 +38,6 @@ def _get_def_dir(target: str) -> Path:
 
 
 # Claims proved via LLVM execution (Haskell kprove can't evaluate crypto hooks).
-# The MINIMALDATA claim is excluded here too: the K semantics lacks an explicit
-# error rule for non-minimal numbers — validNumFlags guard causes no-match (stuck)
-# instead of producing #fail("MINIMALDATA"). Needs a semantics fix.
 LLVM_CLAIMS: list[tuple[str, str, str]] = [
     ("htlc-spec", "HTLC-SPEC", "HTLC-SPEC.hash-path-correct-preimage"),
     ("htlc-spec", "HTLC-SPEC", "HTLC-SPEC.hash-path-wrong-preimage"),

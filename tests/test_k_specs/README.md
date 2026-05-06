@@ -2,7 +2,7 @@
 
 K claims mechanically verified by `kprove` (Haskell backend).
 
-## Proven claims (56 total)
+## Proven claims (58 total)
 
 **arithmetic-spec.k** (3) — symbolic, all valid CScriptNum inputs:
 - OP_1ADD(N) == N+1, OP_NEGATE(N) == -N, OP_ADD(A,B) == A+B
@@ -40,9 +40,8 @@ K claims mechanically verified by `kprove` (Haskell backend).
 - OP_CAT fails in live branch, OP_CAT fails in dead IF branch
 - OP_RETURN halts execution
 
-**arithmetic-extended-spec.k** (4+1) — symbolic extended arithmetic:
-- OP_SUB, OP_ABS (positive), OP_MIN, OP_MAX correct for all valid inputs
-- (1 claim: abs-negative needs booster — Haskell backend can't select `intToScriptNum` branch for symbolic `0 -Int N`)
+**arithmetic-extended-spec.k** (5) — symbolic extended arithmetic:
+- OP_SUB, OP_ABS (positive and negative), OP_MIN, OP_MAX correct for all valid inputs
 
 **equalverify-spec.k** (2) — concrete OP_EQUALVERIFY:
 - matching values pass, mismatched values produce EQUALVERIFY error
@@ -50,12 +49,11 @@ K claims mechanically verified by `kprove` (Haskell backend).
 **guardexec-spec.k** (2) — dead branch opcode skipping:
 - OP_ADD in dead IF branch skipped (would crash), OP_RESERVED in dead branch skipped
 
-**historical-bugs-spec.k** (7+1) — before/after flag activation:
+**historical-bugs-spec.k** (8) — before/after flag activation:
 - MINIMALDATA: non-minimal zero accepted/rejected
 - NULLDUMMY: non-null dummy accepted/rejected
 - CLEANSTACK: extra stack items accepted/rejected
 - DISCOURAGE_UPGRADABLE_NOPS: NOP1 accepted/rejected
-- (1 claim needs booster for `#isMinimalNum` byte evaluation)
 
 ## LLVM-verified claims (booster_prove.py)
 
@@ -63,13 +61,6 @@ HTLC hash path claims need SHA256 hook evaluation, which the Haskell
 backend can't provide. These are proved via LLVM execution instead:
 extract the initial config, run through `llvm_interpret`, verify the
 final state matches the expected output.
-
-## Remaining exclusions
-
-- **MINIMALDATA rejection**: K semantics gets stuck (no error rule) when
-  `validNumFlags` guard fails — needs explicit `#fail("MINIMALDATA")` rules.
-- **abs-negative**: symbolic `intToScriptNum(0 -Int N)` — Haskell prover
-  can't determine sign for function branch selection.
 
 ## Running proofs
 
@@ -83,4 +74,4 @@ just prove htlc-spec                                  # single spec via examples
 
 - `script.k` — LLVM execution entry point (no lemmas)
 - `script-verification.k` — Haskell proof entry point (imports lemmas)
-- `lemmas.k` — 11 simplification rules for symbolic CScriptNum reasoning
+- `lemmas.k` — 12 simplification rules for symbolic CScriptNum reasoning
