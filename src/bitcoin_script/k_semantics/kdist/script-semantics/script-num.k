@@ -108,6 +108,32 @@ module SCRIPT-NUM
   rule validNumFlags(B, F) => validNum(B) andBool #isMinimalNum(B)
     requires (F &Int 64) =/=Int 0
 
+  // --- Error string helpers for arithmetic opcode failure rules ---
+  // Called only when notBool validNumFlags(V, F):
+  //   SCRIPTNUM  : number exceeds the 4-byte CScriptNum limit (always an error)
+  //   MINIMALDATA: valid length but non-minimal encoding with MINIMALDATA flag set
+  syntax String ::= #numError(Bytes, Int) [function]
+  rule #numError(V, _F) => "SCRIPTNUM"
+    requires notBool validNum(V)
+  rule #numError(V, F) => "MINIMALDATA"
+    requires validNum(V) andBool (F &Int 64) =/=Int 0 andBool notBool #isMinimalNum(V)
+
+  // Binary variant: check A first (second-from-top), then B (top).
+  syntax String ::= #numError2(Bytes, Bytes, Int) [function]
+  rule #numError2(A, _B, F) => #numError(A, F)
+    requires notBool validNumFlags(A, F)
+  rule #numError2(A, B, F) => #numError(B, F)
+    requires validNumFlags(A, F) andBool notBool validNumFlags(B, F)
+
+  // Ternary variant: check X, then MIN, then MAX.
+  syntax String ::= #numError3(Bytes, Bytes, Bytes, Int) [function]
+  rule #numError3(X, _MIN, _MAX, F) => #numError(X, F)
+    requires notBool validNumFlags(X, F)
+  rule #numError3(X, MIN, _MAX, F) => #numError(MIN, F)
+    requires validNumFlags(X, F) andBool notBool validNumFlags(MIN, F)
+  rule #numError3(X, MIN, MAX, F) => #numError(MAX, F)
+    requires validNumFlags(X, F) andBool validNumFlags(MIN, F) andBool notBool validNumFlags(MAX, F)
+
   // --- Encode: Int -> Bytes ---
   syntax Bytes ::= intToScriptNum(Int) [function]
   syntax Bytes ::= intToScriptNumAbs(Int) [function]

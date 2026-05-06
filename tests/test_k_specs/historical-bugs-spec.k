@@ -41,8 +41,6 @@ module HISTORICAL-BUGS-SPEC
       <codesepIdx> 0 </codesepIdx>
 
   // Post-MINIMALDATA (flags=64): non-minimal zero rejected
-  // NOTE: needs booster — #isMinimalNum uses Bytes2Int/substrBytes on concrete
-  // bytes which the pure Haskell backend can't evaluate.
   claim [non-minimal-zero-rejected-with-flag]:
       <k> #init => .K </k>
       <stack> .List => ?_ </stack>
