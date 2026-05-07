@@ -37,8 +37,8 @@ module ARITHMETIC-EXTENDED-SPEC
       <stack> ListItem(V:Bytes) REST
            => ListItem(intToScriptNum(0 -Int scriptNumToInt(V))) REST
       </stack>
-      <flags> _F </flags>
-    requires validNumFlags(V, _F) andBool scriptNumToInt(V) <Int 0
+      <flags> F </flags>
+    requires validNumFlags(V, F) andBool scriptNumToInt(V) <Int 0
 
   // Proved: OP_MIN returns the smaller of A and B
   claim [min-correct]:
