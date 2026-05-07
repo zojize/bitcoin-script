@@ -22,9 +22,19 @@ module LEMMAS
   rule scriptNumToInt(intToScriptNum(N)) => N
     requires N >=Int -2147483647 andBool N <=Int 2147483647 [simplification]
 
+  // Negative case split: N <Int 0 implies N <=Int 2147483647, but the prover
+  // can't derive this from function rules alone, so we spell it out explicitly.
+  rule scriptNumToInt(intToScriptNum(N)) => N
+    requires N >=Int -2147483647 andBool N <Int 0 [simplification]
+
   // intToScriptNum always produces valid-length output
   rule validNumFlags(intToScriptNum(N), _F) => true
     requires N >=Int -2147483647 andBool N <=Int 2147483647 [simplification]
+
+  // Negative case: fire before the prover expands intToScriptNum(N) for N <Int 0
+  // into #setSignBit(intToScriptNumAbs(0 -Int N)), which blocks validNumFlags.
+  rule validNumFlags(intToScriptNum(N), _F) => true
+    requires N >=Int -2147483647 andBool N <Int 0 [simplification]
 
   // Also valid for negated values
   rule validNumFlags(intToScriptNum(0 -Int N), _F) => true
