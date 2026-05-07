@@ -2,7 +2,7 @@
 
 K claims mechanically verified by `kprove` (Haskell backend).
 
-## Proven claims (58 total)
+## Proven claims (71 total)
 
 **arithmetic-spec.k** (3) — symbolic, all valid CScriptNum inputs:
 - OP_1ADD(N) == N+1, OP_NEGATE(N) == -N, OP_ADD(A,B) == A+B
@@ -54,6 +54,23 @@ K claims mechanically verified by `kprove` (Haskell backend).
 - NULLDUMMY: non-null dummy accepted/rejected
 - CLEANSTACK: extra stack items accepted/rejected
 - DISCOURAGE_UPGRADABLE_NOPS: NOP1 accepted/rejected
+
+**minimaldata-push-spec.k** (3) — push-level MINIMALDATA enforcement:
+- PUSHDATA1 for 1-byte value accepted without flag, rejected with flag
+- PUSHBYTES_1 (minimal encoding) accepted even with MINIMALDATA flag
+
+**op-return-spec.k** (3) — OP_RETURN execution context:
+- OP_RETURN in live branch halts with error
+- OP_RETURN in dead IF branch skipped (unlike disabled ops — uses #guardExec)
+- OP_RETURN in scriptSig aborts before scriptPubKey executes
+
+**invalid-op-spec.k** (3) — disabled arithmetic opcodes always fail:
+- OP_MUL (0x95) fails in live branch, OP_LSHIFT (0x98) fails in live branch
+- OP_MUL fails even in dead IF branch (bare OP_INVALIDOPCODE bypasses guard)
+
+**depth-spec.k** (4) — OP_IFDUP and OP_DEPTH stack behavior:
+- OP_IFDUP duplicates truthy top, leaves falsy top unchanged
+- OP_DEPTH on empty stack pushes 0 (b""), on two items pushes 2 (b"\x02")
 
 ## LLVM-verified claims (booster_prove.py)
 

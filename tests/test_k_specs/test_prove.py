@@ -14,25 +14,13 @@ import pytest
 
 SPEC_DIR = Path(__file__).parent
 
-# Claims excluded from Haskell kprove (proved via LLVM in booster_prove.py,
-# or pending semantics fix).
+# Claims excluded from Haskell kprove (proved via LLVM in booster_prove.py).
 EXCLUDE_CLAIMS: dict[str, list[str]] = {
     # Crypto hooks: Haskell backend can't evaluate SHA256/RIPEMD160.
     # Proved via LLVM execution in booster_prove.py instead.
     "htlc-spec": [
         "HTLC-SPEC.hash-path-correct-preimage",
         "HTLC-SPEC.hash-path-wrong-preimage",
-    ],
-    # #isMinimalNum byte evaluation: Haskell can't evaluate, and the LLVM
-    # execution gets stuck because the K semantics lacks an explicit error
-    # rule for non-minimal numbers (validNumFlags guard causes no-match).
-    "historical-bugs-spec": [
-        "HISTORICAL-BUGS-SPEC.non-minimal-zero-rejected-with-flag",
-    ],
-    # Symbolic branch: intToScriptNum(0 -Int N) for symbolic N<0 — prover
-    # can't determine sign to select correct encoding branch.
-    "arithmetic-extended-spec": [
-        "ARITHMETIC-EXTENDED-SPEC.abs-negative",
     ],
 }
 
