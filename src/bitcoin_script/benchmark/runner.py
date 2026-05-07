@@ -69,7 +69,12 @@ def _cs(n: int) -> bytes:
 def _verify_with_k(
     k: object, inp: BenchmarkInput, iterations: int
 ) -> tuple[int, bool, str | None]:
-    """Run K Framework verification, returning (median_elapsed_ns, success, error)."""
+    """Run K Framework verification, returning (median_elapsed_ns, success, error).
+
+    Pre-builds the KORE pattern text once outside the timing loop (K runtime
+    reuse): repeated iterations only pay the LLVM parse + execute + result-parse
+    cost, not the pyk Python object construction + serialization overhead.
+    """
     from bitcoin_script.script_utils import encode_witness_blob  # type: ignore[import-not-found]
 
     witness_blob = encode_witness_blob(inp.witness) if inp.witness else b""
@@ -87,26 +92,30 @@ def _verify_with_k(
             prevouts_blob += amt.to_bytes(8, "little")
             prevouts_blob += _cs(len(spk)) + spk
 
+    # Build and serialise the initial KORE config once; reuse the text for all
+    # iterations so the pyk Python overhead is paid exactly once per input.
+    kore_text: str = k.pattern(  # type: ignore[union-attr]
+        script_sig=inp.script_sig,
+        script_pubkey=inp.script_pubkey,
+        sighash=inp.sighash_blob,
+        witness=witness_blob,
+        flags=inp.flags,
+        tx_version=inp.tx_version,
+        n_locktime=inp.n_locktime,
+        n_sequence=inp.n_sequence,
+        tx=inp.tx_serialized,
+        input_index=inp.input_index,
+        amount=inp.amount,
+        prevouts=prevouts_blob,
+    ).text
+
     timings: list[int] = []
     success = True
     error: str | None = None
 
     for _ in range(iterations):
         t0 = time.perf_counter_ns()
-        result = k.verify_script(  # type: ignore[union-attr]
-            script_sig=inp.script_sig,
-            script_pubkey=inp.script_pubkey,
-            sighash=inp.sighash_blob,
-            witness=witness_blob,
-            flags=inp.flags,
-            tx_version=inp.tx_version,
-            n_locktime=inp.n_locktime,
-            n_sequence=inp.n_sequence,
-            tx=inp.tx_serialized,
-            input_index=inp.input_index,
-            amount=inp.amount,
-            prevouts=prevouts_blob,
-        )
+        result = k.run_text(kore_text)  # type: ignore[union-attr]
         elapsed = time.perf_counter_ns() - t0
         timings.append(elapsed)
 
@@ -309,6 +318,82 @@ def _verify_with_core(
     return (median_ns, success, error)
 
 
+def run_noop_baseline(
+    *,
+    k: object | None = None,
+    iterations: int = 100,
+) -> dict:
+    """Measure the bare call overhead for K and libbitcoinconsensus.
+
+    Verifies a trivial OP_TRUE scriptPubKey (scriptSig=empty) to isolate the
+    per-call fixed overhead from actual script-verification work. Returns a dict
+    with keys ``k_median_ns`` and ``core_median_ns`` (each is None when that
+    engine was not exercised).
+
+    The noop baseline lets you interpret benchmark timing as:
+        net_verification_cost = total_median - noop_median
+    """
+    # OP_TRUE = 0x51
+    noop_pubkey = bytes([0x51])
+    noop_sig = b""
+
+    k_median: int | None = None
+    if k is not None:
+        kore_text: str = k.pattern(  # type: ignore[union-attr]
+            script_sig=noop_sig,
+            script_pubkey=noop_pubkey,
+        ).text
+        timings: list[int] = []
+        for _ in range(iterations):
+            t0 = time.perf_counter_ns()
+            k.run_text(kore_text)  # type: ignore[union-attr]
+            timings.append(time.perf_counter_ns() - t0)
+        k_median = int(statistics.median(timings))
+
+    core_median: int | None = None
+    try:
+        handle = _get_consensus_handle()
+        assert isinstance(handle, ctypes.CDLL)
+        err = ctypes.c_uint(0)
+        # Build a minimal 1-input crediting tx spending OP_TRUE (flags=0 → no P2SH/SegWit)
+        # Just a placeholder tx: version(4) + vin_count(1) + outpoint(36) + scriptSig(1=0x00)
+        # + sequence(4) + vout_count(1) + amount(8) + scriptPubKey(2=0x01 0x51)
+        # + locktime(4)
+        placeholder_tx = (
+            b"\x01\x00\x00\x00"  # version = 1
+            b"\x01"  # vin count = 1
+            + b"\x00" * 32
+            + b"\xff\xff\xff\xff"  # outpoint: null txid + index 0xffffffff
+            + b"\x00"  # scriptSig length = 0
+            + b"\xff\xff\xff\xff"  # sequence = 0xffffffff
+            b"\x01"  # vout count = 1
+            + b"\x00"
+            * 8  # amount = 0
+            + b"\x01\x51"  # scriptPubKey = OP_TRUE
+            b"\x00\x00\x00\x00"  # locktime = 0
+        )
+        timings2: list[int] = []
+        for _ in range(iterations):
+            err.value = 0
+            t0 = time.perf_counter_ns()
+            handle.bitcoinconsensus_verify_script_with_amount(
+                noop_pubkey,
+                len(noop_pubkey),
+                0,
+                placeholder_tx,
+                len(placeholder_tx),
+                0,
+                0,
+                ctypes.byref(err),
+            )
+            timings2.append(time.perf_counter_ns() - t0)
+        core_median = int(statistics.median(timings2))
+    except Exception:
+        pass
+
+    return {"k_median_ns": k_median, "core_median_ns": core_median}
+
+
 def run_benchmark(
     dataset: Dataset,
     *,
@@ -324,6 +409,8 @@ def run_benchmark(
         from bitcoin_script.k_semantics import KBitcoinScript  # type: ignore[import-not-found]
 
         k = KBitcoinScript()
+
+    noop = run_noop_baseline(k=k if run_k else None, iterations=core_iterations)
 
     results: list[InputResult] = []
     total = len(dataset.inputs)
@@ -367,7 +454,7 @@ def run_benchmark(
         if on_input is not None:
             on_input(i + 1, total)  # type: ignore[operator]
 
-    return BenchmarkResult(input_results=results)
+    return BenchmarkResult(input_results=results, metadata={"noop_baseline": noop})
 
 
 def save_results(results: BenchmarkResult, path: Path) -> None:
