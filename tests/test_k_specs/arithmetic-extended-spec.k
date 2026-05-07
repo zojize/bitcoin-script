@@ -27,14 +27,18 @@ module ARITHMETIC-EXTENDED-SPEC
       <flags> _F </flags>
     requires N >=Int 0 andBool N <=Int 2147483647
 
-  // Proved: OP_ABS of negative N returns -N (positive)
+  // Proved: OP_ABS of any valid negative-valued stack element returns its negation.
+  // Uses V:Bytes (arbitrary bytes) with scriptNumToInt(V) <Int 0 as the sign
+  // condition, avoiding intToScriptNum(N) expansion that blocks the prover.
+  // The validNumFlags guard comes directly from the requires clause, so the
+  // prover discharges it from the path condition without unfolding V's encoding.
   claim [abs-negative]:
       <k> OP_ABS => .K ... </k>
-      <stack> ListItem(intToScriptNum(N)) REST
-           => ListItem(intToScriptNum(0 -Int N)) REST
+      <stack> ListItem(V:Bytes) REST
+           => ListItem(intToScriptNum(0 -Int scriptNumToInt(V))) REST
       </stack>
       <flags> _F </flags>
-    requires N >=Int -2147483647 andBool N <Int 0
+    requires validNumFlags(V, _F) andBool scriptNumToInt(V) <Int 0
 
   // Proved: OP_MIN returns the smaller of A and B
   claim [min-correct]:
