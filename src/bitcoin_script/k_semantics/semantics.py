@@ -236,6 +236,17 @@ class KBitcoinScript:
         Uses direct FFI to interpreter.dylib when available (4-10x faster),
         falling back to subprocess execution.
         """
+        return self.run_text(pattern.text, depth=depth)
+
+    def run_text(self, kore_text: str, *, depth: int | None = None) -> Pattern:
+        """Execute pre-serialized KORE text via the LLVM backend.
+
+        Accepts the KORE text string directly, bypassing pyk Pattern
+        construction and serialization. Use this when verifying multiple
+        inputs with the same initial config (K runtime reuse): call
+        ``pattern(...).text`` once, then pass the cached string here for
+        each iteration rather than rebuilding the Pattern object each time.
+        """
         rt = self._runtime
         if rt is not None:
             import sys
@@ -243,7 +254,7 @@ class KBitcoinScript:
             from pyk.kore.parser import KoreParser
 
             d = -1 if depth is None else depth
-            result_text = rt.run(pattern.text, depth=d)
+            result_text = rt.run(kore_text, depth=d)
             old_limit = sys.getrecursionlimit()
             sys.setrecursionlimit(max(old_limit, 50_000))
             try:
@@ -251,8 +262,10 @@ class KBitcoinScript:
             finally:
                 sys.setrecursionlimit(old_limit)
 
+        from pyk.kore.parser import KoreParser
         from pyk.ktool.krun import llvm_interpret
 
+        pattern = KoreParser(kore_text).pattern()
         return llvm_interpret(
             definition_dir=self.dist.llvm_dir, pattern=pattern, depth=depth
         )
