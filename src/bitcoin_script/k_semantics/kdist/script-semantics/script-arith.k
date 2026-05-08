@@ -83,15 +83,15 @@ module SCRIPT-ARITH
   // Binary arithmetic opcodes (pop 2, push 1)
   // =========================================================================
 
-  // OP_ADD: a + b (b is top, a is second)
+  // OP_ADD: a + b (a is top, b is second)
   rule <k> OP_ADD => .K ...</k>
        <flags> F </flags>
-       <stack> ListItem(B:Bytes) ListItem(A:Bytes) ST
+       <stack> ListItem(A:Bytes) ListItem(B:Bytes) ST
             => ListItem(intToScriptNum(scriptNumToInt(A) +Int scriptNumToInt(B))) ST </stack>
     requires validNumFlags(A, F) andBool validNumFlags(B, F)
   rule <k> OP_ADD => #fail(#numError2(A, B, F)) ...</k>
        <flags> F </flags>
-       <stack> ListItem(B:Bytes) ListItem(A:Bytes) _ST </stack>
+       <stack> ListItem(A:Bytes) ListItem(B:Bytes) _ST </stack>
     requires notBool (validNumFlags(A, F) andBool validNumFlags(B, F))
 
   // OP_SUB: a - b (where b is top, a is second)
