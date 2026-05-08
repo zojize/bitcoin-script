@@ -1029,16 +1029,6 @@ module SCRIPT-SEMANTICS
        <stack> ListItem(V) ST => ListItem(V) ListItem(V) ST </stack>
 
   // =========================================================================
-  // OP_ADD: pop two CScriptNum bytes, add, push result as CScriptNum bytes
-  // =========================================================================
-
-  rule <k> OP_ADD => .K ...</k>
-       <flags> F </flags>
-       <stack> ListItem(A:Bytes) ListItem(B:Bytes) ST
-            => ListItem(intToScriptNum(scriptNumToInt(A) +Int scriptNumToInt(B))) ST </stack>
-    requires validNumFlags(A, F) andBool validNumFlags(B, F)
-
-  // =========================================================================
   // OP_HASH160: RIPEMD160(SHA256(data))
   // =========================================================================
 
