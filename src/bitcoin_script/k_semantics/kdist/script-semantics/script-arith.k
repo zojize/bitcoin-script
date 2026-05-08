@@ -84,12 +84,14 @@ module SCRIPT-ARITH
   // =========================================================================
 
   // OP_ADD: a + b (a is top, b is second)
+  // #numError2 checks its first argument first; pass B (second-from-top) first
+  // to match the convention of all other binary opcodes.
   rule <k> OP_ADD => .K ...</k>
        <flags> F </flags>
        <stack> ListItem(A:Bytes) ListItem(B:Bytes) ST
             => ListItem(intToScriptNum(scriptNumToInt(A) +Int scriptNumToInt(B))) ST </stack>
     requires validNumFlags(A, F) andBool validNumFlags(B, F)
-  rule <k> OP_ADD => #fail(#numError2(A, B, F)) ...</k>
+  rule <k> OP_ADD => #fail(#numError2(B, A, F)) ...</k>
        <flags> F </flags>
        <stack> ListItem(A:Bytes) ListItem(B:Bytes) _ST </stack>
     requires notBool (validNumFlags(A, F) andBool validNumFlags(B, F))
