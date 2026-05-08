@@ -321,7 +321,9 @@ def _verify_with_core(
 def run_noop_baseline(
     *,
     k: object | None = None,
-    iterations: int = 100,
+    run_core: bool = True,
+    k_iterations: int = 100,
+    core_iterations: int = 100,
 ) -> dict:
     """Measure the bare call overhead for K and libbitcoinconsensus.
 
@@ -344,52 +346,53 @@ def run_noop_baseline(
             script_pubkey=noop_pubkey,
         ).text
         timings: list[int] = []
-        for _ in range(iterations):
+        for _ in range(k_iterations):
             t0 = time.perf_counter_ns()
             k.run_text(kore_text)  # type: ignore[union-attr]
             timings.append(time.perf_counter_ns() - t0)
         k_median = int(statistics.median(timings))
 
     core_median: int | None = None
-    try:
-        handle = _get_consensus_handle()
-        assert isinstance(handle, ctypes.CDLL)
-        err = ctypes.c_uint(0)
-        # Build a minimal 1-input crediting tx spending OP_TRUE (flags=0 → no P2SH/SegWit)
-        # Just a placeholder tx: version(4) + vin_count(1) + outpoint(36) + scriptSig(1=0x00)
-        # + sequence(4) + vout_count(1) + amount(8) + scriptPubKey(2=0x01 0x51)
-        # + locktime(4)
-        placeholder_tx = (
-            b"\x01\x00\x00\x00"  # version = 1
-            b"\x01"  # vin count = 1
-            + b"\x00" * 32
-            + b"\xff\xff\xff\xff"  # outpoint: null txid + index 0xffffffff
-            + b"\x00"  # scriptSig length = 0
-            + b"\xff\xff\xff\xff"  # sequence = 0xffffffff
-            b"\x01"  # vout count = 1
-            + b"\x00"
-            * 8  # amount = 0
-            + b"\x01\x51"  # scriptPubKey = OP_TRUE
-            b"\x00\x00\x00\x00"  # locktime = 0
-        )
-        timings2: list[int] = []
-        for _ in range(iterations):
-            err.value = 0
-            t0 = time.perf_counter_ns()
-            handle.bitcoinconsensus_verify_script_with_amount(
-                noop_pubkey,
-                len(noop_pubkey),
-                0,
-                placeholder_tx,
-                len(placeholder_tx),
-                0,
-                0,
-                ctypes.byref(err),
+    if run_core:
+        try:
+            handle = _get_consensus_handle()
+            assert isinstance(handle, ctypes.CDLL)
+            err = ctypes.c_uint(0)
+            # Build a minimal 1-input crediting tx spending OP_TRUE (flags=0 → no P2SH/SegWit)
+            # Just a placeholder tx: version(4) + vin_count(1) + outpoint(36) + scriptSig(1=0x00)
+            # + sequence(4) + vout_count(1) + amount(8) + scriptPubKey(2=0x01 0x51)
+            # + locktime(4)
+            placeholder_tx = (
+                b"\x01\x00\x00\x00"  # version = 1
+                b"\x01"  # vin count = 1
+                + b"\x00" * 32
+                + b"\xff\xff\xff\xff"  # outpoint: null txid + index 0xffffffff
+                + b"\x00"  # scriptSig length = 0
+                + b"\xff\xff\xff\xff"  # sequence = 0xffffffff
+                b"\x01"  # vout count = 1
+                + b"\x00"
+                * 8  # amount = 0
+                + b"\x01\x51"  # scriptPubKey = OP_TRUE
+                b"\x00\x00\x00\x00"  # locktime = 0
             )
-            timings2.append(time.perf_counter_ns() - t0)
-        core_median = int(statistics.median(timings2))
-    except Exception:
-        pass
+            timings2: list[int] = []
+            for _ in range(core_iterations):
+                err.value = 0
+                t0 = time.perf_counter_ns()
+                handle.bitcoinconsensus_verify_script_with_amount(
+                    noop_pubkey,
+                    len(noop_pubkey),
+                    0,
+                    placeholder_tx,
+                    len(placeholder_tx),
+                    0,
+                    0,
+                    ctypes.byref(err),
+                )
+                timings2.append(time.perf_counter_ns() - t0)
+            core_median = int(statistics.median(timings2))
+        except Exception:
+            pass
 
     return {"k_median_ns": k_median, "core_median_ns": core_median}
 
@@ -410,7 +413,12 @@ def run_benchmark(
 
         k = KBitcoinScript()
 
-    noop = run_noop_baseline(k=k if run_k else None, iterations=core_iterations)
+    noop = run_noop_baseline(
+        k=k if run_k else None,
+        run_core=run_core,
+        k_iterations=k_iterations,
+        core_iterations=core_iterations,
+    )
 
     results: list[InputResult] = []
     total = len(dataset.inputs)
