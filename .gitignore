@@ -59,3 +59,14 @@ tests/test_k_semantics/data/
 mainnet_verify.db
 docs/superpowers/
 script-kompiled/
+
+# LaTeX build artifacts
+report/*.aux
+report/*.bbl
+report/*.blg
+report/*.fdb_latexmk
+report/*.fls
+report/*.log
+report/*.out
+report/*.synctex.gz
+report/*.toc
