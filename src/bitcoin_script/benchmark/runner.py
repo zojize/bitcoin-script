@@ -87,9 +87,8 @@ def _verify_with_k(
 ) -> tuple[int, bool, str | None]:
     """Run K Framework verification, returning (median_elapsed_ns, success, error).
 
-    Pre-builds the KORE pattern text once outside the timing loop (K runtime
-    reuse): repeated iterations only pay the LLVM parse + execute + result-parse
-    cost, not the pyk Python object construction + serialization overhead.
+    Goes through ``verify_script`` so K runtimes with the binary FFI builder avoid
+    serializing the initial configuration through KORE text.
     """
     from bitcoin_script.script_utils import encode_witness_blob  # type: ignore[import-not-found]
 
@@ -101,30 +100,26 @@ def _verify_with_k(
         inp.all_prevout_scriptpubkeys, inp.all_prevout_amounts
     )
 
-    # Build and serialise the initial KORE config once; reuse the text for all
-    # iterations so the pyk Python overhead is paid exactly once per input.
-    kore_text: str = k.pattern(  # type: ignore[union-attr]
-        script_sig=inp.script_sig,
-        script_pubkey=inp.script_pubkey,
-        sighash=inp.sighash_blob,
-        witness=witness_blob,
-        flags=inp.flags,
-        tx_version=inp.tx_version,
-        n_locktime=inp.n_locktime,
-        n_sequence=inp.n_sequence,
-        tx=inp.tx_serialized,
-        input_index=inp.input_index,
-        amount=inp.amount,
-        prevouts=prevouts_blob,
-    ).text
-
     timings: list[int] = []
     success = True
     error: str | None = None
 
     for _ in range(iterations):
         t0 = time.perf_counter_ns()
-        result = k.run_text(kore_text)  # type: ignore[union-attr]
+        result = k.verify_script(  # type: ignore[union-attr]
+            script_sig=inp.script_sig,
+            script_pubkey=inp.script_pubkey,
+            sighash=inp.sighash_blob,
+            witness=witness_blob,
+            flags=inp.flags,
+            tx_version=inp.tx_version,
+            n_locktime=inp.n_locktime,
+            n_sequence=inp.n_sequence,
+            tx=inp.tx_serialized,
+            input_index=inp.input_index,
+            amount=inp.amount,
+            prevouts=prevouts_blob,
+        )
         elapsed = time.perf_counter_ns() - t0
         timings.append(elapsed)
 
@@ -350,14 +345,13 @@ def run_noop_baseline(
 
     k_median: int | None = None
     if k is not None:
-        kore_text: str = k.pattern(  # type: ignore[union-attr]
-            script_sig=noop_sig,
-            script_pubkey=noop_pubkey,
-        ).text
         timings: list[int] = []
         for _ in range(k_iterations):
             t0 = time.perf_counter_ns()
-            k.run_text(kore_text)  # type: ignore[union-attr]
+            k.verify_script(  # type: ignore[union-attr]
+                script_sig=noop_sig,
+                script_pubkey=noop_pubkey,
+            )
             timings.append(time.perf_counter_ns() - t0)
         k_median = int(statistics.median(timings))
 
