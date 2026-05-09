@@ -153,6 +153,49 @@ module SCRIPT-SEMANTICS
        <stack> _ => ListItem(intToScriptNum(1)) .List </stack>
        <phase> _ => done </phase>
 
+  // --- End-of-execution cleanup (concrete runtime only) ---
+  // Fires at the end of every success path: once <phase> is `done` and the
+  // <k> cell has drained to `.K`, the trigger rule below places `#cleanup`
+  // on the k cell, and the cleanup rule itself clears the invariant Bytes /
+  // List cells that nothing reads after execution. Without this, the final
+  // result configuration carries ~3.5 MB of raw tx + prevouts + witness
+  // through `kore_pattern_dump` and `KoreParser` on every benchmark input —
+  // 90% of per-input wall clock on a 1 MB stress tx.
+  //
+  // Both rules are tagged `[concrete]` so the Haskell prover's symbolic
+  // execution leaves them untouched: prover specs never see `#cleanup` land
+  // on the k cell, so unmentioned cells remain the fresh variables kprove
+  // treats as "unchanged." On the LLVM runtime every cell is ground, the
+  // trigger fires exactly once (its `lengthBytes(TX) >Int 0` guard flips
+  // false after the rewrite), and the cleanup collapses the result to ~1 KB.
+  //
+  // Cells kept intact: <k>, <stack>, <error> are read by KBitcoinScript;
+  // <scriptSigBytes>/<scriptPubKeyBytes> are asserted unchanged at specific
+  // non-empty values by prover specs so clearing them would break proofs
+  // (and they're capped at 10 KB, negligible vs. the 1 MB tx).
+  syntax KItem ::= "#cleanup"
+
+  rule <k> .K => #cleanup </k>
+       <phase> done </phase>
+       <tx> TX </tx>
+    requires lengthBytes(TX) >Int 0
+    [concrete]
+
+  rule <k> #cleanup => .K </k>
+       <tx> _ => .Bytes </tx>
+       <prevouts> _ => .Bytes </prevouts>
+       <sighash> _ => .Bytes </sighash>
+       <witness> _ => .Bytes </witness>
+       <p2shRedeemBytes> _ => .Bytes </p2shRedeemBytes>
+       <scriptCode> _ => .Bytes </scriptCode>
+       <pendingCodesepTail> _ => .Bytes </pendingCodesepTail>
+       <tapleafHash> _ => .Bytes </tapleafHash>
+       <tapscriptBytes> _ => .Bytes </tapscriptBytes>
+       <savedStack> _ => .List </savedStack>
+       <altstack> _ => .List </altstack>
+       <exec> _ => .List </exec>
+    [concrete]
+
   // =========================================================================
   // Initialization: start executing scriptSig (or skip to scriptPubKey)
   // =========================================================================

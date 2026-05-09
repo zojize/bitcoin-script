@@ -66,14 +66,29 @@ def _cs(n: int) -> bytes:
     return b"\xff" + n.to_bytes(8, "little")
 
 
+def _build_prevouts_blob(
+    scriptpubkeys: list[bytes] | None, amounts: list[int] | None
+) -> bytes:
+    """Assemble the per-tx prevouts blob (<8 LE amount><cs len><spk>)* used by
+    BIP-341/BIP-342 sighash on the K side. Uses b"".join over a chunk list to
+    avoid O(n^2) bytes concatenation on stress txs with thousands of prevouts."""
+    if scriptpubkeys is None or amounts is None:
+        return b""
+    chunks: list[bytes] = []
+    for spk, amt in zip(scriptpubkeys, amounts, strict=True):
+        chunks.append(amt.to_bytes(8, "little"))
+        chunks.append(_cs(len(spk)))
+        chunks.append(spk)
+    return b"".join(chunks)
+
+
 def _verify_with_k(
     k: object, inp: BenchmarkInput, iterations: int
 ) -> tuple[int, bool, str | None]:
     """Run K Framework verification, returning (median_elapsed_ns, success, error).
 
-    Pre-builds the KORE pattern text once outside the timing loop (K runtime
-    reuse): repeated iterations only pay the LLVM parse + execute + result-parse
-    cost, not the pyk Python object construction + serialization overhead.
+    Goes through ``verify_script`` so K runtimes with the binary FFI builder avoid
+    serializing the initial configuration through KORE text.
     """
     from bitcoin_script.script_utils import encode_witness_blob  # type: ignore[import-not-found]
 
@@ -81,33 +96,9 @@ def _verify_with_k(
     # Serialize per-tx prevouts (<8 LE amount><cs len><spk>, concatenated)
     # for BIP-341/BIP-342 K-side sighash. Empty when not all prevouts were
     # resolved at extraction time; the K dispatcher falls back to the blob.
-    prevouts_blob = b""
-    if (
-        inp.all_prevout_scriptpubkeys is not None
-        and inp.all_prevout_amounts is not None
-    ):
-        for spk, amt in zip(
-            inp.all_prevout_scriptpubkeys, inp.all_prevout_amounts, strict=True
-        ):
-            prevouts_blob += amt.to_bytes(8, "little")
-            prevouts_blob += _cs(len(spk)) + spk
-
-    # Build and serialise the initial KORE config once; reuse the text for all
-    # iterations so the pyk Python overhead is paid exactly once per input.
-    kore_text: str = k.pattern(  # type: ignore[union-attr]
-        script_sig=inp.script_sig,
-        script_pubkey=inp.script_pubkey,
-        sighash=inp.sighash_blob,
-        witness=witness_blob,
-        flags=inp.flags,
-        tx_version=inp.tx_version,
-        n_locktime=inp.n_locktime,
-        n_sequence=inp.n_sequence,
-        tx=inp.tx_serialized,
-        input_index=inp.input_index,
-        amount=inp.amount,
-        prevouts=prevouts_blob,
-    ).text
+    prevouts_blob = _build_prevouts_blob(
+        inp.all_prevout_scriptpubkeys, inp.all_prevout_amounts
+    )
 
     timings: list[int] = []
     success = True
@@ -115,7 +106,20 @@ def _verify_with_k(
 
     for _ in range(iterations):
         t0 = time.perf_counter_ns()
-        result = k.run_text(kore_text)  # type: ignore[union-attr]
+        result = k.verify_script(  # type: ignore[union-attr]
+            script_sig=inp.script_sig,
+            script_pubkey=inp.script_pubkey,
+            sighash=inp.sighash_blob,
+            witness=witness_blob,
+            flags=inp.flags,
+            tx_version=inp.tx_version,
+            n_locktime=inp.n_locktime,
+            n_sequence=inp.n_sequence,
+            tx=inp.tx_serialized,
+            input_index=inp.input_index,
+            amount=inp.amount,
+            prevouts=prevouts_blob,
+        )
         elapsed = time.perf_counter_ns() - t0
         timings.append(elapsed)
 
@@ -341,14 +345,13 @@ def run_noop_baseline(
 
     k_median: int | None = None
     if k is not None:
-        kore_text: str = k.pattern(  # type: ignore[union-attr]
-            script_sig=noop_sig,
-            script_pubkey=noop_pubkey,
-        ).text
         timings: list[int] = []
         for _ in range(k_iterations):
             t0 = time.perf_counter_ns()
-            k.run_text(kore_text)  # type: ignore[union-attr]
+            k.verify_script(  # type: ignore[union-attr]
+                script_sig=noop_sig,
+                script_pubkey=noop_pubkey,
+            )
             timings.append(time.perf_counter_ns() - t0)
         k_median = int(statistics.median(timings))
 
