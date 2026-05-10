@@ -50,6 +50,10 @@ script and transaction test vectors and against a mainnet-derived benchmark
 dataset.  On a 288,190-input dataset, the latest benchmark run produces 288,045
 paired K/Core measurements with zero mismatches; K verifies the paired inputs
 in 175.4 seconds, compared with 84.2 seconds for \texttt{libbitcoinconsensus}.
+We also report the project's AI-assisted development methodology: language
+model agents were used for implementation and debugging, while Bitcoin Core
+vectors, BIP vectors, \texttt{libbitcoinconsensus}, and mainnet replay served
+as the ground truth.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -125,6 +129,9 @@ This report makes the following contributions.
   configuration.
   \item It reports validation against Bitcoin Core test vectors and a fresh
   mainnet benchmark run on the merged \texttt{main} branch.
+  \item It records the AI-assisted, test-driven development process used to
+  build the artifact, including the actual model families used and the external
+  oracles that constrained them.
   \item It documents the optimization path that reduced the honest K/Core
   performance ratio from 149$\times$ in the first complete run to 2.1$\times$
   on the latest run.
@@ -893,6 +900,38 @@ artifact being evaluated is the K semantics, not a Python reimplementation
 that happens to call K for a subset of opcodes.
 
 \section{Validation}
+
+\subsection{AI-Assisted Methodology}
+
+The implementation process was intentionally agentic but ground-truth driven.
+Claude Code session history for this repository records the main implementation
+sessions as \texttt{claude-opus-4-6} and \texttt{claude-opus-4-7}, with a small
+number of \texttt{claude-sonnet-4-6} side turns.  The final report and late
+branch/benchmark recovery work used OpenAI Codex (GPT-5).  The human role was
+to choose the architecture, define the validation targets, review the resulting
+rules and harnesses, and decide ambiguous design questions that the tests alone
+could not settle.
+
+The reason this workflow was viable is that \bitcoin Script has unusually good
+external oracles.  The development loop was not ``ask a model to write a
+semantics and trust it.''  Instead, tasks were phrased as verifiable repairs:
+make a failing Bitcoin Core \texttt{script\_tests.json} vector pass, close a
+\texttt{tx\_valid.json}/\texttt{tx\_invalid.json} discrepancy, match a BIP-341
+wallet vector, or agree with \texttt{libbitcoinconsensus} on a mainnet-derived
+input.  Every substantial semantic change was checked against these artifacts,
+and later against larger mainnet and benchmark runs.  Model output was useful
+for navigating K rules, plumbing Python wrappers, and proposing fixes, but the
+acceptance criterion was always agreement with the official vectors or with
+Bitcoin Core's consensus library on concrete inputs.
+
+This makes the process closer to test-driven semantic development than to
+free-form code generation.  A failing vector supplied the specification for a
+small change; the full vector suite and mainnet replay guarded against
+regression; and benchmark comparison caught performance regressions such as the
+temporary loss of the v10 binary K runner path.  In this setting, the AI agent
+acted as an implementation accelerator inside a deterministic verification
+loop, while the ground truth remained Bitcoin's published tests, BIP reference
+data, and Core behavior.
 
 \subsection{Reference Tests}
 
