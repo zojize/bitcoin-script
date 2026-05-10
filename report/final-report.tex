@@ -22,11 +22,18 @@
 \title{K-Bitcoin Script: An Executable Semantics for Modern Bitcoin Script}
 
 \author{
-  \IEEEauthorblockN{Author Name(s)}
+  \IEEEauthorblockN{Jeff Zou}
   \IEEEauthorblockA{
-    Department or Course Name\\
-    Institution Name\\
-    email@example.com
+    CS 521: Programming Languages and Formal Methods\\
+    University of Illinois at Urbana-Champaign\\
+    jizezou2@illinois.edu
+  }
+  \and
+  \IEEEauthorblockN{Lawrence Wang}
+  \IEEEauthorblockA{
+    CS 521: Programming Languages and Formal Methods\\
+    University of Illinois at Urbana-Champaign\\
+    lw41@illinois.edu
   }
 }
 
@@ -40,20 +47,22 @@ transaction inputs.  Although intentionally small, its operational behavior is
 distributed across byte-level script decoding, stack evaluation, soft-fork
 flags, transaction-dependent signature hashing, witness programs, and
 Taproot/Tapscript resource rules.  This report presents K-Bitcoin Script, an
-executable semantics of \bitcoin Script in the \kframework.  Following the
-style of prior large K semantics such as KEVM, KJS, and K-Java, we emphasize
-the engineering choices needed to make a language definition simultaneously
-executable, testable, and useful as a reference artifact.  The semantics covers
-legacy, SegWit v0, and Taproot/Tapscript validation paths, including BIP-143,
-BIP-341, and BIP-342 signature hashing.  We validate it against Bitcoin Core's
-script and transaction test vectors and against a mainnet-derived benchmark
-dataset.  On a 288,190-input dataset, the latest benchmark run produces 288,045
-paired K/Core measurements with zero mismatches; K verifies the paired inputs
-in 175.4 seconds, compared with 84.2 seconds for \texttt{libbitcoinconsensus}.
-We also report the project's AI-assisted development methodology: language
-model agents were used for implementation and debugging, while Bitcoin Core
-vectors, BIP vectors, \texttt{libbitcoinconsensus}, and mainnet replay served
-as the ground truth.
+executable and formally verifiable semantics of \bitcoin Script in the
+\kframework.  Following the style of prior large K semantics such as KEVM,
+KJS, and K-Java, we emphasize the engineering choices needed to make a language
+definition simultaneously executable, testable, and useful as a reference
+artifact.  The semantics covers legacy, SegWit v0, and Taproot/Tapscript
+validation paths, including BIP-143, BIP-341, and BIP-342 signature hashing.
+We validate it against Bitcoin Core's script and transaction test vectors, a
+mainnet-derived benchmark dataset, and a suite of 71 mechanized K proof claims
+covering arithmetic opcode correctness, historical consensus bug fixes, and
+flag-dependent behavioral boundaries.  On a 288,190-input dataset, the latest
+benchmark run on an Apple M4 Pro produces 288,045 paired K/Core measurements
+with zero mismatches; K verifies the paired inputs in 175.4 seconds, compared
+with 84.2 seconds for \texttt{libbitcoinconsensus}.  We also report the
+project's AI-assisted development methodology: language model agents were used
+for implementation and debugging, while Bitcoin Core vectors, BIP vectors,
+\texttt{libbitcoinconsensus}, and mainnet replay served as the ground truth.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -127,6 +136,10 @@ This report makes the following contributions.
   \item It explains how transaction context, previous outputs, witness data,
   signature hash modes, and consensus flags are represented in the K
   configuration.
+  \item It presents 71 mechanized proof claims verified by the K Haskell Kore
+  prover, covering arithmetic opcode correctness, historical soft-fork bug
+  fixes (MINIMALDATA, NULLDUMMY, CLEANSTACK,
+  DISCOURAGE\_UPGRADABLE\_NOPS), and flag-sensitive behavioral boundaries.
   \item It reports validation against Bitcoin Core test vectors and a fresh
   mainnet benchmark run on the merged \texttt{main} branch.
   \item It records the AI-assisted, test-driven development process used to
@@ -134,7 +147,7 @@ This report makes the following contributions.
   oracles that constrained them.
   \item It documents the optimization path that reduced the honest K/Core
   performance ratio from 149$\times$ in the first complete run to 2.1$\times$
-  on the latest run.
+  on the latest run (Apple M4 Pro, \texttt{libbitcoinconsensus} v27.2).
 \end{itemize}
 
 \section{Background}
@@ -980,6 +993,78 @@ and drops five warmup inputs once, producing 288,185 Core rows.  The combined
 report contains the 288,045 paired rows for which both K and Core results are
 available.  All paired rows agree.
 
+\section{Formal Verification}
+
+Beyond execution and testing, the \kframework provides a Haskell Kore prover
+for symbolic proof of reachability claims.  K-Bitcoin Script includes 71
+mechanized proof claims across 19 specification files, plus 2 LLVM-backed
+proofs for hash time-locked contracts (HTLCs).
+
+\subsection{Proof Infrastructure}
+
+Each claim is a K reachability statement of the form $\langle\,\textit{init}\,\rangle
+\Rightarrow \langle\,\textit{final}\,\rangle$, where \textit{init} specifies
+a concrete or symbolic initial configuration and \textit{final} specifies the
+expected outcome.  Claims import \texttt{SCRIPT-VERIFICATION}, a wrapper that
+initializes the semantics under given consensus flags and scripts.  The Haskell
+Kore prover discharges claims by symbolic execution over the rewrite rules, with
+arithmetic side conditions delegated to an SMT backend.
+
+A notable engineering challenge arose with the Kore prover: it cannot
+automatically discharge integer commutativity ($a +_{\mathbb{Z}} b =
+b +_{\mathbb{Z}} a$).  This required ensuring that the K rule variable
+convention (which stack slot is named $A$ vs.\ $B$) matches the spec convention
+exactly, so that unification of the success post-condition is trivial rather
+than requiring a rewrite lemma.
+
+\subsection{Historical Bug Proofs}
+
+Four pairs of claims formalize the semantic effect of four historical soft-fork
+fixes.  Each pair has a \emph{permissive} claim (the exploit succeeds without
+the flag) and a \emph{restrictive} claim (the exploit is blocked with the flag
+active).
+
+\begin{itemize}
+  \item \textbf{BIP~62 / MINIMALDATA.}  \texttt{0x0000} is a non-minimal
+  encoding of zero.  Without the flag, the script \texttt{<0x0000> OP\_NOT}
+  succeeds (NOT of zero is one).  With the flag, the push is rejected and
+  execution terminates with error \texttt{MINIMALDATA}.
+
+  \item \textbf{BIP~147 / NULLDUMMY.}  \texttt{OP\_CHECKMULTISIG} pops an
+  extra dummy element due to a historical off-by-one.  Without the flag, any
+  dummy value is accepted, enabling third-party transaction malleability.  With
+  the flag, a non-empty dummy raises \texttt{NULLDUMMY}.
+
+  \item \textbf{CLEANSTACK.}  The script \texttt{OP\_1 OP\_1} leaves two truthy
+  items without the flag, providing a covert data channel.  With the flag, the
+  semantics requires exactly one item at completion and raises
+  \texttt{CLEANSTACK}.
+
+  \item \textbf{DISCOURAGE\_UPGRADABLE\_NOPS.}  Without the flag,
+  \texttt{OP\_NOP1}--\texttt{OP\_NOP10} are harmless.  With it, any reserved
+  NOP raises \texttt{DISCOURAGE\_UPGRADABLE\_NOPS}, preventing scripts from
+  pre-committing to NOP-behavior before a soft fork repurposes the opcode (as
+  NOP2 and NOP3 were repurposed for CLTV and CSV).
+\end{itemize}
+
+The permissive direction of each pair confirms that the semantics faithfully
+models pre-fix behavior; the restrictive direction confirms that the fix closes
+the vulnerability.  Together they constitute a machine-checked audit of four
+consensus rule changes.
+
+\subsection{Arithmetic and Stack Correctness}
+
+A second group of claims verifies opcode-level correctness: that numeric
+opcodes produce the correct minimally-encoded result for concrete inputs, and
+that inputs violating the 4-byte CScriptNum limit raise the appropriate error.
+For example, the \texttt{OP\_ADD} claim verifies that the minimal encoding of
+$a$, followed by the minimal encoding of $b$, followed by \texttt{OP\_ADD},
+leaves the minimal encoding of $a+b$ on the stack.  The corresponding fail
+claim verifies that an oversized operand sets the \texttt{UNKNOWN\_ERROR} error
+field.  The 71 total claims span arithmetic, stack manipulation, flow-control
+boundaries, cryptographic shape checks, and the historical bug categories
+described above.
+
 \section{Quantitative Evaluation}
 
 \subsection{Methodology}
@@ -1102,18 +1187,49 @@ fixed an $O(n^2)$ previous-output blob construction in the benchmark runner.
 
 \section{Applications}
 
-The immediate application is an executable reference model for testing
-consensus-sensitive behavior.  Because the same K rules execute script tests,
-transaction vectors, and mainnet-derived inputs, regressions in opcode
-semantics or sighash dispatch can be caught without creating a second model.
-The benchmark harness also functions as a performance regression test: it
-identified when the v10 binary path was present in the code but bypassed by a
-later benchmark runner change.
+\textbf{Regression testing.}
+The most immediate application is an executable reference model for
+consensus-sensitive regression testing.  Because the same K rules execute
+script tests, transaction vectors, and mainnet-derived inputs, regressions in
+opcode semantics or sighash dispatch are caught without maintaining a separate
+model.  The benchmark harness doubles as a performance regression test: it
+identified a case where the v10 binary KORE path was present in the source but
+bypassed by a later benchmark runner change.
 
-The next natural application is offline audit.  A K-backed verifier can replay
-selected blocks or transactions independently of Bitcoin Core's interpreter and
-flag disagreements for investigation.  This is not a node replacement; it is a
-high-assurance cross-checking tool.
+\textbf{Offline audit and cross-checking.}
+A K-backed verifier can replay selected blocks or transactions independently of
+Bitcoin Core and flag disagreements for investigation.  This is not a node
+replacement; it is a high-assurance cross-checking tool.  Because the K
+definition is separately written and auditable, a disagreement indicates either
+a semantics bug or a Core bug, narrowing the search space for consensus
+incidents.
+
+\textbf{Soft-fork proposal auditing.}
+The K definition is structured so that consensus flags control which rules fire.
+Auditing a proposed soft fork amounts to adding a new flag value, writing the
+new rules (or modifying existing ones), and running the test suite.  The phase
+machine and flag-guarded rule structure make it easy to express statements such
+as ``under TAPSCRIPT, byte value 0x50 is \texttt{OP\_SUCCESS80} rather than
+\texttt{OP\_RESERVED}'' without touching unrelated rules.  The historical-bug
+proof pairs demonstrate this pattern at small scale; the same approach can be
+applied to draft BIP evaluation.
+
+\textbf{Test vector generation.}
+The K Haskell backend can explore symbolic inputs that reach a specified final
+state.  This makes it possible to synthesize script inputs that exercise
+specific execution paths, including paths that are difficult to construct by
+hand, such as deep SegWit-wrapped P2SH-wrapped Tapscript spends.  Generated
+vectors can augment the Bitcoin Core test suite with cases that target
+flag-interaction boundaries.
+
+\textbf{Formal property verification.}
+The 71 existing proof claims demonstrate that the K proof infrastructure is
+functional on realistic Bitcoin Script specifications.  Future work can extend
+this to higher-level properties: for example, that a time-locked contract
+cannot be spent before its locktime under any sequence of opcode rules, or that
+a multisig arrangement requires at least $k$ valid signatures regardless of
+CHECKSIG input order.  The two existing HTLC proofs are a proof of concept for
+this direction.
 
 \section{Related Work}
 
@@ -1130,6 +1246,20 @@ similar argument for Java and emphasizes test-driven semantic development and a
 large suite of feature tests~\cite{kjava}.  This project follows the same
 discipline: external tests and real programs are not afterthoughts, but part of
 the definition process.
+
+Simplicity is a typed combinator language for blockchain spending conditions,
+designed from the outset for formal verification~\cite{simplicity}.  Unlike
+Bitcoin Script's stack-based evaluation, Simplicity has a denotational
+semantics that makes properties easier to state and prove.  K-Bitcoin Script is
+complementary: it formalizes the \emph{existing} Script language rather than
+proposing a replacement, making it useful for auditing what deployed
+transactions actually do.
+
+BitML is a process calculus for Bitcoin smart contracts that compiles to
+sequences of Bitcoin transactions~\cite{bitml}.  BitML proofs reason about
+contract behavior at the protocol level, above the Script execution layer.
+K-Bitcoin Script operates at the Script layer and could in principle serve as a
+formal substrate for verifying BitML-compiled script outputs.
 
 Bitcoin Core remains the de facto executable reference for \bitcoin consensus.
 This project does not replace it.  Instead, it provides a separately written,
@@ -1207,6 +1337,17 @@ version 1 spending rules,'' 2020. [Online]. Available:
 A. Poelstra, P. Wuille, J. Nick, and T. Ruffing, ``BIP 342: Validation of
 Taproot Scripts,'' 2020. [Online]. Available:
 \url{https://github.com/bitcoin/bips/blob/master/bip-0342.mediawiki}
+
+\bibitem{simplicity}
+R. O'Connor, ``Simplicity: A New Language for Blockchains,'' in
+\emph{Proceedings of the 2017 Workshop on Programming Languages and Analysis
+for Security (PLAS)}, 2017, doi: 10.1145/3139337.3139340.
+
+\bibitem{bitml}
+M. Bartoletti and R. Zunino, ``BitML: A Calculus for Bitcoin Smart
+Contracts,'' in \emph{Proceedings of the 2018 ACM SIGSAC Conference on
+Computer and Communications Security (CCS)}, 2018, doi:
+10.1145/3243734.3243795.
 
 \end{thebibliography}
 
