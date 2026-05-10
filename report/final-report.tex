@@ -54,12 +54,13 @@ definition simultaneously executable, testable, and useful as a reference
 artifact.  The semantics covers legacy, SegWit v0, and Taproot/Tapscript
 validation paths, including BIP-143, BIP-341, and BIP-342 signature hashing.
 We validate it against Bitcoin Core's script and transaction test vectors, a
-mainnet-derived benchmark dataset, and a suite of 71 mechanized K proof claims
-covering arithmetic opcode correctness, historical consensus bug fixes, and
-flag-dependent behavioral boundaries.  On a 288,190-input dataset, the latest
+mainnet-derived benchmark dataset, and 72 K reachability claims: 70 discharged
+by the Haskell Kore prover and two concrete HTLC hash-path claims checked
+through the LLVM-backed execution path.  On a 288,190-input dataset, the latest
 benchmark run on an Apple M4 Pro produces 288,045 paired K/Core measurements
-with zero mismatches; K verifies the paired inputs in 175.4 seconds, compared
-with 84.2 seconds for \texttt{libbitcoinconsensus}.  We also report the
+with zero mismatches; summing the timed per-input verifier medians gives
+175.4 seconds for K and 84.2 seconds for \texttt{libbitcoinconsensus}.  We also
+report the
 project's AI-assisted development methodology: language model agents were used
 for implementation and debugging, while Bitcoin Core vectors, BIP vectors,
 \texttt{libbitcoinconsensus}, and mainnet replay served as the ground truth.
@@ -123,8 +124,9 @@ case is not automatically useful on mainnet-sized datasets.  In early honest
 benchmarks, K spent most of its time moving large transaction byte strings
 through textual KORE and reconstructing large result patterns.  The final
 benchmark in this report relies on binary KORE construction, subprocess
-chunking, native cryptographic hooks, and a done-phase cleanup rule that removes
-large no-longer-observed cells from final configurations.
+chunking, native cryptographic hooks, and a concrete cleanup rule that removes
+large no-longer-observed cells from ordinary \texttt{done}-phase final
+configurations.
 
 \subsection{Contributions}
 
@@ -136,9 +138,10 @@ This report makes the following contributions.
   \item It explains how transaction context, previous outputs, witness data,
   signature hash modes, and consensus flags are represented in the K
   configuration.
-  \item It presents 71 mechanized proof claims verified by the K Haskell Kore
-  prover, covering arithmetic opcode correctness, historical soft-fork bug
-  fixes (MINIMALDATA, NULLDUMMY, CLEANSTACK,
+  \item It presents 72 K reachability claims, 70 verified by the Haskell Kore
+  prover and two concrete HTLC hash-path claims checked with the LLVM-backed
+  execution path, covering arithmetic opcode correctness, historical soft-fork
+  bug fixes (MINIMALDATA, NULLDUMMY, CLEANSTACK,
   DISCOURAGE\_UPGRADABLE\_NOPS), and flag-sensitive behavioral boundaries.
   \item It reports validation against Bitcoin Core test vectors and a fresh
   mainnet benchmark run on the merged \texttt{main} branch.
@@ -195,7 +198,8 @@ arithmetic, and signature behavior.  The core module,
 \texttt{script-semantics.k}, owns the top-level configuration, phase sort,
 failure mechanism, phase transition rules, witness dispatch, and Taproot
 verification skeleton.  Supporting modules then define the local rewrite rules
-for particular opcode families.
+for most opcode families, while the core module still contains a small set of
+foundational opcode rules used by common script templates and phase machinery.
 
 Figure~\ref{fig:module-map} shows the dependency shape.  The important point is
 that \texttt{script-decode.k} is not merely a parser.  It is part of the
@@ -262,9 +266,9 @@ rewrite system as ordinary stack-machine rules.
   \end{tikzpicture}%
   }
   \caption{High-level organization of the executable K definition.  The core
-  configuration and phase machinery live in \texttt{script-semantics.k}; opcode
-  families are separated into smaller modules, while cryptographic primitives
-  are delegated to native hooks.}
+  configuration and phase machinery live in \texttt{script-semantics.k}; most
+  opcode families are separated into smaller modules, while cryptographic
+  primitives are delegated to native hooks.}
   \label{fig:module-map}
 \end{figure*}
 
@@ -272,7 +276,9 @@ Table~\ref{tab:modules} summarizes the role of each major module.  This split
 is useful for audit.  A reader investigating stack behavior can stay mostly in
 \texttt{script-stack.k}; a reader investigating BIP-341 serialization can go to
 \texttt{script-sighash.k}; and a reader investigating phase boundaries can
-start in \texttt{script-semantics.k}.  The main exception is
+start in \texttt{script-semantics.k}.  Some foundational push, stack, and hash
+rules remain in the core module because they are shared by common templates and
+the phase machinery.  Another exception is
 \texttt{OP\_CODESEPARATOR}, whose behavior necessarily crosses modules: the
 decoder records the byte tail after the separator, the flow and signature rules
 respect whether the opcode was actually executed, and the sighash module
@@ -403,13 +409,16 @@ the answer is obtained.
 
 Several cells exist specifically for script-code tracking.  Legacy, BIP-143,
 and BIP-342 all depend on the portion of the script committed to by a
-signature, but they do so differently.  The \kcell{scriptCode} cell stores the
-current BIP-143 or legacy script code.  The \kcell{pendingCodesepTail} cell is
-written by the decoder just before a decoded \texttt{OP\_CODESEPARATOR}; if
-the separator is actually executed, the opcode rule can promote that tail into
-\kcell{scriptCode}.  Tapscript uses \kcell{tapleafHash},
-\kcell{tapscriptBytes}, and \kcell{codesepPos} for the BIP-342 extension
-fields.
+signature, but they do so differently.  For SegWit v0, \kcell{scriptCode}
+stores the current BIP-143 script code.  For legacy signatures, it is an
+override populated after an executed \texttt{OP\_CODESEPARATOR}; otherwise the
+legacy sighash rules derive the script code from the active
+\texttt{scriptSig}, \texttt{scriptPubKey}, or P2SH redeem bytes.  The
+\kcell{pendingCodesepTail} cell is written by the decoder just before a decoded
+\texttt{OP\_CODESEPARATOR}; if the separator is actually executed, the opcode
+rule can promote that tail into \kcell{scriptCode}.  Tapscript uses
+\kcell{tapleafHash}, \kcell{tapscriptBytes}, and \kcell{codesepPos} for the
+BIP-342 extension fields.
 
 \begin{table}[t]
   \caption{Selected configuration cells}
@@ -428,7 +437,7 @@ fields.
     \kcell{flags} & Consensus verification flags & Phase and opcode guards \\
     \kcell{tx}, \kcell{prevouts} & Serialized tx context & Sighash rules \\
     \kcell{witness} & Witness stack blob & Witness and Taproot dispatch \\
-    \kcell{scriptCode} & Active signature script code & Signature rules \\
+    \kcell{scriptCode} & BIP-143 code or legacy CODESEPARATOR override & Signature rules \\
     \kcell{tapleafHash} & Tapscript leaf commitment & BIP-342 sighash \\
     \kcell{error} & Bitcoin Core-style error code & Harness and tests \\
     \bottomrule
@@ -436,14 +445,17 @@ fields.
   }
 \end{table}
 
-The configuration also includes a concrete-runtime cleanup rule.  Once a
-successful run reaches \texttt{done} and the \kcell{k} cell drains, the LLVM
-backend rewrites large byte and list cells such as \kcell{tx}, \kcell{prevouts},
-\kcell{witness}, and \kcell{sighash} to empty values.  This rule is tagged
-concrete so proof-oriented backends do not see it.  The rule does not change
-the result observed by the verifier, which reads only success/failure and the
-final error state, but it dramatically reduces the final KORE pattern that the
-runtime must serialize after each benchmark input.
+The configuration also includes a concrete-runtime cleanup rule.  Once an
+ordinary successful path reaches \texttt{done} and the \kcell{k} cell drains,
+the LLVM backend rewrites large byte and list cells such as \kcell{tx},
+\kcell{prevouts}, \kcell{witness}, and \kcell{sighash} to empty values.  This
+rule is tagged concrete so proof-oriented backends do not see it.  Taproot
+key-path success is currently a special terminal path: the successful
+\texttt{\#taprootVerify} rule drains \kcell{k} directly rather than transitioning
+through \texttt{done}, so it does not use this cleanup rule.  The rule does not
+change the result observed by the verifier, which reads only success/failure and
+the final error state, but it dramatically reduces the final KORE pattern that
+the runtime must serialize for the paths that do reach \texttt{done}.
 
 \subsection{Execution Phases}
 
@@ -496,8 +508,10 @@ templates, witness data, and phase-specific validity checks.
   }
   \caption{Simplified phase machine for script verification.  The curved
   \texttt{\#init}-to-\texttt{scriptPubKey} edge is the empty-\texttt{scriptSig}
-  path; the witness branch targets either v0 or v1 execution.  The actual K
-  rules include additional side conditions such as push-only checks,
+  path; the witness branch targets either v0 or v1 script execution.  The
+  Taproot key-path case is a terminal \texttt{\#taprootVerify} check rather than
+  a \texttt{witness-v1} script phase.  The actual K rules include additional
+  side conditions such as push-only checks,
   \texttt{WITNESS\_MALLEATED}, \texttt{WITNESS\_UNEXPECTED}, clean-stack checks,
   witness-program length checks, and Taproot control-block validation.}
   \label{fig:phase-flow}
@@ -516,13 +530,17 @@ semantics restores the saved stack from \texttt{scriptSig}, extracts the
 redeem script, and enters \texttt{p2sh-redeem}.  If it is a native witness
 program under \texttt{FLAG\_WITNESS}, it dispatches to
 \texttt{\#witnessVerify}.  Otherwise the phase can finish directly, subject to
-truthiness, clean-stack, and unexpected-witness checks.
+clean-stack and unexpected-witness checks in K; the final top-stack success
+predicate is currently performed by Python after it inspects the terminated K
+configuration.
 
 The \texttt{p2sh-redeem} phase mirrors the post-\texttt{scriptPubKey}
 decision, but with the redeem script as the candidate witness program.  This
 is how P2SH-wrapped SegWit spends are modeled.  A redeem script that is not a
 witness program finishes through the ordinary clean-stack path; a redeem
-script that is a witness program enters the witness verifier.  This split is
+script that is a witness program enters the witness verifier.  As with direct
+\texttt{scriptPubKey} completion, final success for this ordinary non-witness
+path is observed by the wrapper after K terminates.  This split is
 one reason the phase cell is useful: P2SH redeem execution, native witness
 execution, and Tapscript execution all run decoded opcodes, but their boundary
 conditions differ.
@@ -561,20 +579,23 @@ on the final stack.
     \texttt{p2sh-redeem} & Redeem script & Finish or witness dispatch \\
     \texttt{witness-v0} & P2WPKH/P2WSH script & BIP-143 clean-stack completion \\
     \texttt{witness-v1} & Tapscript & BIP-342 completion and budget rules \\
-    \texttt{done} & None & Runtime cleanup / observable success \\
+    \texttt{done} & None & Ordinary success cleanup \\
     \bottomrule
   \end{tabular}
   }
 \end{table}
 
-Failures are explicit.  The K item \texttt{\#fail(ERR)} writes a Bitcoin
+Many failures are explicit.  The K item \texttt{\#fail(ERR)} writes a Bitcoin
 Core-style error string into \kcell{error} and clears \kcell{k}.  Negative test
-vectors are therefore not merely stuck terms: they terminate with structured
-failure labels such as \texttt{SCRIPT\_SIZE}, \texttt{SIG\_PUSHONLY},
+vectors for covered error paths therefore terminate with structured failure
+labels such as \texttt{SCRIPT\_SIZE}, \texttt{SIG\_PUSHONLY},
 \texttt{WITNESS\_PROGRAM\_MISMATCH}, \texttt{CLEANSTACK}, or
-\texttt{SCHNORR\_SIG}.  This is valuable for debugging because a mismatch can
-be classified as the wrong success value, the wrong error class, or a harness
-problem before looking at the full configuration trace.
+\texttt{SCHNORR\_SIG}.  Some ill-formed states, such as stack underflow in a
+rule whose left-hand side cannot match, are still represented as stuck K terms;
+the Python harness treats those as implicit failures.  This is valuable for
+debugging because a mismatch can be classified as the wrong success value, the
+wrong error class, a stuck execution, or a harness problem before looking at the
+full configuration trace.
 
 \subsection{Decoder and Guarded Execution}
 
@@ -848,10 +869,10 @@ through the executable definition.
     witness items become the initial stack; the witness script becomes
     \kcell{scriptCode}. \\
     Taproot key path &
-    \texttt{scriptPubKey} $\rightarrow$ \texttt{\#taprootVerify}
-    $\rightarrow$ \texttt{done} &
+    \texttt{scriptPubKey} $\rightarrow$ \texttt{\#taprootVerify} &
     A single effective witness item is checked as a Schnorr signature over the
-    BIP-341 message; no tapscript is decoded. \\
+    BIP-341 message; on success the K computation drains without decoding
+    tapscript or entering \texttt{done}. \\
     Taproot script path &
     \texttt{scriptPubKey} $\rightarrow$ \texttt{\#taprootVerify}
     $\rightarrow$ \texttt{witness-v1} $\rightarrow$ \texttt{done} &
@@ -905,12 +926,17 @@ to build tokens and injections directly and calls the binary runtime path from
 \texttt{verify\_script}, ensuring the measured path is the same optimized path
 used by normal verification.
 
-The runtime interface is intentionally thin.  It translates host data into K
-cells, starts the semantics, and translates the final success or error state
-back to Python.  Consensus behavior is not encoded in Python branches except
-for preparing the input material.  This matters for the report's claim: the
-artifact being evaluated is the K semantics, not a Python reimplementation
-that happens to call K for a subset of opcodes.
+The runtime interface is intentionally thin, but it is not completely
+semantics-free.  It translates host data into K cells, starts the semantics, and
+then classifies the final K pattern.  Opcode execution, phase dispatch, witness
+handling, and K-side sighash construction live in the K definition.  The wrapper
+still performs two observable boundary checks: it treats a nonempty \kcell{k}
+cell as stuck execution, and it checks the final top-stack success predicate on
+ordinary terminated paths.  In the current wrapper this final predicate is a
+nonempty-byte check, so moving the full Bitcoin truthiness rule into K is a
+remaining cleanup item.  This keeps the benchmark artifact primarily a K
+semantics, while also identifying a consensus-significant boundary that should
+eventually move into K.
 
 \section{Validation}
 
@@ -950,9 +976,12 @@ data, and Core behavior.
 
 Table~\ref{tab:coverage} summarizes the current validation story.  The
 semantics passes all 1,222 Bitcoin Core \texttt{script\_tests.json} vectors.
-It also passes 201 of 214 transaction vectors; the remaining 13 are documented
-expected failures, consisting of malformed \texttt{BADTX} cases and legacy
-\texttt{CONST\_SCRIPTCODE} sighash edge cases.
+It also passes 201 of 214 transaction vectors.  The remaining 13 are documented
+expected failures: nine malformed \texttt{BADTX} cases that exercise
+transaction-level checks rather than script validation, one
+\texttt{CODESEPARATOR}/\texttt{CONST\_SCRIPTCODE} divergence, and three cases
+whose invalidity depends on verification flags deliberately excluded by the
+harness.
 
 \begin{table}[htbp]
   \caption{Reference test coverage}
@@ -967,7 +996,7 @@ expected failures, consisting of malformed \texttt{BADTX} cases and legacy
     \texttt{script\_tests.json} & 1,222 & 1,222 & Standard, SegWit, Taproot \\
     \texttt{tx\_valid.json} & 121 & 121 & Transaction validation \\
     \texttt{tx\_invalid.json} & 93 & 80 & 13 expected xfails \\
-    Taproot vectors & 26 & 26 & Key path, control blocks, annex \\
+    Taproot coverage cases & 26 & 26 & Derived from Core feature categories \\
     \bottomrule
   \end{tabular}
   }
@@ -975,13 +1004,17 @@ expected failures, consisting of malformed \texttt{BADTX} cases and legacy
 
 \subsection{Sighash Tests}
 
-The project includes direct tests for legacy, BIP-143, and BIP-341 sighash
-entry points, plus C-hook isolation tests that compare hook output with Python
-\texttt{hashlib} implementations.  BIP-342 sighash is currently covered
-indirectly through full script verification on mainnet Tapscript inputs rather
-than by a standalone published vector file.  This is a useful distinction:
-mainnet verification is strong end-to-end evidence, but a direct BIP-342 vector
-suite would make the coverage argument cleaner.
+Sighash coverage is split across several evidence sources.  The Bitcoin Core
+script and transaction vector harnesses still provide precomputed sighash blobs
+for many legacy and SegWit-v0 cases, so those tests validate opcode behavior
+and signature dispatch without independently validating every sighash entry
+point.  The main benchmark path, by contrast, passes the spending transaction
+and previous outputs so K constructs the legacy, BIP-143, BIP-341, and BIP-342
+messages during verification.  The repository also includes an end-to-end
+BIP-341 wallet-vector test that forces the K-side key-path sighash by supplying
+no precomputed blob.  Standalone legacy/BIP-143 vector files, direct C-hook
+isolation tests, and direct BIP-342 script-path vector tests should be added to
+make the coverage argument cleaner.
 
 \subsection{Mainnet Dataset}
 
@@ -996,9 +1029,11 @@ available.  All paired rows agree.
 \section{Formal Verification}
 
 Beyond execution and testing, the \kframework provides a Haskell Kore prover
-for symbolic proof of reachability claims.  K-Bitcoin Script includes 71
-mechanized proof claims across 19 specification files, plus 2 LLVM-backed
-proofs for hash time-locked contracts (HTLCs).
+for symbolic proof of reachability claims.  K-Bitcoin Script includes 72 K
+claims across 19 specification files.  The Haskell Kore prover discharges 70 of
+them; two concrete HTLC hash-path claims are checked through the LLVM-backed
+execution path because the Haskell prover does not yet evaluate the required
+SHA-256 hook.
 
 \subsection{Proof Infrastructure}
 
@@ -1006,9 +1041,11 @@ Each claim is a K reachability statement of the form $\langle\,\textit{init}\,\r
 \Rightarrow \langle\,\textit{final}\,\rangle$, where \textit{init} specifies
 a concrete or symbolic initial configuration and \textit{final} specifies the
 expected outcome.  Claims import \texttt{SCRIPT-VERIFICATION}, a wrapper that
-initializes the semantics under given consensus flags and scripts.  The Haskell
-Kore prover discharges claims by symbolic execution over the rewrite rules, with
-arithmetic side conditions delegated to an SMT backend.
+initializes the semantics under given consensus flags and scripts.  For the 70
+claims in the Haskell prover suite, Kore discharges reachability by symbolic
+execution over the rewrite rules, with arithmetic side conditions delegated to
+an SMT backend.  The two concrete HTLC hash-path claims use the same K rules but
+are checked through the LLVM path so the SHA-256 hook can be evaluated.
 
 A notable engineering challenge arose with the Kore prover: it cannot
 automatically discharge integer commutativity ($a +_{\mathbb{Z}} b =
@@ -1061,9 +1098,9 @@ For example, the \texttt{OP\_ADD} claim verifies that the minimal encoding of
 $a$, followed by the minimal encoding of $b$, followed by \texttt{OP\_ADD},
 leaves the minimal encoding of $a+b$ on the stack.  The corresponding fail
 claim verifies that an oversized operand sets the \texttt{UNKNOWN\_ERROR} error
-field.  The 71 total claims span arithmetic, stack manipulation, flow-control
-boundaries, cryptographic shape checks, and the historical bug categories
-described above.
+field.  The 72 total claims span arithmetic, stack manipulation, flow-control
+boundaries, cryptographic shape checks, HTLC behavior, and the historical bug
+categories described above.
 
 \section{Quantitative Evaluation}
 
@@ -1075,13 +1112,20 @@ the v8--v10 benchmark series.  The repository was synced to
 rebuilt from that commit.  K was measured with one iteration per input using
 the chunked subprocess driver.  Core was measured with
 \texttt{libbitcoinconsensus} from Bitcoin Core 27.2, using 30 iterations per
-input to match the prior v10 artifact.
+input to match the prior v10 artifact.  For each input, the benchmark records
+the median timed verifier call.  Therefore the totals below are aggregates of
+per-input medians, not stopwatch wall-clock duration for the full driver
+process.  This matters because the Core30 pass repeats each input 30 times, and
+because both engines do some per-input buffer preparation outside the timed
+region.  K's one-iteration measurements are correspondingly noisier than Core's
+30-iteration medians, so p95 values should be read as single-run latency
+summaries rather than variance estimates.
 
 \subsection{Overall Results}
 
-Table~\ref{tab:overall} gives the main result.  K verifies the paired dataset
-in 175.4 seconds, while Core takes 84.2 seconds.  The wall-time ratio is
-2.1$\times$.
+Table~\ref{tab:overall} gives the main result.  Summing the paired per-input
+timed verifier medians gives 175.4 seconds for K and 84.2 seconds for Core, for
+an aggregate timed-call ratio of 2.1$\times$.
 
 \begin{table}[htbp]
   \caption{Fresh merged-main benchmark, paired rows}
@@ -1091,7 +1135,7 @@ in 175.4 seconds, while Core takes 84.2 seconds.  The wall-time ratio is
   \resizebox{\columnwidth}{!}{%
   \begin{tabular}{lrrrr}
     \toprule
-    Engine & Inputs & Total & Throughput & Median \\
+    Engine & Inputs & Aggregate total & Throughput & Median \\
     \midrule
     K Framework & 288,045 & 175.4 s & 1,642.3/s & 375.8 $\mu$s \\
     \texttt{libbitcoinconsensus} & 288,045 & 84.2 s & 3,419/s & 27.1 $\mu$s \\
@@ -1102,7 +1146,10 @@ in 175.4 seconds, while Core takes 84.2 seconds.  The wall-time ratio is
 
 The median K noop baseline is 234.1 $\mu$s, so the median net verification
 cost is about 141.8 $\mu$s.  Core's median noop baseline is about 1.0 $\mu$s,
-with a median net verification cost of about 26.1 $\mu$s.
+with a median net verification cost of about 26.1 $\mu$s.  These no-op values
+come from the standalone 100-iteration baseline embedded in the combined
+benchmark artifact, not from the chunk metadata emitted by the one-iteration K
+driver.
 
 \subsection{Results by Era}
 
@@ -1136,9 +1183,10 @@ while its DERSIG p95 records the residual cost of the stress cases.
 \subsection{Representative and Stress Inputs}
 
 The benchmark separates representative inputs from stress inputs.  On
-representative inputs, K takes 105.3 seconds and Core takes 13.3 seconds, for a
-7.9$\times$ total-time ratio.  On stress inputs, K takes 70.1 seconds and Core
-takes 70.9 seconds, putting the two essentially at parity.  This result is
+representative inputs, K's aggregate timed-call total is 105.3 seconds and
+Core's is 13.3 seconds, for a 7.9$\times$ ratio.  On stress inputs, K totals
+70.1 seconds and Core totals 70.9 seconds, putting the two essentially at
+parity.  This result is
 important because the first honest K-native benchmark was dominated by stress
 transactions.
 
@@ -1149,7 +1197,7 @@ transactions.
   \footnotesize
   \begin{tabular}{lrrr}
     \toprule
-    Category & Inputs & K total & Core total \\
+    Category & Inputs & K aggregate & Core aggregate \\
     \midrule
     Representative & 232,884 & 105.3 s & 13.3 s \\
     Stress & 55,161 & 70.1 s & 70.9 s \\
@@ -1223,13 +1271,14 @@ vectors can augment the Bitcoin Core test suite with cases that target
 flag-interaction boundaries.
 
 \textbf{Formal property verification.}
-The 71 existing proof claims demonstrate that the K proof infrastructure is
-functional on realistic Bitcoin Script specifications.  Future work can extend
-this to higher-level properties: for example, that a time-locked contract
+The 72 existing K claims demonstrate that the proof and execution-backed
+checking infrastructure is functional on realistic Bitcoin Script
+specifications.  Future work can extend this to higher-level properties: for
+example, that a time-locked contract
 cannot be spent before its locktime under any sequence of opcode rules, or that
 a multisig arrangement requires at least $k$ valid signatures regardless of
-CHECKSIG input order.  The two existing HTLC proofs are a proof of concept for
-this direction.
+CHECKSIG input order.  The two existing LLVM-checked HTLC hash-path claims are
+a proof of concept for this direction.
 
 \section{Related Work}
 
@@ -1269,13 +1318,19 @@ inputs.
 \section{Limitations and Future Work}
 
 The current semantics still has documented gaps.  Thirteen Bitcoin Core
-transaction vectors are expected failures, and direct BIP-342 sighash vectors
-should be added to complement mainnet Tapscript coverage.  Benchmark artifacts
-are large and currently live on the remote benchmark machine rather than in the
-repository; they should be published as release artifacts or archived with the
-final report.  The performance numbers are single-run measurements.  A final
-paper-quality evaluation should include repeated runs, variance, exact hardware
-details, and software versions.
+transaction vectors are expected failures.  Direct legacy, BIP-143, and BIP-342
+sighash vector tests, plus direct hook-isolation tests for the sighash plugin,
+should be added to complement the current end-to-end vector and mainnet
+coverage.  A small but consensus-significant part of final validity checking
+also remains in the Python wrapper: stuck-pattern classification and the final
+top-stack success predicate.  Moving full Bitcoin truthiness for that boundary
+into K would make the semantic boundary cleaner.  Benchmark artifacts are large
+and currently live on the
+remote benchmark machine rather than in the repository; they should be published
+as release artifacts or archived with the final report.  The performance
+numbers are single-run aggregate timed-call measurements.  A final paper-quality
+evaluation should include repeated runs, variance, exact hardware details, and
+software versions.
 
 Future performance work includes caching shared transaction configuration
 across inputs from the same transaction and parallelizing independent input
@@ -1289,12 +1344,10 @@ K-Bitcoin Script shows that an executable K semantics can cover modern
 \bitcoin Script, including SegWit and Taproot-era behavior, while remaining
 practical enough to run hundreds of thousands of real mainnet inputs.  The
 latest merged-main benchmark reports zero mismatches over 288,045 paired K/Core
-measurements and a 2.1$\times$ wall-time ratio against
+measurements and a 2.1$\times$ aggregate timed-call ratio against
 \texttt{libbitcoinconsensus}.  The result supports the central thesis of the K
 formalization papers: a semantics can be both formal and operational, provided
 it is engineered, tested, and benchmarked as a real implementation.
-
-\IEEEtriggeratref{4}
 
 \begin{thebibliography}{00}
 \sloppy
